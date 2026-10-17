@@ -217,22 +217,106 @@ describe('prepareContinueTurn cross-kind switch (FR4/FR5/FR7/FR8/FR10)', () => {
     }
   });
 
-  it('non-interactive turn with cross-kind model keeps legacy behavior: no switch (FR9)', async () => {
+  it('non-interactive turn with cross-kind model is rejected fail-closed with zero mutation (Fix #2, FR9)', async () => {
+    // Scheduler / auto-send / lane-run path via pendingModel: a cross-kind
+    // override must be blocked like the branch-continue guard (strict
+    // CROSS_KIND_MODEL_SWITCH, before claim/mutation), not run on a stale
+    // adapter with a stranded row.
     const session = createStartedCodexSession();
+    const rowBefore = sessions.getById(session.id);
+    const messageCountBefore = messageRepo.getBySessionId(session.id).length;
     const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
     try {
-      const { queryParams, agentCallMeta } = await prepareContinueTurn({
+      await expect(prepareContinueTurn({
         session,
         sessionId: session.id,
         content: 'background turn',
         workingDirectory: tempDir,
-        // No `interactive` flag: scheduler / auto-send / lane-run path.
-        options: { model: CLAUDE_OPUS },
+        options: { model: CLAUDE_OPUS, interactive: false },
+        controller: new AbortController(),
+      })).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+
+      // Zero mutation: no model/agentType write, no adapter creation, no
+      // user message stored, resume pointer left alone.
+      expect(createAgentSpy).not.toHaveBeenCalled();
+      const rowAfter = sessions.getById(session.id);
+      expect(rowAfter.model).toBe(rowBefore.model);
+      expect(rowAfter.agentType).toBe('codex');
+      expect(rowAfter.status).toBe(rowBefore.status);
+      expect(messageRepo.getBySessionId(session.id)).toHaveLength(messageCountBefore);
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBe('stale-native-id');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('non-interactive claude-code → codex override is rejected fail-closed (Fix #2 mirror)', async () => {
+    const session = sessionRepo.create(project.id, 'Claude Started NI', 'initial prompt', {
+      model: CLAUDE_OPUS,
+      providerId: anthropicProvider.id,
+    });
+    const conv = conversations.ensureActiveConversation(session.id);
+    messageRepo.create(session.id, 'user', 'first question', { conversationId: conv.id });
+    messageRepo.create(session.id, 'assistant', 'first answer', { conversationId: conv.id });
+    conversations.update(conv.id, { claudeSessionId: 'live-claude-id' });
+    const rowBefore = sessions.getById(session.id);
+
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      await expect(prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'background turn',
+        workingDirectory: tempDir,
+        options: { model: GPT_MODEL, interactive: false },
+        controller: new AbortController(),
+      })).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+
+      expect(createAgentSpy).not.toHaveBeenCalled();
+      expect(sessions.getById(session.id)).toEqual(rowBefore);
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBe('live-claude-id');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('non-interactive turn with an unregistered model override stays on the legacy path (Fix #2 carve-out)', async () => {
+    // An unregistered id carries no kind information (resolution merely
+    // guesses 'claude-code'), so the guard must not treat it as a kind
+    // change — mirrors the branch-continue guard's carve-out.
+    const session = createStartedCodexSession();
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      const { agentCallMeta } = await prepareContinueTurn({
+        session,
+        sessionId: session.id,
+        content: 'background turn',
+        workingDirectory: tempDir,
+        options: { model: 'unregistered-model-xyz', interactive: false },
         controller: new AbortController(),
       });
 
-      // Legacy behavior preserved exactly: stale adapter, kind untouched,
-      // resume pointer left alone — only interactive turns switch.
+      expect(createAgentSpy.mock.calls[0][0]).toBe('codex');
+      expect(agentCallMeta.agentType).toBe('codex');
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBe('stale-native-id');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('non-interactive same-kind model override still proceeds on the existing adapter (Fix #2 control)', async () => {
+    const session = createStartedCodexSession();
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      const { agentCallMeta, queryParams } = await prepareContinueTurn({
+        session,
+        sessionId: session.id,
+        content: 'background turn',
+        workingDirectory: tempDir,
+        options: { model: GPT_MODEL, interactive: false },
+        controller: new AbortController(),
+      });
+
       expect(createAgentSpy.mock.calls[0][0]).toBe('codex');
       expect(sessions.getById(session.id).agentType).toBe('codex');
       expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBe('stale-native-id');

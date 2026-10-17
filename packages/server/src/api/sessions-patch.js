@@ -19,6 +19,7 @@ import {
   deriveCrossKindAgentTypeUpdate,
   isCrossKindSwitchAllowed,
   pendingModelClearanceForKindSwitch,
+  clearResumeChainOnKindSwitch,
 } from '../services/sessionAgentGuard.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
@@ -433,6 +434,7 @@ router.patch('/:id', requireSession, (req, res) => {
       code: 'LANE_RUN_OWNERSHIP_LOST',
     });
   }
+  clearResumeChainOnKindSwitch(req.session_, req.params.id, agentTypeUpdate);
   handlePrUrlSideEffects(req.session_, req.params.id, updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
   res.json(updated);

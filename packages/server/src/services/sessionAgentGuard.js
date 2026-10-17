@@ -1,4 +1,4 @@
-import { messages, sessions } from '../database.js';
+import { conversations, messages, sessions } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 
 // Human-readable labels used in the cross-kind switch error message.
@@ -138,6 +138,31 @@ export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
   if (!newAgentType) return {};
   if (resolveAgentTypeFromModel(pendingModel) === newAgentType) return {};
   return { pendingModel: null };
+}
+
+/**
+ * Discard the native resume chain when an update applies an actual in-place
+ * kind flip on a started session (FRD §2.2, FR4). The follow-up turn carries
+ * `model == session.model`, so the turn-time detector cannot see the switch
+ * afterward — without this, a stale cross-kind resume pointer would either
+ * leak into the new provider (claude-code ↔ muse) or linger silently
+ * (→ codex). Only acts on started sessions (drafts have no chain) and only
+ * when the update actually flips `agentType`; same-kind updates keep the
+ * chain (FR6), and gemini flips never reach here (400 with no mutation).
+ *
+ * @param {Object} session - The session row before the update.
+ * @param {string} sessionId
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ */
+export function clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate) {
+  const newAgentType = agentTypeUpdate.agentType;
+  if (!newAgentType || newAgentType === (session.agentType || 'claude-code')) return;
+  if (sessionHasNoAssistantMessages(sessionId)) return;
+  for (const conversation of conversations.getBySessionId(sessionId)) {
+    if (conversation.claudeSessionId) {
+      conversations.update(conversation.id, { claudeSessionId: null });
+    }
+  }
 }
 
 /**

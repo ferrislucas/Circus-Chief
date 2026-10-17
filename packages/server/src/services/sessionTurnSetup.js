@@ -12,7 +12,7 @@
 
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun, deriveAgentTypeUpdate, isCrossKindSwitchAllowed, pendingModelClearanceForKindSwitch } from './sessionAgentGuard.js';
+import { checkCrossKindSwitch, reconcileAgentTypeForRun, deriveAgentTypeUpdate, isCrossKindSwitchAllowed, pendingModelClearanceForKindSwitch } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
@@ -78,12 +78,20 @@ async function resolveInitialSessionModelEnv(session, model) {
 
 /**
  * Build prompt with conversation context for a continuation.
+ *
+ * `resumeChainGone` covers the picker-PATCH-first flow (FRD §2.2): the PATCH
+ * discarded the native resume chain ahead of the turn, so the follow-up
+ * carries no switch override and cannot resume. When the adapter also
+ * wouldn't inject history itself, fall back to text history so the turn
+ * keeps continuity instead of going out bare (FR5/G2). When the
+ * conversation has no prior transcript the builder returns '' and the
+ * prompt is unchanged.
  */
-async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt }) {
+async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt, resumeChainGone = false }) {
   if (modelChanged) {
     return buildConversationContextForModelSwitch(conversationId) + prompt;
   }
-  if (agent.needsConversationContext()) {
+  if (agent.needsConversationContext() || resumeChainGone) {
     return buildConversationContextForContinuation(conversationId) + prompt;
   }
   return prompt;
@@ -186,8 +194,15 @@ async function buildContinueParams({
 }) {
   const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
 
+  // The native chain is gone but the turn detects no switch (picker-PATCH
+  // cleared it ahead of time) and the adapter won't self-supply history:
+  // inject text history instead of going out bare. Same-kind resumes
+  // (canResume) and switch-detected turns (modelChanged) never reach here.
+  const resumeChainGone = !modelChanged && !canResume && !agent.needsConversationContext();
+
   const promptWithContext = await buildPromptForContinue({
     modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
+    resumeChainGone,
   });
 
   const queryParams = buildQueryParams({
@@ -251,6 +266,20 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  */
 export async function prepareContinueTurn({ session, sessionId, content, workingDirectory, options, controller }) {
   const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
+  // Fail closed on cross-kind model overrides for non-interactive turns
+  // (FR9/N4): only the interactive message + PATCH paths allow a switch, so
+  // a scheduler/auto-send/lane-run override (via pendingModel) that crosses
+  // kinds is rejected with the existing CROSS_KIND_MODEL_SWITCH semantics
+  // BEFORE claiming execution or writing anything — no model/agentType
+  // update, no adapter creation, no user message. Mirrors the
+  // branch-continue guard: only enforced for positively-known models, so an
+  // unregistered id (no kind information) stays on the legacy path.
+  if (!interactive && model && resolveProviderFromModel(model)) {
+    const crossKindError = checkCrossKindSwitch(session, model);
+    if (crossKindError) {
+      throw Object.assign(new Error(crossKindError.message), { code: crossKindError.error, statusCode: 400 });
+    }
+  }
   // Single atomic admission gate: a live turn — running or still shutting
   // down after a Stop — owns the session until its finalizer releases it.
   claimSessionExecution(sessionId, controller);
