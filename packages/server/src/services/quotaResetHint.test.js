@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { resolveQuotaResetHint, EXHAUSTED_REMAINING_THRESHOLD } from './quotaResetHint.js';
+import {
+  resolveQuotaResetHint,
+  EXHAUSTED_REMAINING_THRESHOLD,
+  STALE_FALLBACK_TTL_MS,
+} from './quotaResetHint.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -18,6 +22,9 @@ function snapshot(overrides = {}) {
     providerId: 'anthropic-default',
     allowances: [allowance()],
     staleAt: null,
+    // Live telemetry: observed right now. Tests for cold telemetry pass an
+    // explicit older updatedAt. (STALE_FALLBACK_TTL_MS = 30 min.)
+    updatedAt: NOW,
     ...overrides,
   };
 }
@@ -95,6 +102,38 @@ describe('resolveQuotaResetHint', () => {
     const snap = snapshot({
       allowances: [allowance({ remainingPercent: null, resetsAt: NOW + 60_000 })],
     });
+    expect(resolveQuotaResetHint(snap, NOW)).toBeNull();
+  });
+
+  it('treats staleAt null with hours-old updatedAt as stale (falls back to legacy)', () => {
+    const snap = snapshot({ staleAt: null, updatedAt: NOW - 3 * 60 * 60_000 });
+    expect(resolveQuotaResetHint(snap, NOW)).toBeNull();
+  });
+
+  it('still resolves staleAt null with a fresh updatedAt (live telemetry)', () => {
+    expect(resolveQuotaResetHint(snapshot({ staleAt: null, updatedAt: NOW }), NOW))
+      .toEqual({ resetsAt: NOW + 60_000 });
+  });
+
+  it(`treats updatedAt exactly at the STALE_FALLBACK_TTL_MS (${30 * 60_000} ms) edge as fresh`, () => {
+    const snap = snapshot({ staleAt: null, updatedAt: NOW - STALE_FALLBACK_TTL_MS });
+    expect(resolveQuotaResetHint(snap, NOW)).toEqual({ resetsAt: NOW + 60_000 });
+  });
+
+  it('treats updatedAt just past the fallback TTL as stale', () => {
+    const snap = snapshot({ staleAt: null, updatedAt: NOW - STALE_FALLBACK_TTL_MS - 1 });
+    expect(resolveQuotaResetHint(snap, NOW)).toBeNull();
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['non-numeric', 'yesterday'],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('treats %s updatedAt as stale without throwing (fail closed)', (_caseName, updatedAt) => {
+    const snap = snapshot({ staleAt: null, updatedAt });
+    expect(() => resolveQuotaResetHint(snap, NOW)).not.toThrow();
     expect(resolveQuotaResetHint(snap, NOW)).toBeNull();
   });
 });

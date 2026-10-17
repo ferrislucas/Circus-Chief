@@ -36,12 +36,26 @@ function validFutureReset(allowance, now) {
     : null;
 }
 
+// Fallback freshness window for snapshots that carry no staleness
+// metadata (`staleAt: null`). Sources that always attach `staleAfterMs`
+// (stream mappers, ZAI poller) refresh well within this window; sources
+// that cannot (e.g. the OpenAI extractor when no reset is known, or
+// status-only frames) leave `staleAt` null, so age is judged from
+// `updatedAt` instead. 2x the default 15-minute stream window: hours-old
+// telemetry is definitively cold, while live telemetry is unaffected.
+export const STALE_FALLBACK_TTL_MS = 30 * 60_000;
+
 function isStale(snapshot, now) {
   // A stale snapshot describes the past, not the provider clock: ignore it
   // even when it names an exhausted window with a future reset.
-  return typeof snapshot.staleAt === 'number'
-    && Number.isFinite(snapshot.staleAt)
-    && snapshot.staleAt <= now;
+  if (typeof snapshot.staleAt === 'number' && Number.isFinite(snapshot.staleAt)) {
+    return snapshot.staleAt <= now;
+  }
+  // No staleness metadata: fall back to observation age. A missing or
+  // non-numeric `updatedAt` cannot prove freshness, so it fails closed.
+  return typeof snapshot.updatedAt !== 'number'
+    || !Number.isFinite(snapshot.updatedAt)
+    || now - snapshot.updatedAt > STALE_FALLBACK_TTL_MS;
 }
 
 function latestExhaustedReset(allowances, now) {
@@ -59,7 +73,9 @@ function latestExhaustedReset(allowances, now) {
 /**
  * Resolve the quota-reset hint for a normalized allowance snapshot.
  * @param {object|null} snapshot - Stored snapshot shape
- *   `{ allowances: [{ remainingPercent, resetsAt }], staleAt }`
+ *   `{ allowances: [{ remainingPercent, resetsAt }], staleAt, updatedAt }`.
+ *   When `staleAt` carries no finite timestamp, `updatedAt` older than
+ *   `STALE_FALLBACK_TTL_MS` (or missing) counts as stale.
  * @param {number} now - Epoch ms (caller-supplied clock)
  * @returns {{ resetsAt: number } | null} Max valid future `resetsAt` across
  *   exhausted windows, or null when there is nothing actionable. A stale or

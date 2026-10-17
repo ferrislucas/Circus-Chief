@@ -435,6 +435,34 @@ describe('ProviderAllowanceService', () => {
       expect(service.getSnapshot('no-such-provider')).toBeNull();
     });
 
+    it('returns an equal but not identical copy on each call', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      service.observe(observed);
+
+      const first = service.getSnapshot(enabled.id);
+      const second = service.getSnapshot(enabled.id);
+
+      expect(first).toEqual(second);
+      expect(first).not.toBe(second);
+      expect(first.allowances).not.toBe(second.allowances);
+    });
+
+    it('isolates stored state from mutations of a returned snapshot', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      service.observe(observed);
+
+      const snapshot = service.getSnapshot(enabled.id);
+      snapshot.allowances.push({
+        key: 'injected', label: 'Injected', remaining: 0, value: 0, valueKind: 'remaining',
+        limit: 100, remainingPercent: 0, unit: 'requests', resetsAt: null,
+      });
+      snapshot.status = 'exhausted';
+
+      const reread = service.getSnapshot(enabled.id);
+      expect(reread.allowances).toHaveLength(1);
+      expect(reread.status).toBe('warning');
+    });
+
     it('reads without broadcasting and without mutating the stored snapshot', () => {
       const broadcaster = vi.fn();
       const service = new ProviderAllowanceService({
