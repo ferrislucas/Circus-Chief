@@ -184,7 +184,60 @@ describe('kanbanTriggers', () => {
 
       startChildSession(newSession, 'do something', '/tmp/work', { model: 'opus' });
 
-      expect(runSession).toHaveBeenCalledWith('child-1', 'do something', '/tmp/work', { model: 'opus' });
+      expect(runSession).toHaveBeenCalledWith('child-1', 'do something', '/tmp/work', {
+        model: 'opus',
+        onProviderDispatchInitiated: expect.any(Function),
+      });
+    });
+
+    it('forwards initiation to the caller listener', async () => {
+      const onInitiated = vi.fn();
+      runSession.mockImplementation(async (id, prompt, workdir, opts) => {
+        await opts.onProviderDispatchInitiated('dispatch-key-1');
+        return { started: true };
+      });
+      const newSession = { id: 'child-1', projectId: 'p1' };
+
+      await expect(
+        startChildSession(newSession, 'do something', '/tmp/work', { onProviderDispatchInitiated: onInitiated })
+      ).resolves.toBe(true);
+      expect(onInitiated).toHaveBeenCalledWith('dispatch-key-1');
+    });
+
+    it('resolves false when runSession rejects before dispatch initiation', async () => {
+      runSession.mockRejectedValue(new Error('lane_run_ownership_lost fence'));
+      sessions.update.mockReturnValue({ id: 'child-1', projectId: 'p1', status: 'error' });
+      const newSession = { id: 'child-1', projectId: 'p1' };
+
+      await expect(
+        startChildSession(newSession, 'do something', '/tmp/work', {})
+      ).resolves.toBe(false);
+    });
+
+    it('rethrows the original error when runSession rejects after dispatch initiation', async () => {
+      const providerError = new Error('VCR replay: no cassette found');
+      runSession.mockImplementation(async (id, prompt, workdir, opts) => {
+        await opts.onProviderDispatchInitiated('dispatch-key-1');
+        throw providerError;
+      });
+      const errorSession = { id: 'child-1', projectId: 'p1', status: 'error' };
+      sessions.update.mockReturnValue(errorSession);
+      const newSession = { id: 'child-1', projectId: 'p1' };
+
+      await expect(
+        startChildSession(newSession, 'do something', '/tmp/work', {})
+      ).rejects.toBe(providerError);
+
+      // The child is still marked failed before the error propagates.
+      expect(sessions.update).toHaveBeenCalledWith('child-1', {
+        status: 'error',
+        error: 'VCR replay: no cassette found',
+      });
+      expect(broadcastToProject).toHaveBeenCalledWith('p1', WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'p1',
+        sessionId: 'child-1',
+        session: errorSession,
+      });
     });
 
     it('handles runSession error by updating session status and broadcasting', async () => {
@@ -442,6 +495,7 @@ describe('kanbanTriggers', () => {
       expect(runSession).toHaveBeenCalledWith('new-1', 'Review: Did some work', '/tmp/project', {
         systemPrompt: 'You are helpful.',
         model: session.model,
+        onProviderDispatchInitiated: expect.any(Function),
       });
     });
 
@@ -629,6 +683,7 @@ describe('kanbanTriggers', () => {
       expect(runSession).toHaveBeenCalledWith('new-prompt-1', 'Work on: Test Session', '/tmp/project', {
         systemPrompt: 'Be helpful.',
         model: session.model,
+        onProviderDispatchInitiated: expect.any(Function),
       });
     });
 
