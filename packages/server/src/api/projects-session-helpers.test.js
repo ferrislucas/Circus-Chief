@@ -463,6 +463,36 @@ describe('prepareSessionConfig', () => {
     )).toThrow('providerId must be a string or null');
   });
 
+  it('keeps an explicit providerId when no model is requested', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', providerId: 'body-provider' },
+      null,
+      systemDefaults
+    );
+    expect(config.model).toBe('sonnet');
+    expect(config.providerId).toBe('body-provider');
+  });
+
+  it('keeps an explicit providerId over project default model cascade', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', providerId: 'body-provider' },
+      { model: 'haiku', providerId: 'project-provider' },
+      systemDefaults
+    );
+    expect(config.model).toBe('haiku');
+    expect(config.providerId).toBe('body-provider');
+  });
+
+  it('an explicit null providerId still clears the default cascade', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', providerId: null },
+      { model: 'haiku', providerId: 'project-provider' },
+      systemDefaults
+    );
+    expect(config.model).toBe('haiku');
+    expect(config.providerId).toBeNull();
+  });
+
   it('handles null projectDefs', () => {
     const config = prepareSessionConfig({ prompt: 'test' }, null, systemDefaults);
     expect(config.mode).toBe('default');

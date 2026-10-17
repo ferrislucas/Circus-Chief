@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { modelProviders, modelTiers } from '../database.js';
-import { resolveTierWriteError, validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
+import { resolveTierWriteError, validateDefaultModelAndProvider, validateModelId, validateModelAndProvider, validateTierMembers } from './model-validation.js';
 import { buildTierRef } from '@circuschief/shared';
 
 describe('validateModelId', () => {
@@ -234,6 +234,68 @@ describe('validateModelAndProvider', () => {
 
   it('propagates the underlying model validation error', () => {
     expect(validateModelAndProvider('not-a-real-model', null).error).toContain('Invalid model id');
+  });
+});
+
+describe('validateDefaultModelAndProvider', () => {
+  it('keeps an explicit provider alongside a defaulted model without ownership checks', () => {
+    const provider = modelProviders.create({ name: 'Default pair test', kind: 'openai' });
+    try {
+      // The provider owns no models at all: an explicitly chosen pair would
+      // fail ownership, but a defaulted model was never chosen against it.
+      expect(validateDefaultModelAndProvider('gpt-5.6-sol', provider.id, { providerExplicit: true })).toEqual({
+        model: 'gpt-5.6-sol',
+        providerId: provider.id,
+      });
+    } finally {
+      modelProviders.delete(provider.id);
+    }
+  });
+
+  it('passes default-cascade providers through untouched', () => {
+    expect(validateDefaultModelAndProvider('gpt-5.6-sol', 'some-default-provider')).toEqual({
+      model: 'gpt-5.6-sol',
+      providerId: 'some-default-provider',
+    });
+    expect(validateDefaultModelAndProvider('gpt-5.6-sol', null)).toEqual({
+      model: 'gpt-5.6-sol',
+      providerId: null,
+    });
+  });
+
+  it('clears the provider for a tier-ref model', () => {
+    const provider = modelProviders.create({
+      name: 'Default tier test',
+      kind: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      authToken: 'token',
+    });
+    modelProviders.addModel(provider.id, {
+      modelId: 'default-tier-model',
+      displayName: 'Default Tier Model',
+      tier: 'custom',
+    });
+    const tier = modelTiers.create({
+      name: 'Default tier test',
+      members: [{ providerId: provider.id, modelId: 'default-tier-model', position: 0 }],
+    });
+
+    try {
+      const ref = buildTierRef(tier.id);
+      expect(validateDefaultModelAndProvider(ref, provider.id, { providerExplicit: true })).toEqual({
+        model: ref,
+        providerId: null,
+      });
+    } finally {
+      modelTiers.delete(tier.id);
+      modelProviders.delete(provider.id);
+    }
+  });
+
+  it('rejects an unknown explicitly supplied provider', () => {
+    expect(validateDefaultModelAndProvider('gpt-5.6-sol', 'no-such-provider', { providerExplicit: true })).toEqual({
+      error: 'Invalid providerId "no-such-provider"',
+    });
   });
 });
 

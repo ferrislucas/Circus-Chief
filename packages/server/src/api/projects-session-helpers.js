@@ -179,11 +179,16 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
   const explicitProviderId = normalizeProviderId(body.providerId);
   const projectProviderId = normalizeProviderId(projectDefs?.providerId);
   const systemProviderId = normalizeProviderId(systemDefaults.providerId);
+  // An explicitly chosen provider is never dropped: it wins over the default
+  // cascades even when the model itself is defaulted (providerId-only
+  // creation persists the provider as session metadata). Tier bindings still
+  // resolve downstream — a tier-ref model always clears the provider in
+  // validatePreparedConfig.
   const selection = body.model !== undefined
     ? { model: body.model, providerId: explicitProviderId ?? null }
     : projectDefs?.model != null
-      ? { model: projectDefs.model, providerId: projectProviderId ?? null }
-      : { model: systemDefaults.model || null, providerId: systemProviderId ?? null };
+      ? { model: projectDefs.model, providerId: explicitProviderId !== undefined ? explicitProviderId : (projectProviderId ?? null) }
+      : { model: systemDefaults.model || null, providerId: explicitProviderId !== undefined ? explicitProviderId : (systemProviderId ?? null) };
 
   return {
     prompt: body.prompt,

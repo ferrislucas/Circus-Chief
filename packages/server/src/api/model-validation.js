@@ -130,6 +130,36 @@ export function validateModelAndProvider(model, providerId, options = {}) {
 }
 
 /**
+ * Validate a defaulted model paired with a provider. Unlike an explicitly
+ * chosen model+provider pair (which must satisfy ownership via
+ * validateModelAndProvider), a defaulted model was never chosen against the
+ * provider, so ownership is not enforced: the model id must be valid, a tier
+ * ref still clears the provider (no single owning provider), and an
+ * explicitly supplied provider must exist. Default-cascade providers pass
+ * through untouched so project/system defaults are never blocked.
+ *
+ * @param {*} model - Defaulted model id (may be null when no default exists)
+ * @param {*} providerId - Provider id from the explicit/default cascade
+ * @param {{ providerExplicit?: boolean }} [options]
+ * @returns {{ error?: string, model?: *, providerId?: * }}
+ */
+export function validateDefaultModelAndProvider(model, providerId, options = {}) {
+  const { providerExplicit = false } = options;
+  const modelResult = validateModelId(model);
+  if (modelResult.error) return { error: modelResult.error };
+
+  if (isTierRef(modelResult.value)) {
+    return { model: modelResult.value, providerId: null };
+  }
+
+  if (!providerExplicit) return { model: modelResult.value, providerId: providerId ?? null };
+  if (providerId === null || providerId === undefined) return { model: modelResult.value, providerId: null };
+  if (typeof providerId !== 'string') return { error: 'providerId must be a string or null' };
+  if (!modelProviders.getById(providerId)) return { error: `Invalid providerId "${providerId}"` };
+  return { model: modelResult.value, providerId };
+}
+
+/**
  * Validate a Model Tier's member list at write time (create/update) — Work
  * Item 3. A member is valid when its provider exists AND owns a
  * executable `provider_models` row for that `modelId`, mirroring

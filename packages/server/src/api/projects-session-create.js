@@ -11,9 +11,25 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings } from './projects-helpers.js';
-import { validateModelAndProvider } from './model-validation.js';
+import { validateDefaultModelAndProvider, validateModelAndProvider } from './model-validation.js';
 import { withTimeout, TimeoutError } from '../services/promiseUtils.js';
 import { classifyGitError } from '../services/gitService.js';
+
+/**
+ * Validate the resolved model+provider pair. Ownership is enforced only for
+ * an explicitly chosen model+provider pair. A defaulted model was never
+ * chosen against the provider, so a providerId-only request keeps its
+ * provider (session metadata, e.g. MRU recency) instead of being rejected
+ * against — or silently dropped for — the default model.
+ */
+function validateModelSelection(config, reqBody) {
+  const modelExplicit = Object.hasOwn(reqBody, 'model') && reqBody.model !== '' && reqBody.model !== undefined;
+  const providerExplicit = Object.hasOwn(reqBody, 'providerId') && reqBody.providerId !== '' && reqBody.providerId !== undefined;
+  if (modelExplicit) {
+    return validateModelAndProvider(config.model, isTierRef(config.model) ? null : config.providerId);
+  }
+  return validateDefaultModelAndProvider(config.model, config.providerId, { providerExplicit });
+}
 
 /**
  * Run post-preparation validation on session config (parent session,
@@ -38,8 +54,7 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
     return { error: nextTemplateError, status: 400 };
   }
 
-  const finalProviderId = isTierRef(config.model) ? null : config.providerId;
-  const finalModelResult = validateModelAndProvider(config.model, finalProviderId);
+  const finalModelResult = validateModelSelection(config, reqBody);
   if (finalModelResult.error) {
     return { error: finalModelResult.error, status: 400 };
   }
