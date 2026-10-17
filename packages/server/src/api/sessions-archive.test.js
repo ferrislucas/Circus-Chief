@@ -14,6 +14,11 @@ vi.mock('../services/hookService.js', () => ({
   executeHookAsync: vi.fn(),
 }));
 
+// Mock gitService (worktree removal)
+vi.mock('../services/gitService.js', () => ({
+  removeWorktree: vi.fn(),
+}));
+
 // Mocks for the kanban lane lifecycle (mirrors kanbanService.test.js)
 vi.mock('../services/templateTriggerService.js', () => ({
   renderTemplatePrompt: vi.fn().mockResolvedValue('rendered prompt'),
@@ -42,6 +47,7 @@ vi.mock('../services/sessionProvider.js', () => ({
 import archiveRouter from './sessions-archive.js';
 import { broadcastToProject } from '../websocket.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { removeWorktree } from '../services/gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { addSessionToBoard } from '../services/kanbanService.js';
 
@@ -207,6 +213,87 @@ describe('Sessions Archive API', () => {
           projectId: project.id,
           sessionId: session.id,
           session: expect.objectContaining({ archived: true }),
+        })
+      );
+    });
+
+    it('deleteWorktree: true removes the worktree and clears gitWorktree', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+      removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ deleteWorktree: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
+      expect(removeWorktree).toHaveBeenCalledWith('/tmp/test', '/path/to/wt', true);
+      expect(res.body.gitWorktree).toBeNull();
+    });
+
+    it('deleteWorktree: true keeps gitWorktree when removal fails (still archives)', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+      removeWorktree.mockRejectedValue(new Error('git failed'));
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ deleteWorktree: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
+      expect(res.body.gitWorktree).toBe('/path/to/wt');
+    });
+
+    it('deleteWorktree: true on a child session does not remove the worktree', async () => {
+      const parentSession = sessions.create(project.id, 'Parent Session', 'parent prompt');
+      sessions.update(parentSession.id, { status: 'stopped' });
+
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt', { parentSessionId: parentSession.id });
+      sessions.update(childSession.id, {
+        status: 'stopped',
+        gitWorktree: '/path/to/wt',
+      });
+      removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post(`/api/sessions/${childSession.id}/archive`)
+        .send({ deleteWorktree: true });
+
+      expect(res.status).toBe(200);
+      expect(removeWorktree).not.toHaveBeenCalled();
+      expect(res.body.gitWorktree).toBe('/path/to/wt');
+    });
+
+    it('deleteWorktree: true with no gitWorktree does not call removeWorktree', async () => {
+      removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ deleteWorktree: true });
+
+      expect(res.status).toBe(200);
+      expect(removeWorktree).not.toHaveBeenCalled();
+    });
+
+    it('deleteWorktree: true + cleanup: true runs both removal and the hook', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+      removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ deleteWorktree: true, cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
+      expect(removeWorktree).toHaveBeenCalledWith('/tmp/test', '/path/to/wt', true);
+      expect(res.body.gitWorktree).toBeNull();
+      expect(executeHookAsync).toHaveBeenCalledWith(
+        './cleanup.sh',
+        expect.any(String),
+        expect.objectContaining({
+          sessionId: session.id,
+          projectId: project.id,
         })
       );
     });

@@ -1537,10 +1537,11 @@ export async function toggleSessionStar(sessionId: string) {
 /**
  * Archive a session
  */
-export async function archiveSession(sessionId: string) {
+export async function archiveSession(sessionId: string, body?: Record<string, any>) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/archive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!response.ok) throw new Error('Failed to archive session');
   return response.json();

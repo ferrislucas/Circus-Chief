@@ -633,7 +633,7 @@ describe('SessionsApi', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ cleanup: false }),
+        body: JSON.stringify({ cleanup: false, deleteWorktree: false }),
       }));
       expect(result.archived).toBe(true);
     });
@@ -645,7 +645,19 @@ describe('SessionsApi', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ cleanup: true }),
+        body: JSON.stringify({ cleanup: true, deleteWorktree: false }),
+      }));
+      expect(result.archived).toBe(true);
+    });
+
+    it('sends POST with deleteWorktree: true when option is provided', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', archived: true, gitWorktree: null }));
+
+      const result = await client.archiveSession('sess-123', { deleteWorktree: true });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ cleanup: false, deleteWorktree: true }),
       }));
       expect(result.archived).toBe(true);
     });
