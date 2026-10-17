@@ -99,6 +99,10 @@ export function isKindResolvable(providers, providerId, modelId) {
  * @param {(model: string, providerId: string|null) => Promise<unknown>} args.persistFn
  * @param {(err: Error) => void} args.onError - surfaces the backend error copy.
  * @param {(model: string|null, providerId: string|null) => void} args.revertFn
+ * @param {() => boolean} [args.isCurrent] - caller-owned staleness guard;
+ *   true while this change is still the latest dispatch. A stale failure
+ *   still surfaces via `onError` but reverts nothing, so a slow 4xx from an
+ *   earlier picker change cannot clobber a newer confirmed choice.
  * @returns {Promise<'persisted'|'cancelled'|'failed'>}
  */
 export async function persistModelSelectionWithConfirm({
@@ -106,6 +110,7 @@ export async function persistModelSelectionWithConfirm({
   fromAgentType, toAgentType, isStarted,
   modelsDiffer = false, kindUnresolvable = false,
   confirmFn, persistFn, onError, revertFn,
+  isCurrent = () => true,
 }) {
   const plan = planModelSwitch({ fromAgentType, toAgentType, isStarted, modelsDiffer, kindUnresolvable });
   if (plan?.action === 'confirm' && !confirmFn(plan.copy)) {
@@ -118,10 +123,13 @@ export async function persistModelSelectionWithConfirm({
   } catch (err) {
     onError(err);
     // Roll back only when the server definitively refused (4xx — its state is
-    // provably unchanged, e.g. gemini cross-kind). On network/5xx failures the
-    // outcome is unknown, so keep the user's choice: draft submits and
-    // same-kind sends still carry it and self-heal.
-    if (err?.status >= 400 && err?.status < 500) revertFn(oldModel, oldProviderId);
+    // provably unchanged, e.g. gemini cross-kind) AND this change is still
+    // the latest dispatch. A stale 4xx from an earlier overlapping change
+    // must not clobber a newer confirmed choice, so it surfaces via onError
+    // but reverts nothing. On network/5xx failures the outcome is unknown,
+    // so keep the user's choice: draft submits and same-kind sends still
+    // carry it and self-heal.
+    if (err?.status >= 400 && err?.status < 500 && isCurrent()) revertFn(oldModel, oldProviderId);
     return 'failed';
   }
 }

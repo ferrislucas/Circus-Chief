@@ -238,4 +238,86 @@ describe('persistModelSelectionWithConfirm', () => {
     expect(confirmFn).not.toHaveBeenCalled();
     expect(persistFn).toHaveBeenCalledWith('gpt-x', 'o');
   });
+
+  it('stale 4xx after a newer success reverts nothing (overlapping-persist race)', async () => {
+    const err400 = Object.assign(new Error('Cannot switch agent kind mid-session'), { status: 400 });
+    let rejectFirst;
+    const gateFirst = new Promise((_, reject) => { rejectFirst = reject; });
+    const fns1 = fns();
+    const fns2 = fns();
+    // Caller-owned epoch: change-2 is dispatched after change-1, so change-1
+    // is stale by the time its 4xx arrives.
+    let current = 1;
+    const p1 = persistModelSelectionWithConfirm({
+      ...base,
+      oldModel: 'model-a', oldProviderId: 'prov-a', newModel: 'model-b', newProviderId: 'prov-b',
+      confirmFn: fns1.confirmFn, persistFn: vi.fn().mockReturnValue(gateFirst),
+      onError: fns1.onError, revertFn: fns1.revertFn,
+      isCurrent: () => current === 1,
+    });
+    current = 2;
+    const p2 = persistModelSelectionWithConfirm({
+      ...base,
+      oldModel: 'model-b', oldProviderId: 'prov-b', newModel: 'model-c', newProviderId: 'prov-c',
+      confirmFn: fns2.confirmFn, persistFn: vi.fn().mockResolvedValue({}),
+      onError: fns2.onError, revertFn: fns2.revertFn,
+      isCurrent: () => current === 2,
+    });
+    await expect(p2).resolves.toBe('persisted');
+    rejectFirst(err400);
+    await expect(p1).resolves.toBe('failed');
+    expect(fns1.onError).toHaveBeenCalledWith(err400);
+    expect(fns1.revertFn).not.toHaveBeenCalled();
+    expect(fns2.revertFn).not.toHaveBeenCalled();
+  });
+
+  it('stale 4xx while a newer change is still in flight reverts nothing', async () => {
+    const err400 = Object.assign(new Error('Cannot switch agent kind mid-session'), { status: 400 });
+    let rejectFirst;
+    let resolveSecond;
+    const gateFirst = new Promise((_, reject) => { rejectFirst = reject; });
+    const gateSecond = new Promise((resolve) => { resolveSecond = resolve; });
+    const fns1 = fns();
+    const fns2 = fns();
+    let current = 1;
+    const p1 = persistModelSelectionWithConfirm({
+      ...base,
+      oldModel: 'model-a', oldProviderId: 'prov-a', newModel: 'model-b', newProviderId: 'prov-b',
+      confirmFn: fns1.confirmFn, persistFn: vi.fn().mockReturnValue(gateFirst),
+      onError: fns1.onError, revertFn: fns1.revertFn,
+      isCurrent: () => current === 1,
+    });
+    current = 2;
+    const p2 = persistModelSelectionWithConfirm({
+      ...base,
+      oldModel: 'model-b', oldProviderId: 'prov-b', newModel: 'model-c', newProviderId: 'prov-c',
+      confirmFn: fns2.confirmFn, persistFn: vi.fn().mockReturnValue(gateSecond),
+      onError: fns2.onError, revertFn: fns2.revertFn,
+      isCurrent: () => current === 2,
+    });
+    rejectFirst(err400);
+    await expect(p1).resolves.toBe('failed');
+    expect(fns1.onError).toHaveBeenCalledWith(err400);
+    expect(fns1.revertFn).not.toHaveBeenCalled();
+    resolveSecond({});
+    await expect(p2).resolves.toBe('persisted');
+    expect(fns2.revertFn).not.toHaveBeenCalled();
+  });
+
+  it('fresh (non-stale) 4xx still reverts when it is the latest change', async () => {
+    const err400 = Object.assign(
+      new Error('Cannot switch agent kind mid-session (Claude Code → Gemini)'),
+      { status: 400 },
+    );
+    const { confirmFn, onError, revertFn } = fns();
+    const result = await persistModelSelectionWithConfirm({
+      ...base,
+      fromAgentType: 'claude-code', toAgentType: 'gemini',
+      confirmFn, persistFn: vi.fn().mockRejectedValue(err400), onError, revertFn,
+      isCurrent: () => true,
+    });
+    expect(result).toBe('failed');
+    expect(onError).toHaveBeenCalledWith(err400);
+    expect(revertFn).toHaveBeenCalledWith('claude-x', 'a');
+  });
 });

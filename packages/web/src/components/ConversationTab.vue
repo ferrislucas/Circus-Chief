@@ -198,6 +198,11 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
 let suppressNextModelPersist = false;
+// Caller-owned persist epoch: each dispatched picker change stamps its
+// sequence; a slow 4xx from an earlier change is stale and must not revert
+// a newer confirmed choice. Owned here (not in crossKindSwitch.js) so the
+// counter never leaks across component instances.
+let modelPersistSeq = 0;
 
 // Draft saving composable
 const {
@@ -563,6 +568,8 @@ watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [ol
   // silently while the server still performs the kind switch.
   const currentSession = sessionsStore.currentSession;
   const providers = providersStore.providers;
+  modelPersistSeq += 1;
+  const mySeq = modelPersistSeq;
   await persistModelSelectionWithConfirm({
     oldModel, oldProviderId, newModel, newProviderId,
     fromAgentType: agentTypeForProviders(providers, oldProviderId, oldModel),
@@ -575,6 +582,7 @@ watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [ol
     persistFn: (model, providerId) => sessionsStore.updateSessionModel(props.sessionId, model, providerId),
     onError: (err) => uiStore.error(err.message),
     revertFn: revertModelSelection,
+    isCurrent: () => mySeq === modelPersistSeq,
   });
 });
 
