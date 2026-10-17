@@ -282,6 +282,54 @@ describe('prepareContinueTurn cross-kind switch (FR4/FR5/FR7/FR8/FR10)', () => {
     }
   });
 
+  it('kindChanged branch clears a stale other-kind pendingModel (PR #1)', async () => {
+    const session = createStartedCodexSession();
+    // A schedule-with-model (or same-kind pendingModel) from before the
+    // switch: kind-X override stranded on a row about to become kind-Y.
+    sessions.update(session.id, { pendingModel: GPT_MODEL });
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      const { session: updated } = await prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'follow-up on claude',
+        workingDirectory: tempDir,
+        options: { model: CLAUDE_OPUS, interactive: true },
+        controller: new AbortController(),
+      });
+
+      expect(updated.agentType).toBe('claude-code');
+      expect(updated.model).toBe(CLAUDE_OPUS);
+      // Pre-fix: still GPT_MODEL, so the next scheduled fire would strand
+      // the row or silently switch back.
+      expect(updated.pendingModel).toBeNull();
+      expect(sessions.getById(session.id).pendingModel).toBeNull();
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('kindChanged branch keeps a pendingModel that already agrees with the new kind (PR #1)', async () => {
+    const session = createStartedCodexSession();
+    sessions.update(session.id, { pendingModel: CLAUDE_OPUS });
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      const { session: updated } = await prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'follow-up on claude',
+        workingDirectory: tempDir,
+        options: { model: CLAUDE_OPUS, interactive: true },
+        controller: new AbortController(),
+      });
+
+      expect(updated.agentType).toBe('claude-code');
+      expect(updated.pendingModel).toBe(CLAUDE_OPUS);
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
   it('same-kind control: claude turn without a model override still resumes with no history prefix (FR6)', async () => {
     const session = sessionRepo.create(project.id, 'Claude Same-kind', 'initial prompt', {
       model: CLAUDE_OPUS,

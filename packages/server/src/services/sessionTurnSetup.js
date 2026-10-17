@@ -12,7 +12,7 @@
 
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun, deriveAgentTypeUpdate, isCrossKindSwitchAllowed } from './sessionAgentGuard.js';
+import { reconcileAgentTypeForRun, deriveAgentTypeUpdate, isCrossKindSwitchAllowed, pendingModelClearanceForKindSwitch } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
@@ -101,6 +101,21 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * (FR9): the model is stored but the kind is never re-derived there — only
  * the interactive message + PATCH paths allow a switch.
  */
+/**
+ * Apply an allowed in-place kind switch to a pending turn update: re-derive
+ * the kind (+ auto providerId when it changed) and drop a stale other-kind
+ * `pendingModel` override so a later scheduled fire cannot strand the row or
+ * silently switch it back. A same-new-kind override stays coherent.
+ */
+function kindChangedUpdate(session, effectiveModel, newAgentType) {
+  const update = { agentType: newAgentType };
+  const newProvider = resolveProviderFromModel(effectiveModel);
+  if (newProvider && newProvider.id !== session.providerId) {
+    update.providerId = newProvider.id;
+  }
+  return { ...update, ...pendingModelClearanceForKindSwitch(session.pendingModel, newAgentType) };
+}
+
 function buildContinueModelAndEnv(session, sessionId, model, { interactive = false } = {}) {
   const effectiveModel = model || session.model;
 
@@ -118,11 +133,7 @@ function buildContinueModelAndEnv(session, sessionId, model, { interactive = fal
   let updatedSession = session;
   const updates = { ...(model && { model }) };
   if (kindChanged) {
-    updates.agentType = newAgentType;
-    const newProvider = resolveProviderFromModel(effectiveModel);
-    if (newProvider && newProvider.id !== session.providerId) {
-      updates.providerId = newProvider.id;
-    }
+    Object.assign(updates, kindChangedUpdate(session, effectiveModel, newAgentType));
   } else {
     Object.assign(
       updates,

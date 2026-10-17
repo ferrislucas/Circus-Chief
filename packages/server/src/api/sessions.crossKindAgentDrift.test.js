@@ -31,6 +31,7 @@ vi.mock('../services/slashCommandService.js', () => ({
 import sessionsRouter from './sessions.js';
 import { continueSession } from '../services/sessionManager.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
+import { SchedulerService } from '../services/schedulerService.js';
 
 /**
  * Regression: a session's `agent_type` and `model` must stay the same "kind".
@@ -585,6 +586,110 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true });
     expect(continueSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('PATCH cross-kind switch clears a disagreeing stored pendingModel but leaves the schedule intact (PR #1)', async () => {
+    const session = createStartedSession({ name: 'Codex Stale Pending', model: GPT_MODEL, providerId: openaiProvider.id });
+    expect(session.agentType).toBe('codex');
+    // Mirror a schedule-with-model on kind-X: pendingModel + schedule fields
+    // persisted together (as POST /schedule does), status scheduled.
+    const scheduledAt = Date.now() + 3600000;
+    sessions.update(session.id, {
+      pendingModel: GPT_MODEL,
+      scheduledAt,
+      pendingPrompt: 'scheduled follow-up',
+      status: 'scheduled',
+    });
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: CLAUDE_MODEL })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(CLAUDE_MODEL);
+    expect(updated.agentType).toBe('claude-code');
+    // Stale kind-X override dropped (pre-fix: still GPT_MODEL, stranding the
+    // next scheduled fire); the schedule itself is untouched.
+    expect(updated.pendingModel).toBeNull();
+    expect(updated.scheduledAt).toBe(scheduledAt);
+    expect(updated.pendingPrompt).toBe('scheduled follow-up');
+    expect(updated.status).toBe('scheduled');
+    expect(resolveAgentTypeFromModel(updated.model)).toBe(updated.agentType);
+  });
+
+  it('PATCH cross-kind switch keeps a pendingModel that already agrees with the new kind (PR #1)', async () => {
+    const session = createStartedSession({ name: 'Codex Agreeing Pending', model: GPT_MODEL, providerId: openaiProvider.id });
+    sessions.update(session.id, { pendingModel: CLAUDE_MODEL });
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: CLAUDE_MODEL })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.agentType).toBe('claude-code');
+    expect(updated.pendingModel).toBe(CLAUDE_MODEL);
+  });
+
+  it('PATCH same-kind model change keeps a stored same-kind pendingModel (PR #1 control)', async () => {
+    const session = createStartedSession({ name: 'Codex Same-kind Pending', model: GPT_MODEL, providerId: openaiProvider.id });
+    sessions.update(session.id, { pendingModel: GPT_MODEL });
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: GPT_MODEL })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.agentType).toBe('codex');
+    expect(updated.pendingModel).toBe(GPT_MODEL);
+  });
+
+  it('scheduled fire after a cross-kind switch launches with session.model, not the stale pendingModel (PR #1)', async () => {
+    const session = createStartedSession({ name: 'Codex Switch Then Fire', model: GPT_MODEL, providerId: openaiProvider.id });
+    sessions.update(session.id, {
+      pendingModel: GPT_MODEL,
+      scheduledAt: Date.now() - 1000,
+      pendingPrompt: 'scheduled follow-up',
+      pendingInteractive: false,
+      status: 'scheduled',
+    });
+
+    // Picker switch to kind-Y (the fix point: this must drop the kind-X
+    // pendingModel override while keeping the schedule itself).
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: CLAUDE_MODEL })
+      .expect(200);
+
+    const scheduler = new SchedulerService();
+    const stubManager = {
+      runSession: vi.fn().mockResolvedValue({ started: true, sessionId: session.id }),
+      continueSession: vi.fn().mockResolvedValue({ started: true, sessionId: session.id }),
+      continueSessionWithExistingMessage: vi.fn().mockResolvedValue({ started: true, sessionId: session.id }),
+    };
+    scheduler.initialize(stubManager);
+
+    const result = await scheduler.startScheduledSession({ id: session.id });
+    expect(result).toEqual({ claimed: true });
+
+    // System schedule on a session with prior assistant turns takes the
+    // continuation path with the post-switch model state: no stranded
+    // kind-X model on a kind-Y row, no silent switch-back.
+    expect(stubManager.continueSession).toHaveBeenCalledTimes(1);
+    expect(stubManager.continueSession).toHaveBeenCalledWith(
+      session.id,
+      'scheduled follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: null, interactive: false }),
+    );
+
+    const row = sessions.getById(session.id);
+    expect(row.model).toBe(CLAUDE_MODEL);
+    expect(row.agentType).toBe('claude-code');
+    expect(row.pendingModel).toBeNull();
+    expect(resolveAgentTypeFromModel(row.model)).toBe(row.agentType);
   });
 
   it('POST /schedule with in-scope cross-kind model on a started session still 400s (FR9 pin)', async () => {

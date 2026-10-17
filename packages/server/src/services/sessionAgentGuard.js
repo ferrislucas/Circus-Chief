@@ -123,6 +123,24 @@ export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProvid
 }
 
 /**
+ * Clearance for a stale `pendingModel` override when an allowed cross-kind
+ * switch applies a new agent kind. A `pendingModel` that resolves to the new
+ * kind stays coherent and is kept; one that resolves to any other kind would
+ * strand the row (or silently switch it back) at the next scheduled fire, so
+ * it is dropped. Non-string values (null/absent) need no clearance.
+ *
+ * @param {string|null} pendingModel - Effective override (supplied ?? stored).
+ * @param {string} newAgentType - The agent kind the switch is applying.
+ * @returns {Object} `{ pendingModel: null }` on disagreement, else `{}`.
+ */
+export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
+  if (typeof pendingModel !== 'string' || pendingModel === '') return {};
+  if (!newAgentType) return {};
+  if (resolveAgentTypeFromModel(pendingModel) === newAgentType) return {};
+  return { pendingModel: null };
+}
+
+/**
  * Shared agentType/providerId re-derivation core.
  */
 function deriveKindUpdate(session, newModel, suppliedProviderId) {

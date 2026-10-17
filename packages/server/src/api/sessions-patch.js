@@ -18,6 +18,7 @@ import {
   deriveAgentTypeUpdate,
   deriveCrossKindAgentTypeUpdate,
   isCrossKindSwitchAllowed,
+  pendingModelClearanceForKindSwitch,
 } from '../services/sessionAgentGuard.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
@@ -308,7 +309,7 @@ function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId
   if (!newModel) return { driftError: null, agentTypeUpdate: {} };
   if (sessionHasNoAssistantMessages(sessionId)) {
     const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, newModel, { providerId: suppliedProviderId });
-    return { driftError: null, agentTypeUpdate };
+    return { driftError: null, agentTypeUpdate: withStalePendingModelClearance(session, updateData, agentTypeUpdate) };
   }
   // Started session (FR2/FR3): every supplied model field must either stay
   // in-kind or be an allowed in-scope kind switch; gemini stays rejected.
@@ -326,7 +327,31 @@ function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId
   // when the caller didn't supply one explicitly).
   return {
     driftError: null,
-    agentTypeUpdate: deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId),
+    agentTypeUpdate: withStalePendingModelClearance(
+      session, updateData, deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId),
+    ),
+  };
+}
+
+/**
+ * Merge a stale-`pendingModel` clearance into an applied kind-change update.
+ * Only acts when the update actually flips `agentType`: the effective
+ * override (explicitly supplied, else the stored row value) is dropped when
+ * it resolves to a different kind than the new one, so a later scheduled
+ * fire cannot strand the row or silently switch it back. A same-new-kind
+ * override stays coherent and is kept; same-kind switches (no `agentType`
+ * in the update) are untouched.
+ * @param {Object} session - The session row before the update.
+ * @param {Object} updateData - The pending PATCH fields.
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ * @returns {Object} The update with clearance merged in (possibly unchanged).
+ */
+function withStalePendingModelClearance(session, updateData, agentTypeUpdate) {
+  if (!agentTypeUpdate.agentType) return agentTypeUpdate;
+  const effectivePendingModel = updateData.pendingModel ?? session.pendingModel ?? null;
+  return {
+    ...agentTypeUpdate,
+    ...pendingModelClearanceForKindSwitch(effectivePendingModel, agentTypeUpdate.agentType),
   };
 }
 
