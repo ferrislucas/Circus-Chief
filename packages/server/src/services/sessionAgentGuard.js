@@ -10,6 +10,32 @@ export const AGENT_TYPE_LABELS = Object.freeze({
 });
 
 /**
+ * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4).
+ * `gemini` is deliberately excluded: any kind change involving it keeps the
+ * old `CROSS_KIND_MODEL_SWITCH` rejection.
+ */
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse']);
+
+/**
+ * Whether a model switch out of `sessionAgentType` is an allowed in-place
+ * cross-provider switch. Same-kind changes are trivially allowed; a kind
+ * change is allowed iff BOTH sides are in `IN_SCOPE_SWITCH_KINDS`.
+ *
+ * Unknown/null models fall back to `claude-code` resolution (never throws);
+ * callers validate model ids separately before consulting this helper.
+ *
+ * @param {string} sessionAgentType - The session's current agent type.
+ * @param {string|null} requestedModel - The requested model id (may be null).
+ * @returns {boolean} True when the switch may proceed on interactive paths.
+ */
+export function isCrossKindSwitchAllowed(sessionAgentType, requestedModel) {
+  const from = sessionAgentType || 'claude-code';
+  const to = resolveAgentTypeFromModel(requestedModel);
+  if (to === from) return true;
+  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+}
+
+/**
  * @param {string} agentType
  * @returns {string}
  */
@@ -71,6 +97,31 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   if (!newModel) return {};
   if (!sessionHasNoAssistantMessages(sessionId)) return {};
 
+  return deriveKindUpdate(session, newModel, opts.providerId);
+}
+
+/**
+ * Derive the agentType (+ auto providerId) update for an ALLOWED in-place
+ * cross-kind switch on a started session. Unlike `deriveAgentTypeUpdate`,
+ * this skips the draft check — the caller already verified
+ * `isCrossKindSwitchAllowed`. Same providerId contract as the draft path:
+ * an explicitly-supplied id wins; otherwise the owning provider is derived
+ * from the model.
+ *
+ * @param {Object} session - The current session row.
+ * @param {string} newModel - The new model being applied.
+ * @param {string|null|undefined} suppliedProviderId - Explicit providerId, or undefined when absent.
+ * @returns {Object} Partial update to merge into the update payload.
+ */
+export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId) {
+  if (!newModel) return {};
+  return deriveKindUpdate(session, newModel, suppliedProviderId);
+}
+
+/**
+ * Shared agentType/providerId re-derivation core.
+ */
+function deriveKindUpdate(session, newModel, suppliedProviderId) {
   const derivedAgentType = resolveAgentTypeFromModel(newModel);
   const update = {};
 
@@ -79,7 +130,7 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   }
 
   // Auto-set providerId from model when the caller didn't pass one explicitly.
-  if (opts.providerId === undefined) {
+  if (suppliedProviderId === undefined) {
     const derivedProvider = resolveProviderFromModel(newModel);
     if (derivedProvider && derivedProvider.id !== session.providerId) {
       update.providerId = derivedProvider.id;

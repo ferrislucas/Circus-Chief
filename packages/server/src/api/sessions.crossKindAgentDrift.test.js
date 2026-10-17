@@ -23,8 +23,13 @@ vi.mock('../services/summaryService.js', () => ({
   onSessionActivity: vi.fn(),
 }));
 
+vi.mock('../services/slashCommandService.js', () => ({
+  resolvePromptSkillOrCommand: vi.fn().mockResolvedValue(null),
+}));
+
 // Import after mocks.
 import sessionsRouter from './sessions.js';
+import { continueSession } from '../services/sessionManager.js';
 
 /**
  * Regression: a session's `agent_type` and `model` must stay the same "kind".
@@ -157,7 +162,7 @@ describe('Cross-kind agent/model drift on model change', () => {
     expect(sessions.getById(session.id).agentType).toBe('claude-code');
   });
 
-  it('rejects a cross-kind model change on a started session (has assistant messages) with 400', async () => {
+  it('allows an in-scope cross-kind model change on a started session and re-derives agentType (FR2)', async () => {
     // Start from a running Claude session that has an assistant message.
     const session = sessions.create(project.id, 'Started Claude Session', 'Initial prompt', {
       model: CLAUDE_SONNET,
@@ -167,17 +172,16 @@ describe('Cross-kind agent/model drift on model change', () => {
     // Add an assistant message to simulate a started session.
     messages.create(session.id, 'assistant', 'Hello, I am Claude.');
 
-    const res = await request(app)
+    await request(app)
       .patch(`/api/sessions/${session.id}`)
-      .send({ model: OPENAI_MODEL, providerId: openaiProvider.id });
+      .send({ model: OPENAI_MODEL, providerId: openaiProvider.id })
+      .expect(200);
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-
-    // The session must NOT have been mutated.
-    const unchanged = sessions.getById(session.id);
-    expect(unchanged.model).toBe(CLAUDE_SONNET);
-    expect(unchanged.agentType).toBe('claude-code');
+    // The model change is persisted AND agent_type follows the model kind.
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(OPENAI_MODEL);
+    expect(updated.agentType).toBe('codex');
+    expect(updated.providerId).toBe(openaiProvider.id);
   });
 
   it('does not block same-kind model change on a started session', async () => {
@@ -281,5 +285,194 @@ describe('Gemini kind coverage — cross-kind PATCH re-derivation', () => {
     const updated = sessions.getById(session.id);
     expect(updated.model).toBe(CLAUDE_MODEL);
     expect(updated.agentType).toBe('claude-code');
+  });
+});
+
+/**
+ * RED (plan Phase 1, FR1/FR2/FR9): in-place cross-provider switch on
+ * STARTED sessions (has ≥1 assistant message) for in-scope kinds
+ * (claude-code ↔ codex ↔ muse). Gemini stays blocked everywhere, and the
+ * non-interactive schedule path stays strict.
+ */
+describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
+  let app;
+  let project;
+  let openaiProvider;
+  let anthropicProvider;
+  let metaProvider;
+  let googleProvider;
+
+  const GPT_MODEL = 'gpt-xkind-test';
+  const CLAUDE_MODEL = 'claude-xkind-test';
+  const MUSE_MODEL = 'muse-xkind-test';
+  const GEMINI_MODEL = 'gemini-xkind-test';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    project = projects.create('XKind Started Project', '/tmp/xkind-started-test');
+
+    openaiProvider = modelProviders.create({
+      name: 'OpenAI XKind', baseUrl: 'https://api.openai.xkind', authToken: 'key-o', kind: 'openai',
+    });
+    modelProviders.addModel(openaiProvider.id, { modelId: GPT_MODEL, displayName: 'GPT XKind', tier: 'custom' });
+
+    anthropicProvider = modelProviders.create({
+      name: 'Anthropic XKind', baseUrl: 'https://api.anthropic.xkind', authToken: 'key-a', kind: 'anthropic',
+    });
+    modelProviders.addModel(anthropicProvider.id, { modelId: CLAUDE_MODEL, displayName: 'Claude XKind', tier: 'sonnet' });
+
+    metaProvider = modelProviders.create({
+      name: 'Meta XKind', baseUrl: null, authToken: null, kind: 'meta',
+    });
+    modelProviders.addModel(metaProvider.id, { modelId: MUSE_MODEL, displayName: 'Muse XKind', tier: 'custom' });
+
+    googleProvider = modelProviders.create({
+      name: 'Google XKind', baseUrl: 'https://generativelanguage.xkind', authToken: 'key-g', kind: 'google',
+    });
+    modelProviders.addModel(googleProvider.id, { modelId: GEMINI_MODEL, displayName: 'Gemini XKind', tier: 'custom' });
+  });
+
+  afterEach(() => {
+    try { modelProviders.delete(openaiProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(metaProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
+    try { projects.delete(project.id); } catch { /* noop */ }
+  });
+
+  /** Started session: waiting + ≥1 assistant message. */
+  function createStartedSession({ name, model, providerId }) {
+    const session = sessions.create(project.id, name, 'Initial prompt', {
+      model,
+      providerId,
+      status: 'waiting',
+    });
+    messages.create(session.id, 'assistant', 'Prior assistant turn.');
+    return sessions.getById(session.id);
+  }
+
+  it('PATCH model codex→claude-code on a started session persists model + re-derived agentType', async () => {
+    const session = createStartedSession({ name: 'Codex Started', model: GPT_MODEL, providerId: openaiProvider.id });
+    expect(session.agentType).toBe('codex');
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: CLAUDE_MODEL, providerId: anthropicProvider.id })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(CLAUDE_MODEL);
+    expect(updated.agentType).toBe('claude-code');
+    expect(updated.providerId).toBe(anthropicProvider.id);
+  });
+
+  it('PATCH pendingModel codex→claude-code on a started session persists pendingModel + re-derived agentType', async () => {
+    const session = createStartedSession({ name: 'Codex Started Pending', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ pendingModel: CLAUDE_MODEL })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.pendingModel).toBe(CLAUDE_MODEL);
+    expect(updated.agentType).toBe('claude-code');
+  });
+
+  it('PATCH model claude→muse on a started session persists model + re-derived agentType', async () => {
+    const session = createStartedSession({ name: 'Claude Started', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: MUSE_MODEL, providerId: metaProvider.id })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(MUSE_MODEL);
+    expect(updated.agentType).toBe('muse');
+  });
+
+  it('PATCH model involving gemini on a started session still 400s and mutates nothing', async () => {
+    const session = createStartedSession({ name: 'Claude Started Gemini', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: GEMINI_MODEL, providerId: googleProvider.id });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(CLAUDE_MODEL);
+    expect(unchanged.agentType).toBe('claude-code');
+    expect(unchanged.providerId).toBe(anthropicProvider.id);
+  });
+
+  it('PATCH model gemini→claude on a started session still 400s and mutates nothing', async () => {
+    const session = createStartedSession({ name: 'Gemini Started', model: GEMINI_MODEL, providerId: googleProvider.id });
+    expect(session.agentType).toBe('gemini');
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(GEMINI_MODEL);
+    expect(unchanged.agentType).toBe('gemini');
+  });
+
+  it('POST /message with in-scope cross-kind model on a started session is accepted and dispatched', async () => {
+    const session = createStartedSession({ name: 'Codex Msg Started', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    const res = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'follow-up on new provider', model: CLAUDE_MODEL });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id,
+      'follow-up on new provider',
+      expect.anything(),
+      expect.objectContaining({ model: CLAUDE_MODEL, interactive: true }),
+    );
+  });
+
+  it('POST /message with gemini cross-kind model still 400s and dispatches nothing', async () => {
+    const session = createStartedSession({ name: 'Claude Msg Started', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+
+    const res = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'follow-up', model: GEMINI_MODEL });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    expect(continueSession).not.toHaveBeenCalled();
+  });
+
+  it('POST /schedule with in-scope cross-kind model on a started session still 400s (FR9 pin)', async () => {
+    const session = createStartedSession({ name: 'Codex Sched Started', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    const res = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'scheduled follow-up',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(),
+        model: CLAUDE_MODEL,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(GPT_MODEL);
+    expect(unchanged.pendingModel).not.toBe(CLAUDE_MODEL);
   });
 });

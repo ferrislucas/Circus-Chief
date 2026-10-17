@@ -31,6 +31,7 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
   let codexSession;
   let anthropicProvider;
   let openaiProvider;
+  let googleProvider;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,6 +79,19 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       tier: 'custom',
     });
 
+    // Google-kind provider for Gemini models (FR3: gemini cross-kind stays blocked).
+    googleProvider = modelProviders.create({
+      name: 'Google Provider',
+      baseUrl: 'https://generativelanguage.example',
+      authToken: 'key-g',
+      kind: 'google',
+    });
+    modelProviders.addModel(googleProvider.id, {
+      modelId: 'gemini-flash-test',
+      displayName: 'Gemini Flash Test',
+      tier: 'custom',
+    });
+
     // Two sessions, one per agent kind, both stopped so messages are accepted.
     claudeSession = sessions.create(project.id, 'Claude Session', 'hi', {
       agentType: 'claude-code',
@@ -114,6 +128,11 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       /* noop */
     }
     try {
+      modelProviders.delete(googleProvider.id);
+    } catch {
+      /* noop */
+    }
+    try {
       projects.delete(project.id);
     } catch {
       /* noop */
@@ -142,22 +161,21 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(continueSession).not.toHaveBeenCalled();
   });
 
-  it('Claude session + Codex model → 400 CROSS_KIND_MODEL_SWITCH, continueSession NOT called', async () => {
+  it('Claude session + Codex model (in-scope cross-kind) → 200 and dispatched (FR1)', async () => {
     const res = await request(app)
       .post(`/api/sessions/${claudeSession.id}/message`)
       .send({ content: 'follow-up', model: 'gpt-4o-test' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(res.body.message).toMatch(/Claude Code/);
-    expect(res.body.message).toMatch(/Codex/);
-    // Route must short-circuit BEFORE dispatching continueSession.
-    expect(continueSession).not.toHaveBeenCalled();
-
-    // And the session's model must NOT have been flipped as a side effect.
-    const refreshed = sessions.getById(claudeSession.id);
-    expect(refreshed.model).toBe('claude-sonnet-test');
-    expect(refreshed.agentType).toBe('claude-code');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    // The turn setup (not the route) persists the re-derived kind.
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      claudeSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: 'gpt-4o-test' }),
+    );
   });
 
   it('rejects invalid model ids before dispatching continuation', async () => {
@@ -180,20 +198,20 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(continueSession).toHaveBeenCalledTimes(1);
   });
 
-  it('Codex session + Claude model → 400 CROSS_KIND_MODEL_SWITCH (reverse direction)', async () => {
+  it('Codex session + Claude model (in-scope cross-kind) → 200 and dispatched (FR1, reverse direction)', async () => {
     const res = await request(app)
       .post(`/api/sessions/${codexSession.id}/message`)
       .send({ content: 'follow-up', model: 'claude-sonnet-test' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(res.body.message).toMatch(/Codex/);
-    expect(res.body.message).toMatch(/Claude Code/);
-    expect(continueSession).not.toHaveBeenCalled();
-
-    const refreshed = sessions.getById(codexSession.id);
-    expect(refreshed.model).toBe('gpt-4o-test');
-    expect(refreshed.agentType).toBe('codex');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      codexSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: 'claude-sonnet-test' }),
+    );
   });
 
   it('Claude session with no explicit model falls back to session.model (same-kind) → 200', async () => {
@@ -330,6 +348,30 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     } finally {
       activeSessions.delete(claudeSession.id);
     }
+  });
+
+  it('Claude session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR3 pin)', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: 'follow-up', model: 'gemini-flash-test' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    expect(continueSession).not.toHaveBeenCalled();
+
+    const refreshed = sessions.getById(claudeSession.id);
+    expect(refreshed.model).toBe('claude-sonnet-test');
+    expect(refreshed.agentType).toBe('claude-code');
+  });
+
+  it('Codex session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR3 pin)', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${codexSession.id}/message`)
+      .send({ content: 'follow-up', model: 'gemini-flash-test' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    expect(continueSession).not.toHaveBeenCalled();
   });
 
   it('cancels an existing schedule after preparation succeeds and dispatches chat', async () => {

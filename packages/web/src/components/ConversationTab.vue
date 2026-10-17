@@ -145,6 +145,8 @@ import StaleBadge from './StaleBadge.vue';
 import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
+import { useProvidersStore } from '../stores/providers.js';
+import { agentTypeForProviders, persistModelSelectionWithConfirm } from './crossKindSwitch.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -166,6 +168,7 @@ const props = defineProps({
 defineEmits(['prompt-focus', 'prompt-blur']);
 
 const sessionsStore = useInjectedSessionsStore();
+const providersStore = useProvidersStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
@@ -537,25 +540,34 @@ watch(
   { immediate: true }
 );
 
+function revertModelSelection(model, providerId) {
+  suppressNextModelPersist = true;
+  selectedModel.value = model;
+  selectedProviderId.value = providerId;
+}
+
 // Persist model selection to session
 watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
   if (suppressNextModelPersist) {
     suppressNextModelPersist = false;
     return;
   }
-  if (oldModel !== null && newModel && newModel !== oldModel) {
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
-    } catch (err) {
-      console.error('Failed to persist model selection:', err);
-    }
-  } else if (newModel && newProviderId !== oldProviderId) {
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
-    } catch (err) {
-      console.error('Failed to persist model provider selection:', err);
-    }
-  }
+  if (oldModel === null || !newModel) return;
+  if (newModel === oldModel && newProviderId === oldProviderId) return;
+
+  // In-scope kind changes on started sessions need confirmation (FRD §4);
+  // gemini switches skip it since the backend still rejects them itself.
+  const currentSession = sessionsStore.currentSession;
+  await persistModelSelectionWithConfirm({
+    oldModel, oldProviderId, newModel, newProviderId,
+    fromAgentType: agentTypeForProviders(providersStore.providers, oldProviderId, oldModel),
+    toAgentType: agentTypeForProviders(providersStore.providers, newProviderId, newModel),
+    isStarted: Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession),
+    confirmFn: (copy) => window.confirm(copy),
+    persistFn: (model, providerId) => sessionsStore.updateSessionModel(props.sessionId, model, providerId),
+    onError: (err) => uiStore.error(err.message),
+    revertFn: revertModelSelection,
+  });
 });
 
 // Form submission handler

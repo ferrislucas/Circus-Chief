@@ -11,8 +11,8 @@
  */
 
 import { sessions, messages, attachments, conversations } from '../database.js';
-import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
-import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { resolveAgentTypeFromModel, resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
+import { reconcileAgentTypeForRun, deriveAgentTypeUpdate, isCrossKindSwitchAllowed } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
@@ -27,6 +27,9 @@ import {
 } from './streamEventHandler.js';
 import { claimSessionExecution } from './sessionExecutionOwnership.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
+
+/** Default agent kind for sessions/rows without a stored agentType. */
+const DEFAULT_AGENT_TYPE = 'claude-code';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -43,10 +46,10 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
  * @param {Object} [session] - Session row used for session-scoped adapter config.
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
-export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
+export function createAgentForSession(agentType = DEFAULT_AGENT_TYPE, config = {}, session = null) {
   // Session-bound allowance sources tap their adapter's stream (Codex headers/
   // rollout tails, Claude rate-limit events); observation is always on.
-  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const allowance = ['codex', DEFAULT_AGENT_TYPE].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
   const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
@@ -88,8 +91,17 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
 
 /**
  * Resolve model/provider and build session environment for a continue operation.
+ *
+ * In-place cross-kind switch (FRD §7): when the requested model resolves to a
+ * different agent kind, the switch is in scope (claude-code ↔ codex ↔ muse),
+ * and the turn is interactive, the session row follows the new kind
+ * ({ model, agentType, providerId }) and the turn takes the model-switch
+ * context path with resume forced off. Non-interactive turns (scheduled
+ * continuation, auto-send, lane runs) keep the legacy behavior exactly
+ * (FR9): the model is stored but the kind is never re-derived there — only
+ * the interactive message + PATCH paths allow a switch.
  */
-function buildContinueModelAndEnv(session, sessionId, model) {
+function buildContinueModelAndEnv(session, sessionId, model, { interactive = false } = {}) {
   const effectiveModel = model || session.model;
 
   const provider = resolveProviderFromModel(effectiveModel);
@@ -101,11 +113,24 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   );
 
   const modelChanged = Boolean(model && session.model && model !== session.model);
+  const { kindChanged, newAgentType } = resolveKindSwitch(session, effectiveModel, interactive);
 
   let updatedSession = session;
-  const agentTypeUpdate = effectiveModel ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: session.providerId }) : {};
-  if (model || Object.keys(agentTypeUpdate).length > 0) {
-    sessions.update(sessionId, { ...(model && { model }), ...agentTypeUpdate });
+  const updates = { ...(model && { model }) };
+  if (kindChanged) {
+    updates.agentType = newAgentType;
+    const newProvider = resolveProviderFromModel(effectiveModel);
+    if (newProvider && newProvider.id !== session.providerId) {
+      updates.providerId = newProvider.id;
+    }
+  } else {
+    Object.assign(
+      updates,
+      effectiveModel ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: session.providerId }) : {},
+    );
+  }
+  if (Object.keys(updates).length > 0) {
+    sessions.update(sessionId, updates);
     updatedSession = sessions.getById(sessionId);
   }
 
@@ -113,16 +138,34 @@ function buildContinueModelAndEnv(session, sessionId, model) {
     effectiveModel,
     sessionEnv,
     commitAttributionOverride,
-    modelChanged,
+    modelChanged: modelChanged || kindChanged,
+    kindChanged,
     session: updatedSession,
   };
+}
+
+/**
+ * Detect an allowed in-place kind switch for a continue turn: the effective
+ * model resolves to a different agent kind, both kinds are in scope
+ * (claude-code ↔ codex ↔ muse), and the turn is interactive. Anything else
+ * (same kind, gemini, non-interactive) is not a switch.
+ * @returns {{ kindChanged: boolean, newAgentType: string }}
+ */
+function resolveKindSwitch(session, effectiveModel, interactive) {
+  const currentAgentType = session.agentType || DEFAULT_AGENT_TYPE;
+  const newAgentType = effectiveModel ? resolveAgentTypeFromModel(effectiveModel) : currentAgentType;
+  const kindChanged = Boolean(effectiveModel)
+    && newAgentType !== currentAgentType
+    && isCrossKindSwitchAllowed(currentAgentType, effectiveModel)
+    && interactive;
+  return { kindChanged, newAgentType };
 }
 
 /**
  * Build query params and agent call meta for a continue session operation.
  */
 async function buildContinueParams({
-  sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
+  sessionId, session, systemPrompt, effectiveModel, sessionEnv,
   modelChanged, activeConversation, promptWithAttachments,
   workingDirectory, controller, agentType, agent, commitAttributionOverride,
 }) {
@@ -151,7 +194,7 @@ async function buildContinueParams({
     conversationId: activeConversation.id,
     callType: 'continueSession',
     agentType,
-    model,
+    model: effectiveModel,
     effortLevel: session.effortLevel,
     isResume: canResume,
     promptLength: promptWithContext.length,
@@ -192,7 +235,7 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
  * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object }}
  */
 export async function prepareContinueTurn({ session, sessionId, content, workingDirectory, options, controller }) {
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
+  const { systemPrompt = null, fileAttachments = [], model = null, interactive = false } = options;
   // Single atomic admission gate: a live turn — running or still shutting
   // down after a Stop — owns the session until its finalizer releases it.
   claimSessionExecution(sessionId, controller);
@@ -205,18 +248,26 @@ export async function prepareContinueTurn({ session, sessionId, content, working
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
 
-    const agentType = session.agentType || 'claude-code';
-    const agent = createAgentForSession(agentType, {}, session);
-
-    let currentSession = session;
-    const modelEnv = buildContinueModelAndEnv(currentSession, sessionId, model);
-    currentSession = modelEnv.session;
+    // Resolve the effective model/kind BEFORE creating the adapter, so an
+    // allowed in-place switch runs on the NEW adapter with rebuilt env.
+    const modelEnv = buildContinueModelAndEnv(session, sessionId, model, { interactive });
+    const currentSession = modelEnv.session;
     if (currentSession.gitWorktree && modelEnv.commitAttributionOverride) {
       await ensureWorktreeCommitAttributionHook(currentSession.gitWorktree);
     }
 
+    // A kind switch discards the old native resume chain (FR4): never send
+    // resume, and clear the stored pointer so later turns can't reuse it.
+    if (modelEnv.kindChanged) {
+      conversations.update(activeConversation.id, { claudeSessionId: null });
+      activeConversation.claudeSessionId = null;
+    }
+
+    const agentType = currentSession.agentType || DEFAULT_AGENT_TYPE;
+    const agent = createAgentForSession(agentType, {}, currentSession);
+
     const { queryParams, agentCallMeta } = await buildContinueParams({
-      sessionId, session: currentSession, model, systemPrompt,
+      sessionId, session: currentSession, systemPrompt,
       effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
       commitAttributionOverride: modelEnv.commitAttributionOverride,
       modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
@@ -264,7 +315,7 @@ export async function prepareRunTurn({ session, sessionId, prompt, workingDirect
     currentSession = reconcileAgentTypeForRun(currentSession, sessionId, model);
 
     // Create agent via gateway (or mock agent in mock mode)
-    const agentType = currentSession.agentType || 'claude-code';
+    const agentType = currentSession.agentType || DEFAULT_AGENT_TYPE;
     const agent = createAgentForSession(agentType, {}, currentSession);
 
     const { effectiveModel, sessionEnv, commitAttributionOverride } =

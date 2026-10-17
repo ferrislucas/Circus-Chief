@@ -15,6 +15,8 @@ import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
+  deriveCrossKindAgentTypeUpdate,
+  isCrossKindSwitchAllowed,
 } from '../services/sessionAgentGuard.js';
 
 const router = Router();
@@ -248,7 +250,24 @@ function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId
     const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, newModel, { providerId: suppliedProviderId });
     return { driftError: null, agentTypeUpdate };
   }
-  return { driftError: checkCrossKindSwitch(session, newModel), agentTypeUpdate: {} };
+  // Started session (FR2/FR3): every supplied model field must either stay
+  // in-kind or be an allowed in-scope kind switch; gemini stays rejected.
+  for (const fieldModel of [updateData.model, updateData.pendingModel]) {
+    if (fieldModel === undefined) continue;
+    const fieldError = checkCrossKindSwitch(session, fieldModel);
+    if (fieldError && !isCrossKindSwitchAllowed(session.agentType, fieldModel)) {
+      return { driftError: fieldError, agentTypeUpdate: {} };
+    }
+  }
+  if (!checkCrossKindSwitch(session, newModel)) {
+    return { driftError: null, agentTypeUpdate: {} };
+  }
+  // Allowed in-place switch: persist the re-derived kind (+ auto providerId
+  // when the caller didn't supply one explicitly).
+  return {
+    driftError: null,
+    agentTypeUpdate: deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId),
+  };
 }
 
 /**
