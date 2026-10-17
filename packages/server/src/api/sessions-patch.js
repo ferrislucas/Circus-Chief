@@ -275,7 +275,10 @@ function checkDivergentModelKinds(updateData) {
  */
 function checkPendingModelOnlyKindSwitch(session, sessionId, updateData) {
   if (sessionHasNoAssistantMessages(sessionId)) return null;
-  if (updateData.model !== undefined) return null;
+  // Only a non-empty string `model` counts as "model supplied": an explicit
+  // null/'' clear carries no kind, so a cross-kind `pendingModel` alongside
+  // it is still a pendingModel-only kind switch and must be rejected.
+  if (typeof updateData.model === 'string' && updateData.model !== '') return null;
   const { pendingModel } = updateData;
   if (typeof pendingModel !== 'string' || pendingModel === '') return null;
   return checkCrossKindSwitch(session, pendingModel);

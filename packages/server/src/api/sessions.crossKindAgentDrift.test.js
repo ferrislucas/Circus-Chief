@@ -419,6 +419,62 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(unchanged.pendingModel).toBeNull();
   });
 
+  it('PATCH null-model + cross-kind pendingModel on a started session is rejected and mutates nothing (PR #1 null bypass)', async () => {
+    const session = createStartedSession({ name: 'Codex Started Null Model', model: GPT_MODEL, providerId: openaiProvider.id });
+    expect(session.agentType).toBe('codex');
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: null, pendingModel: CLAUDE_MODEL });
+    expect(res.status).toBe(400);
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(GPT_MODEL);
+    expect(unchanged.pendingModel).toBeNull();
+    expect(unchanged.agentType).toBe('codex');
+    expect(resolveAgentTypeFromModel(unchanged.model)).toBe(unchanged.agentType);
+  });
+
+  it("PATCH empty-string model + cross-kind pendingModel on a started session is rejected and mutates nothing (PR #1 '' bypass)", async () => {
+    const session = createStartedSession({ name: 'Codex Started Empty Model', model: GPT_MODEL, providerId: openaiProvider.id });
+    expect(session.agentType).toBe('codex');
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: '', pendingModel: CLAUDE_MODEL });
+    expect(res.status).toBe(400);
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(GPT_MODEL);
+    expect(unchanged.pendingModel).toBeNull();
+    expect(unchanged.agentType).toBe('codex');
+    expect(resolveAgentTypeFromModel(unchanged.model)).toBe(unchanged.agentType);
+  });
+
+  it('after a rejected null-model + cross-kind pendingModel PATCH, a plain follow-up turn still runs the old kind (PR #1)', async () => {
+    const session = createStartedSession({ name: 'Codex Follow-up After Null Reject', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    const patchRes = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: null, pendingModel: CLAUDE_MODEL });
+    expect(patchRes.status).toBe(400);
+
+    const stored = sessions.getById(session.id);
+    expect(resolveAgentTypeFromModel(stored.model)).toBe(stored.agentType);
+
+    const msgRes = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'plain follow-up' });
+    expect(msgRes.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id,
+      'plain follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: null, interactive: true }),
+    );
+  });
+
   it('after a rejected pendingModel-only cross-kind PATCH, a plain follow-up turn still runs the old kind (#2)', async () => {
     const session = createStartedSession({ name: 'Codex Follow-up After Reject', model: GPT_MODEL, providerId: openaiProvider.id });
 
