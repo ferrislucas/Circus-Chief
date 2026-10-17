@@ -42,6 +42,19 @@ export class ProviderAllowanceService {
     });
   }
 
+  /**
+   * Read-only access to a stored normalized snapshot for scheduling use.
+   * No pruning, no broadcasts, no mutation — pruning stays `getSnapshots()`' job.
+   * Returns a copy so callers cannot corrupt service state by mutating the
+   * result (e.g. `snapshot.allowances.push(...)`).
+   * @param {string} providerId
+   * @returns {object|null} A copy of the stored snapshot, or null when unknown.
+   */
+  getSnapshot(providerId) {
+    const snapshot = this.snapshots.get(providerId) ?? null;
+    return snapshot === null ? null : { ...snapshot, allowances: [...snapshot.allowances] };
+  }
+
   observe(snapshot) {
     const provider = this.#enabledProviders().find((candidate) => candidate.id === snapshot?.providerId);
     if (!provider) return null;
