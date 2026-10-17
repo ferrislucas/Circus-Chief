@@ -3227,6 +3227,24 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    // Loaded providers catalog so the short model ids below resolve to an
+    // authoritative kind (all claude-code): same-kind picker changes persist
+    // without confirmation. Started-session changes with an unloaded catalog
+    // instead show the FRD §4/G4 generic confirmation (covered in the
+    // cross-kind describe block), so these persistence tests need a catalog.
+    vi.mocked(useProvidersStore).mockReturnValue({
+      providers: [
+        {
+          id: 'anthropic-persist', name: 'Anthropic', kind: 'anthropic', isBuiltIn: true,
+          models: [
+            { id: 'm-sonnet', modelId: 'sonnet', displayName: 'Sonnet', tier: 'sonnet' },
+            { id: 'm-opus', modelId: 'opus', displayName: 'Opus', tier: 'opus' },
+            { id: 'm-haiku', modelId: 'haiku', displayName: 'Haiku', tier: 'haiku' },
+          ],
+        },
+      ],
+      fetchProviders: vi.fn().mockResolvedValue(undefined),
+    });
     scheduleMutations = reactive({});
 
     mockSessionsStore = {
@@ -4743,6 +4761,48 @@ describe('ConversationTab - cross-kind switch confirmation (FRD §4)', () => {
 
     expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
     expect(wrapper.find('.model-selector-stub').attributes('data-model')).toBe(CLAUDE_MODEL);
+  });
+
+  it('unloaded providers catalog + differing models shows the generic confirmation (PR #1)', async () => {
+    const GENERIC_COPY =
+      'Switch model? Native context is cleared; full text history is passed to the new provider.';
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    // Catalog not yet loaded: neither end resolves to an authoritative kind.
+    mockProvidersStore.providers = [];
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(GENERIC_COPY);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledTimes(1);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
+  });
+
+  it('deleted provider on the old end shows the generic confirmation, not a mislabeled copy (PR #1)', async () => {
+    const GENERIC_COPY =
+      'Switch model? Native context is cleared; full text history is passed to the new provider.';
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    // The provider that owned the old model was deleted and no remaining
+    // provider owns its model id: the old end is unresolvable.
+    mockProvidersStore.providers = mockProvidersStore.providers.filter(
+      (p) => p.id !== ANTHROPIC_PID,
+    );
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(GENERIC_COPY);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
   });
 
   it('gemini switch asks nothing and surfaces the existing backend error copy on failure', async () => {

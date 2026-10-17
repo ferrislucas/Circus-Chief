@@ -93,6 +93,8 @@ export function isKindResolvable(providers, providerId, modelId) {
  * @param {string} args.fromAgentType
  * @param {string} args.toAgentType
  * @param {boolean} args.isStarted
+ * @param {boolean} [args.modelsDiffer] - whether the old/new model ids differ.
+ * @param {boolean} [args.kindUnresolvable] - whether either end failed `isKindResolvable`.
  * @param {(copy: string) => boolean} args.confirmFn - confirm dialog (window.confirm).
  * @param {(model: string, providerId: string|null) => Promise<unknown>} args.persistFn
  * @param {(err: Error) => void} args.onError - surfaces the backend error copy.
@@ -102,9 +104,10 @@ export function isKindResolvable(providers, providerId, modelId) {
 export async function persistModelSelectionWithConfirm({
   oldModel, oldProviderId, newModel, newProviderId,
   fromAgentType, toAgentType, isStarted,
+  modelsDiffer = false, kindUnresolvable = false,
   confirmFn, persistFn, onError, revertFn,
 }) {
-  const plan = planModelSwitch({ fromAgentType, toAgentType, isStarted });
+  const plan = planModelSwitch({ fromAgentType, toAgentType, isStarted, modelsDiffer, kindUnresolvable });
   if (plan?.action === 'confirm' && !confirmFn(plan.copy)) {
     revertFn(oldModel, oldProviderId);
     return 'cancelled';

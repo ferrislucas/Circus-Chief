@@ -372,17 +372,74 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(updated.providerId).toBe(anthropicProvider.id);
   });
 
-  it('PATCH pendingModel codex→claude-code on a started session persists pendingModel + re-derived agentType', async () => {
+  it('PATCH pendingModel-only codex→claude-code on a started session is rejected and mutates nothing (#2 Option A)', async () => {
     const session = createStartedSession({ name: 'Codex Started Pending', model: GPT_MODEL, providerId: openaiProvider.id });
+    expect(session.agentType).toBe('codex');
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ pendingModel: CLAUDE_MODEL });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(GPT_MODEL);
+    expect(unchanged.pendingModel).toBeNull();
+    expect(unchanged.agentType).toBe('codex');
+    expect(resolveAgentTypeFromModel(unchanged.model)).toBe(unchanged.agentType);
+  });
+
+  it('PATCH pendingModel-only same-kind on a started session is still allowed with agentType unchanged (#2)', async () => {
+    const session = createStartedSession({ name: 'Codex Started Same Pending', model: GPT_MODEL, providerId: openaiProvider.id });
 
     await request(app)
       .patch(`/api/sessions/${session.id}`)
-      .send({ pendingModel: CLAUDE_MODEL })
+      .send({ pendingModel: GPT_MODEL })
       .expect(200);
 
     const updated = sessions.getById(session.id);
-    expect(updated.pendingModel).toBe(CLAUDE_MODEL);
-    expect(updated.agentType).toBe('claude-code');
+    expect(updated.pendingModel).toBe(GPT_MODEL);
+    expect(updated.model).toBe(GPT_MODEL);
+    expect(updated.agentType).toBe('codex');
+  });
+
+  it('PATCH pendingModel-only involving gemini on a started session still 400s and mutates nothing (#2)', async () => {
+    const session = createStartedSession({ name: 'Claude Started Gemini Pending', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ pendingModel: GEMINI_MODEL });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+    const unchanged = sessions.getById(session.id);
+    expect(unchanged.model).toBe(CLAUDE_MODEL);
+    expect(unchanged.agentType).toBe('claude-code');
+    expect(unchanged.pendingModel).toBeNull();
+  });
+
+  it('after a rejected pendingModel-only cross-kind PATCH, a plain follow-up turn still runs the old kind (#2)', async () => {
+    const session = createStartedSession({ name: 'Codex Follow-up After Reject', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    const patchRes = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ pendingModel: CLAUDE_MODEL });
+    expect(patchRes.status).toBe(400);
+
+    const stored = sessions.getById(session.id);
+    expect(resolveAgentTypeFromModel(stored.model)).toBe(stored.agentType);
+
+    const msgRes = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'plain follow-up' });
+    expect(msgRes.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id,
+      'plain follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: null, interactive: true }),
+    );
   });
 
   it('PATCH model claude→muse on a started session persists model + re-derived agentType', async () => {

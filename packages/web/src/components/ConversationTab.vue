@@ -146,7 +146,7 @@ import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
-import { agentTypeForProviders, persistModelSelectionWithConfirm } from './crossKindSwitch.js';
+import { agentTypeForProviders, isKindResolvable, persistModelSelectionWithConfirm } from './crossKindSwitch.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -557,12 +557,20 @@ watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [ol
 
   // In-scope kind changes on started sessions need confirmation (FRD §4);
   // gemini switches skip it since the backend still rejects them itself.
+  // When either end's kind is unresolvable (catalog unloaded, provider
+  // deleted, unknown model id), both agent types silently default to
+  // Claude Code — confirm generically (FRD §4/G4) instead of persisting
+  // silently while the server still performs the kind switch.
   const currentSession = sessionsStore.currentSession;
+  const providers = providersStore.providers;
   await persistModelSelectionWithConfirm({
     oldModel, oldProviderId, newModel, newProviderId,
-    fromAgentType: agentTypeForProviders(providersStore.providers, oldProviderId, oldModel),
-    toAgentType: agentTypeForProviders(providersStore.providers, newProviderId, newModel),
+    fromAgentType: agentTypeForProviders(providers, oldProviderId, oldModel),
+    toAgentType: agentTypeForProviders(providers, newProviderId, newModel),
     isStarted: Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession),
+    modelsDiffer: oldModel !== newModel,
+    kindUnresolvable: !isKindResolvable(providers, oldProviderId, oldModel)
+      || !isKindResolvable(providers, newProviderId, newModel),
     confirmFn: (copy) => window.confirm(copy),
     persistFn: (model, providerId) => sessionsStore.updateSessionModel(props.sessionId, model, providerId),
     onError: (err) => uiStore.error(err.message),

@@ -212,6 +212,23 @@ describe('persistModelSelectionWithConfirm', () => {
     expect(revertFn).not.toHaveBeenCalled();
   });
 
+  it('same-kind types with differing models + unresolvable kind confirm generically (#1 wiring)', async () => {
+    const { persistFn, onError, revertFn } = fns();
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const result = await persistModelSelectionWithConfirm({
+      ...base,
+      fromAgentType: 'claude-code', toAgentType: 'claude-code',
+      modelsDiffer: true, kindUnresolvable: true,
+      confirmFn, persistFn, onError, revertFn,
+    });
+    expect(result).toBe('persisted');
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    expect(confirmFn).toHaveBeenCalledWith(
+      'Switch model? Native context is cleared; full text history is passed to the new provider.',
+    );
+    expect(persistFn).toHaveBeenCalledWith('gpt-x', 'o');
+  });
+
   it('same-kind changes persist without confirming', async () => {
     const { confirmFn, persistFn, onError, revertFn } = fns();
     const result = await persistModelSelectionWithConfirm({

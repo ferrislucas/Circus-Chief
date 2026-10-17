@@ -259,6 +259,39 @@ function checkDivergentModelKinds(updateData) {
 }
 
 /**
+ * Reject a pendingModel-only change that crosses agent kinds on a started
+ * session (has prior assistant turns). Persisting it would strand
+ * model/agentType on different kinds — the next plain turn runs the adapter
+ * for session.agentType with env rebuilt from session.model (FR8). Skipped
+ * unless pendingModel is the only model field supplied as a non-empty
+ * string (anything else cannot strand the row), and skipped on drafts (the
+ * draft re-derivation path below owns those). Same-kind pendingModel-only
+ * changes pass through (checkCrossKindSwitch returns null for them).
+ * @param {Object} session
+ * @param {string} sessionId
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkPendingModelOnlyKindSwitch(session, sessionId, updateData) {
+  if (sessionHasNoAssistantMessages(sessionId)) return null;
+  if (updateData.model !== undefined) return null;
+  const { pendingModel } = updateData;
+  if (typeof pendingModel !== 'string' || pendingModel === '') return null;
+  return checkCrossKindSwitch(session, pendingModel);
+}
+
+/**
+ * First model-kind invariant gate for a pending update: the both-fields
+ * divergent-pair rejection, then the pendingModel-only cross-kind rejection
+ * (Option A — 4xx with no mutation; the UI always sends `model` together
+ * with `pendingModel`, so the latter only affects direct API callers).
+ */
+function checkModelKindInvariant(session, sessionId, updateData) {
+  return checkDivergentModelKinds(updateData)
+    ?? checkPendingModelOnlyKindSwitch(session, sessionId, updateData);
+}
+
+/**
  * Apply the cross-kind agent/model drift guard to a pending update.
  * Returns the error payload (for started sessions) or the agentType update (for drafts).
  * Does NOT mutate updateData — caller merges the returned agentTypeUpdate.
@@ -269,8 +302,8 @@ function checkDivergentModelKinds(updateData) {
  * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
  */
 function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
-  const divergentError = checkDivergentModelKinds(updateData);
-  if (divergentError) return { driftError: divergentError, agentTypeUpdate: {} };
+  const driftError = checkModelKindInvariant(session, sessionId, updateData);
+  if (driftError) return { driftError, agentTypeUpdate: {} };
   const newModel = updateData.pendingModel ?? updateData.model ?? null;
   if (!newModel) return { driftError: null, agentTypeUpdate: {} };
   if (sessionHasNoAssistantMessages(sessionId)) {
