@@ -30,6 +30,7 @@ vi.mock('../services/slashCommandService.js', () => ({
 // Import after mocks.
 import sessionsRouter from './sessions.js';
 import { continueSession } from '../services/sessionManager.js';
+import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
 /**
  * Regression: a session's `agent_type` and `model` must stay the same "kind".
@@ -455,6 +456,78 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
     expect(continueSession).not.toHaveBeenCalled();
+  });
+
+  it('PATCH model + pendingModel of divergent in-scope kinds is rejected and mutates nothing (#2)', async () => {
+    const claudeSession = createStartedSession({ name: 'Claude Divergent', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+    const codexSession = createStartedSession({ name: 'Codex Divergent', model: GPT_MODEL, providerId: openaiProvider.id });
+
+    // model resolves to codex-kind while pendingModel resolves to
+    // claude-kind: no single agentType can agree with both persisted fields.
+    const res = await request(app)
+      .patch(`/api/sessions/${claudeSession.id}`)
+      .send({ model: GPT_MODEL, pendingModel: CLAUDE_MODEL });
+    expect(res.status).toBe(400);
+
+    const unchanged = sessions.getById(claudeSession.id);
+    expect(unchanged.model).toBe(CLAUDE_MODEL);
+    expect(unchanged.pendingModel).toBeNull();
+    expect(unchanged.agentType).toBe('claude-code');
+    expect(unchanged.providerId).toBe(anthropicProvider.id);
+    // Invariant: persisted model and agentType agree in kind, so a
+    // follow-up non-interactive turn runs adapter-kind == model-kind (FR9).
+    expect(resolveAgentTypeFromModel(unchanged.model)).toBe(unchanged.agentType);
+
+    // Mirror direction: model claude-kind + pendingModel codex-kind.
+    const res2 = await request(app)
+      .patch(`/api/sessions/${codexSession.id}`)
+      .send({ model: CLAUDE_MODEL, pendingModel: GPT_MODEL });
+    expect(res2.status).toBe(400);
+
+    const unchanged2 = sessions.getById(codexSession.id);
+    expect(unchanged2.model).toBe(GPT_MODEL);
+    expect(unchanged2.pendingModel).toBeNull();
+    expect(unchanged2.agentType).toBe('codex');
+    expect(resolveAgentTypeFromModel(unchanged2.model)).toBe(unchanged2.agentType);
+  });
+
+  it('stale stored model + NO override: POST /message is a same-kind continuation, not a switch (#1 route guard)', async () => {
+    const session = createStartedSession({ name: 'Codex Stale Msg', model: GPT_MODEL, providerId: openaiProvider.id });
+    // Model renamed after the session started: the stored model id no
+    // longer resolves and falls back to 'claude-code'. With no explicit
+    // model override the guard must NOT classify this as a cross-kind
+    // switch in either direction — the turn continues same-kind.
+    sessions.update(session.id, { model: 'stale-renamed-model-xyz' });
+
+    const res = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'follow-up with no override' });
+
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id,
+      'follow-up with no override',
+      expect.anything(),
+      expect.objectContaining({ model: null, interactive: true }),
+    );
+  });
+
+  it('stale stored model on a gemini session + NO override: POST /message must NOT 400 (#1 route guard)', async () => {
+    const session = createStartedSession({ name: 'Gemini Stale Msg', model: GEMINI_MODEL, providerId: googleProvider.id });
+    expect(session.agentType).toBe('gemini');
+    sessions.update(session.id, { model: 'stale-renamed-model-xyz' });
+
+    // Pre-fix this 400s: the stale id falls back to 'claude-code' and the
+    // guard reads gemini→claude-code as an out-of-scope switch, bricking a
+    // session the user never asked to switch. No override means no switch.
+    const res = await request(app)
+      .post(`/api/sessions/${session.id}/message`)
+      .send({ content: 'follow-up with no override' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(continueSession).toHaveBeenCalledTimes(1);
   });
 
   it('POST /schedule with in-scope cross-kind model on a started session still 400s (FR9 pin)', async () => {

@@ -243,6 +243,45 @@ describe('prepareContinueTurn cross-kind switch (FR4/FR5/FR7/FR8/FR10)', () => {
     }
   });
 
+  it('stale stored model + NO override: interactive turn must NOT flip kind, clear resume, or inject history (#1)', async () => {
+    const session = createStartedCodexSession();
+    // The stored model no longer resolves (provider deleted / model
+    // renamed or disabled): resolution falls back to 'claude-code'. A turn
+    // carrying no explicit model override is NOT a switch — it must
+    // continue same-kind on the existing adapter.
+    sessions.update(session.id, { model: 'stale-renamed-model-xyz' });
+
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent());
+    try {
+      const { queryParams, agentCallMeta } = await prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'follow-up with no model override',
+        workingDirectory: tempDir,
+        options: { model: null, interactive: true },
+        controller: new AbortController(),
+      });
+
+      // Same-kind continuation on the EXISTING adapter (pre-fix: 'claude-code').
+      expect(createAgentSpy.mock.calls[0][0]).toBe('codex');
+      expect(agentCallMeta.agentType).toBe('codex');
+
+      // Row unmutated: no silent agentType flip, model untouched.
+      const row = sessions.getById(session.id);
+      expect(row.agentType).toBe('codex');
+      expect(row.model).toBe('stale-renamed-model-xyz');
+
+      // No resume loss, no model-switch context (same-kind rules, FR6):
+      // the codex adapter always takes the plain continuation path, never
+      // the "switched to a different model" switch path.
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBe('stale-native-id');
+      expect(queryParams.prompt).not.toContain('You switched to a different model mid-conversation');
+      expect(queryParams.prompt).toContain('from this session so far');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
   it('same-kind control: claude turn without a model override still resumes with no history prefix (FR6)', async () => {
     const session = sessionRepo.create(project.id, 'Claude Same-kind', 'initial prompt', {
       model: CLAUDE_OPUS,

@@ -113,7 +113,7 @@ function buildContinueModelAndEnv(session, sessionId, model, { interactive = fal
   );
 
   const modelChanged = Boolean(model && session.model && model !== session.model);
-  const { kindChanged, newAgentType } = resolveKindSwitch(session, effectiveModel, interactive);
+  const { kindChanged, newAgentType } = resolveKindSwitch(session, effectiveModel, interactive, Boolean(model));
 
   let updatedSession = session;
   const updates = { ...(model && { model }) };
@@ -145,16 +145,20 @@ function buildContinueModelAndEnv(session, sessionId, model, { interactive = fal
 }
 
 /**
- * Detect an allowed in-place kind switch for a continue turn: the effective
- * model resolves to a different agent kind, both kinds are in scope
- * (claude-code ↔ codex ↔ muse), and the turn is interactive. Anything else
- * (same kind, gemini, non-interactive) is not a switch.
+ * Detect an allowed in-place kind switch for a continue turn: the request
+ * carried an explicit model override that resolves to a different agent
+ * kind, both kinds are in scope (claude-code ↔ codex ↔ muse), and the turn
+ * is interactive. A turn with no override is never a switch — even when the
+ * stored model id has gone stale and falls back to 'claude-code'
+ * resolution. Anything else (same kind, gemini, non-interactive) is not a
+ * switch.
  * @returns {{ kindChanged: boolean, newAgentType: string }}
  */
-function resolveKindSwitch(session, effectiveModel, interactive) {
+function resolveKindSwitch(session, effectiveModel, interactive, hasExplicitModel = false) {
   const currentAgentType = session.agentType || DEFAULT_AGENT_TYPE;
   const newAgentType = effectiveModel ? resolveAgentTypeFromModel(effectiveModel) : currentAgentType;
   const kindChanged = Boolean(effectiveModel)
+    && hasExplicitModel
     && newAgentType !== currentAgentType
     && isCrossKindSwitchAllowed(currentAgentType, effectiveModel)
     && interactive;

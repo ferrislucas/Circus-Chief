@@ -58,6 +58,29 @@ export function agentTypeForProviders(providers, providerId, modelId) {
   return agentTypeForKind(owner?.kind);
 }
 
+/** Generic switch confirmation (FRD §4/G4) for when a kind is unresolvable. */
+export const GENERIC_SWITCH_COPY =
+  'Switch model? Native context is cleared; full text history is passed to the new provider.';
+
+/**
+ * Whether a (providerId, modelId) pair resolves to an authoritative kind in
+ * the providers catalog. False when the catalog is unloaded, the provider
+ * was deleted AND no remaining provider owns the model id, or the model id
+ * is unknown — exactly the cases where `agentTypeForProviders` silently
+ * defaults to Claude Code. Mirrors its lookup order (explicit provider id,
+ * then model ownership).
+ * @param {Array|null} providers - Provider rows with `id`, `kind`, and `models`.
+ * @param {string|null} providerId
+ * @param {string|null} modelId
+ * @returns {boolean}
+ */
+export function isKindResolvable(providers, providerId, modelId) {
+  const list = providers || [];
+  if (providerId && list.some((p) => p.id === providerId)) return true;
+  if (modelId && list.some((p) => (p.models || []).some((m) => m.modelId === modelId))) return true;
+  return !providerId && !modelId;
+}
+
 /**
  * Orchestrate one picker change: confirm in-scope kind switches, persist,
  * and roll back on cancel/failure so the picker always matches the server.
@@ -103,7 +126,12 @@ export async function persistModelSelectionWithConfirm({
 /**
  * Decide what the picker must do before persisting a model change.
  *
- * @param {{ fromAgentType: string, toAgentType: string, isStarted: boolean }} args
+ * @param {{ fromAgentType: string, toAgentType: string, isStarted: boolean, modelsDiffer?: boolean, kindUnresolvable?: boolean }} args
+ *   - `modelsDiffer`: whether the old/new model ids differ (the caller
+ *     compares them; resolved agent types alone cannot tell when both
+ *     defaulted to Claude Code).
+ *   - `kindUnresolvable`: whether either end failed `isKindResolvable`
+ *     (catalog unloaded, provider deleted, unknown model id).
  * @returns {{ action: 'confirm', copy: string } | { action: 'backend' } | null}
  *   - `null`: persist directly (same kind, or draft session — nothing to lose).
  *   - `{ action: 'confirm', copy }`: show the copy in a confirm dialog and
@@ -111,8 +139,14 @@ export async function persistModelSelectionWithConfirm({
  *   - `{ action: 'backend' }`: persist directly; the backend rejects
  *     out-of-scope (gemini) switches with the existing error copy.
  */
-export function planModelSwitch({ fromAgentType, toAgentType, isStarted }) {
+export function planModelSwitch({ fromAgentType, toAgentType, isStarted, modelsDiffer = false, kindUnresolvable = false }) {
   if (!isStarted) return null;
+  // Either kind defaulted without evidence on a started session with a real
+  // model change: confirm generically (FRD §4/G4) instead of persisting
+  // silently — the specific copy could mislabel an unknown kind.
+  if (kindUnresolvable && modelsDiffer) {
+    return { action: 'confirm', copy: GENERIC_SWITCH_COPY };
+  }
   if (!toAgentType || toAgentType === fromAgentType) return null;
   if (IN_SCOPE_SWITCH_KINDS.includes(fromAgentType) && IN_SCOPE_SWITCH_KINDS.includes(toAgentType)) {
     return {

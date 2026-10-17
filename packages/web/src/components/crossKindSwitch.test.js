@@ -3,6 +3,7 @@ import {
   IN_SCOPE_SWITCH_KINDS,
   agentTypeForKind,
   agentTypeForProviders,
+  isKindResolvable,
   agentLabelForType,
   planModelSwitch,
   persistModelSelectionWithConfirm,
@@ -37,6 +38,22 @@ describe('crossKindSwitch picker helper', () => {
     expect(agentTypeForProviders(providers, null, 'gpt-x')).toBe('codex');
     expect(agentTypeForProviders(providers, null, 'unknown')).toBe('claude-code');
     expect(agentTypeForProviders([], null, null)).toBe('claude-code');
+  });
+
+  it('reports whether a (providerId, modelId) pair resolves to an authoritative kind (#3)', () => {
+    const providers = [
+      { id: 'a', kind: 'anthropic', models: [{ modelId: 'claude-x' }] },
+      { id: 'o', kind: 'openai', models: [{ modelId: 'gpt-x' }] },
+    ];
+    // Resolvable: explicit provider found, or a catalog owner for the model.
+    expect(isKindResolvable(providers, 'o', 'claude-x')).toBe(true);
+    expect(isKindResolvable(providers, null, 'gpt-x')).toBe(true);
+    // Unresolvable: catalog unloaded, provider deleted, or unknown model id.
+    expect(isKindResolvable([], null, 'gpt-x')).toBe(false);
+    expect(isKindResolvable(providers, 'deleted-provider', 'gpt-x')).toBe(true);
+    expect(isKindResolvable(providers, 'deleted-provider', 'unknown-model')).toBe(false);
+    expect(isKindResolvable(providers, null, 'unknown-model')).toBe(false);
+    expect(isKindResolvable(null, null, 'gpt-x')).toBe(false);
   });
 
   it('labels agent types for the confirmation copy', () => {
@@ -78,6 +95,60 @@ describe('crossKindSwitch picker helper', () => {
     expect(planModelSwitch({ fromAgentType: 'gemini', toAgentType: 'claude-code', isStarted: true })).toEqual({
       action: 'backend',
     });
+  });
+
+  it('unresolvable kinds + differing models on a started session ask a generic confirmation (#3)', () => {
+    // Providers catalog unloaded (or provider deleted / unknown model id):
+    // both ends default to 'claude-code', which would persist silently.
+    const plan = planModelSwitch({
+      fromAgentType: 'claude-code',
+      toAgentType: 'claude-code',
+      isStarted: true,
+      modelsDiffer: true,
+      kindUnresolvable: true,
+    });
+    expect(plan?.action).toBe('confirm');
+    expect(plan.copy).toBe(
+      'Switch model? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
+  it('unresolvable kinds with differing resolved types confirm generically, not with a mislabeled copy (#3)', () => {
+    const plan = planModelSwitch({
+      fromAgentType: 'codex',
+      toAgentType: 'claude-code',
+      isStarted: true,
+      modelsDiffer: true,
+      kindUnresolvable: true,
+    });
+    expect(plan?.action).toBe('confirm');
+    expect(plan.copy).toBe(
+      'Switch model? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
+  it('unresolvable kinds but identical models persist silently (no change to confirm)', () => {
+    expect(planModelSwitch({
+      fromAgentType: 'claude-code',
+      toAgentType: 'claude-code',
+      isStarted: true,
+      modelsDiffer: false,
+      kindUnresolvable: true,
+    })).toBeNull();
+  });
+
+  it('unresolvable kinds on a draft session need no confirmation', () => {
+    expect(planModelSwitch({
+      fromAgentType: 'claude-code',
+      toAgentType: 'claude-code',
+      isStarted: false,
+      modelsDiffer: true,
+      kindUnresolvable: true,
+    })).toBeNull();
+  });
+
+  it('resolvable same-kind changes still persist silently with the new flags defaulted', () => {
+    expect(planModelSwitch({ fromAgentType: 'codex', toAgentType: 'codex', isStarted: true })).toBeNull();
   });
 });
 

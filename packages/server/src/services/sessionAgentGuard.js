@@ -56,9 +56,13 @@ export function agentLabel(agentType) {
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
  */
 export function checkCrossKindSwitch(session, requestedModel) {
+  // No requested model override means no switch: a turn that carries no
+  // explicit model continues same-kind on the existing adapter, even when
+  // the stored model id has gone stale (unknown ids fall back to
+  // 'claude-code' resolution, which must never read as a kind change).
+  if (!requestedModel) return null;
   const sessionAgentType = session.agentType || 'claude-code';
-  const effectiveModel = requestedModel || session.model;
-  const requestedAgentType = resolveAgentTypeFromModel(effectiveModel);
+  const requestedAgentType = resolveAgentTypeFromModel(requestedModel);
   if (requestedAgentType === sessionAgentType) return null;
   return {
     error: 'CROSS_KIND_MODEL_SWITCH',

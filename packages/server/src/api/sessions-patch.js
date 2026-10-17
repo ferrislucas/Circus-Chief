@@ -12,12 +12,14 @@ import { validateScheduledAt } from './scheduledAtValidation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 import {
+  agentLabel,
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
   deriveCrossKindAgentTypeUpdate,
   isCrossKindSwitchAllowed,
 } from '../services/sessionAgentGuard.js';
+import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
 const router = Router();
 
@@ -234,6 +236,29 @@ function resetPrStateForSession(sessionId, projectId) {
 }
 
 /**
+ * Reject a PATCH that supplies `model` and `pendingModel` resolving to
+ * different agent kinds: no single `agentType` can agree with both persisted
+ * fields, and the follow-up turn would run adapter-kind ≠ model-kind.
+ * Skipped unless both fields are non-empty strings (anything else cannot
+ * resolve to an authoritative kind).
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkDivergentModelKinds(updateData) {
+  const { model, pendingModel } = updateData;
+  if (typeof model !== 'string' || model === '' || typeof pendingModel !== 'string' || pendingModel === '') {
+    return null;
+  }
+  const modelKind = resolveAgentTypeFromModel(model);
+  const pendingKind = resolveAgentTypeFromModel(pendingModel);
+  if (modelKind === pendingKind) return null;
+  return {
+    error: 'DIVERGENT_MODEL_KINDS',
+    message: `Cannot set model and pendingModel to different agent kinds (${agentLabel(modelKind)} → ${agentLabel(pendingKind)})`,
+  };
+}
+
+/**
  * Apply the cross-kind agent/model drift guard to a pending update.
  * Returns the error payload (for started sessions) or the agentType update (for drafts).
  * Does NOT mutate updateData — caller merges the returned agentTypeUpdate.
@@ -244,6 +269,8 @@ function resetPrStateForSession(sessionId, projectId) {
  * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
  */
 function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
+  const divergentError = checkDivergentModelKinds(updateData);
+  if (divergentError) return { driftError: divergentError, agentTypeUpdate: {} };
   const newModel = updateData.pendingModel ?? updateData.model ?? null;
   if (!newModel) return { driftError: null, agentTypeUpdate: {} };
   if (sessionHasNoAssistantMessages(sessionId)) {
