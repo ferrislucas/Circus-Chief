@@ -990,6 +990,157 @@ describe('SchedulerService', () => {
       const updateCall = sessions.update.mock.calls[0][1];
       expect(updateCall.rescheduleCount).toBe(6);
     });
+
+    describe('quotaWait (quota-aware rescheduling)', () => {
+      const QUOTA_MIN_MS = 2 * 60_000;
+      const QUOTA_MAX_MS = 24 * 60 * 60_000;
+
+      function quotaSession(overrides = {}) {
+        return {
+          id: 'session-1',
+          projectId: 'project-1',
+          rescheduleDelayMinutes: 60,
+          rescheduleCount: 0,
+          maxRescheduleCount: null,
+          maxTotalTokens: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          ...overrides,
+        };
+      }
+
+      it('honors an in-horizon quotaWait without consuming a reschedule attempt', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const scheduledAt = resetsAt + 3 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession());
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt },
+        });
+
+        expect(result).toBe(true);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+          status: 'scheduled',
+          scheduledAt,
+          rescheduleCount: 0,
+          pendingPrompt: 'Continue',
+          pendingConversationId: null,
+        }));
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).toContain('Rescheduled (0x)');
+        expect(updateCall.error).toContain(new Date(scheduledAt).toISOString());
+        expect(updateCall.error).toContain('quota reset');
+      });
+
+      it('floors a near/past quotaWait to now + MIN without consuming an attempt', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+
+        sessions.getById.mockReturnValue(quotaSession());
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt: now - 60_000, scheduledAt: now - 60_000 },
+        });
+
+        expect(result).toBe(true);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+          scheduledAt: now + QUOTA_MIN_MS,
+          rescheduleCount: 0,
+        }));
+      });
+
+      it('caps a beyond-ceiling quotaWait at now + MAX and names the known reset', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 7 * 24 * 60 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession());
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt: resetsAt + 3 * 60_000 },
+        });
+
+        expect(result).toBe(true);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+          scheduledAt: now + QUOTA_MAX_MS,
+          rescheduleCount: 0,
+        }));
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).toContain('capped');
+        expect(updateCall.error).toContain(new Date(resetsAt).toISOString());
+      });
+
+      it('still schedules a fresh quotaWait when the session is at maxRescheduleCount', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 2, maxRescheduleCount: 2 }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt: resetsAt + 3 * 60_000 },
+        });
+
+        expect(result).toBe(true);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+          status: 'scheduled',
+          rescheduleCount: 2,
+        }));
+      });
+
+      it('refuses a quotaWait when the token budget is exhausted', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession({
+          maxTotalTokens: 100, inputTokens: 60, outputTokens: 60,
+        }));
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt: resetsAt + 3 * 60_000 },
+        });
+
+        expect(result).toBe(false);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', {
+          status: 'error',
+          error: expect.stringContaining('Reschedule limits reached'),
+        });
+      });
+
+      it('falls back to the legacy path for a malformed quotaWait', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+
+        sessions.getById.mockReturnValue(quotaSession());
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        const result = await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt: NaN, scheduledAt: NaN },
+        });
+
+        expect(result).toBe(true);
+        expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+          scheduledAt: now + 60 * 60_000,
+          rescheduleCount: 1,
+        }));
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).toBe('Rescheduled (1x): Token limit reached');
+      });
+    });
   });
 
   describe('hasReachedLimits', () => {
