@@ -1032,8 +1032,9 @@ describe('SchedulerService', () => {
           pendingConversationId: null,
         }));
         const updateCall = sessions.update.mock.calls[0][1];
-        expect(updateCall.error).toContain('Rescheduled (0x)');
-        expect(updateCall.error).toContain(new Date(scheduledAt).toISOString());
+        expect(updateCall.error).toBe(
+          `Waiting on quota reset (Token limit reached, retry at ${new Date(scheduledAt).toISOString()})`
+        );
         expect(updateCall.error).toContain('quota reset');
       });
 
@@ -1096,6 +1097,157 @@ describe('SchedulerService', () => {
         expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
           status: 'scheduled',
           rescheduleCount: 2,
+        }));
+      });
+
+      it('refuses after maxRescheduleCount consecutive quota-waits instead of hopping forever', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const hint = () => ({ resetsAt, scheduledAt: resetsAt + 3 * 60_000 });
+
+        // At the legacy cap with no token budget: today this would reschedule
+        // indefinitely on every fresh far-future hint.
+        sessions.getById.mockReturnValue(quotaSession({
+          rescheduleCount: 5, maxRescheduleCount: 5, maxTotalTokens: null,
+        }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        for (let i = 0; i < 5; i++) {
+          expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        }
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(false);
+        expect(sessions.update).toHaveBeenLastCalledWith('session-1', {
+          status: 'error',
+          error: expect.stringContaining('Reschedule limits reached'),
+        });
+        // FR-11: quota-waits never consume rescheduleCount, even while bounded.
+        for (const call of sessions.update.mock.calls) {
+          if (call[1].status === 'scheduled') expect(call[1].rescheduleCount).toBe(5);
+        }
+      });
+
+      it('bounds below-cap consecutive quota-waits while leaving rescheduleCount unchanged', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const hint = () => ({ resetsAt, scheduledAt: resetsAt + 3 * 60_000 });
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 0, maxRescheduleCount: 2 }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(false);
+        expect(sessions.update).toHaveBeenLastCalledWith('session-1', {
+          status: 'error',
+          error: expect.stringContaining('Reschedule limits reached'),
+        });
+      });
+
+      it('resets the quota-wait streak on a legacy counted retry', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const hint = () => ({ resetsAt, scheduledAt: resetsAt + 3 * 60_000 });
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 0, maxRescheduleCount: 2 }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        // Legacy fixed-delay retry consumes an attempt and restarts the streak.
+        expect(await scheduler.rescheduleSession('session-1', 'Service error')).toBe(true);
+        expect(sessions.update).toHaveBeenLastCalledWith('session-1', expect.objectContaining({
+          status: 'scheduled',
+          rescheduleCount: 1,
+        }));
+        // A fresh streak of quota-waits is allowed again after the reset.
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(false);
+      });
+
+      it('renders a first quota-wait as a hold without the attempt counter', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const scheduledAt = resetsAt + 3 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 0 }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt },
+        })).toBe(true);
+
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).not.toContain('(0x)');
+        expect(updateCall.error).toBe(
+          `Waiting on quota reset (Token limit reached, retry at ${new Date(scheduledAt).toISOString()})`
+        );
+      });
+
+      it('renders a quota-wait with prior legacy attempts as the same hold text', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const scheduledAt = resetsAt + 3 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 3 }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt },
+        })).toBe(true);
+
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).not.toContain('(3x)');
+        expect(updateCall.error).toBe(
+          `Waiting on quota reset (Token limit reached, retry at ${new Date(scheduledAt).toISOString()})`
+        );
+      });
+
+      it('names the distant reset in capped quota-wait hold text', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 7 * 24 * 60 * 60_000;
+
+        sessions.getById.mockReturnValue(quotaSession());
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', {
+          quotaWait: { resetsAt, scheduledAt: resetsAt + 3 * 60_000 },
+        })).toBe(true);
+
+        const updateCall = sessions.update.mock.calls[0][1];
+        expect(updateCall.error).toBe(
+          `Waiting on quota reset (Token limit reached, retry at ${new Date(now + QUOTA_MAX_MS).toISOString()}; capped, quota resets ${new Date(resetsAt).toISOString()})`
+        );
+      });
+
+      it('leaves quota-waits uncapped when maxRescheduleCount is null (explicit retry-forever)', async () => {
+        scheduler.initialize(mockSessionManager);
+        const now = Date.now();
+        vi.setSystemTime(now);
+        const resetsAt = now + 12 * 60_000;
+        const hint = () => ({ resetsAt, scheduledAt: resetsAt + 3 * 60_000 });
+
+        sessions.getById.mockReturnValue(quotaSession({ rescheduleCount: 9, maxRescheduleCount: null }));
+        sessions.update.mockReturnValue({ id: 'session-1', status: 'scheduled' });
+
+        for (let i = 0; i < 4; i++) {
+          expect(await scheduler.rescheduleSession('session-1', 'Token limit reached', { quotaWait: hint() })).toBe(true);
+        }
+        expect(sessions.update).toHaveBeenLastCalledWith('session-1', expect.objectContaining({
+          status: 'scheduled',
+          rescheduleCount: 9,
         }));
       });
 

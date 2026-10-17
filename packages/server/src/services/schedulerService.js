@@ -28,16 +28,24 @@ function _resolveQuotaSchedule(quotaWait, now) {
 }
 
 /**
- * Error text for a quota-wait reschedule. Records the retry time and that
- * the wait is quota-driven; a beyond-ceiling cap additionally names the
- * known reset so the display shows a distant wait instead of silent failure.
+ * Error text for a quota-wait reschedule. A quota-wait is a hold, not an
+ * attempt, so the text never reuses the reschedule attempt counter (a first
+ * wait would otherwise render the confusing "Rescheduled (0x)"). A
+ * beyond-ceiling cap additionally names the known reset so the display
+ * shows a distant wait instead of silent failure.
  */
-function quotaWaitErrorText(rescheduleCount, reason, quotaSchedule) {
-  const retryAt = new Date(quotaSchedule.scheduledAt).toISOString();
-  const capNote = quotaSchedule.capped && Number.isFinite(quotaSchedule.resetsAt)
+function quotaRetryAtText(quotaSchedule) {
+  return new Date(quotaSchedule.scheduledAt).toISOString();
+}
+
+function quotaCapNoteText(quotaSchedule) {
+  return quotaSchedule.capped && Number.isFinite(quotaSchedule.resetsAt)
     ? `; capped, quota resets ${new Date(quotaSchedule.resetsAt).toISOString()}`
     : '';
-  return `Rescheduled (${rescheduleCount}x): ${reason} (retry at ${retryAt}, quota reset${capNote})`;
+}
+
+function quotaWaitErrorText(reason, quotaSchedule) {
+  return `Waiting on quota reset (${reason}, retry at ${quotaRetryAtText(quotaSchedule)}${quotaCapNoteText(quotaSchedule)})`;
 }
 
 function broadcastRescheduledSession(sessionId, updated) {
@@ -61,6 +69,10 @@ class SchedulerService {
     this.pollInterval = 30000; // 30 seconds
     this.intervalId = null;
     this.sessionManager = null; // Will be set during initialization
+    // Consecutive quota-waits per session (sessionId -> count). Quota-waits
+    // never consume rescheduleCount, so the legacy count gate cannot bound
+    // them — this streak is the bound. Reset on any legacy counted retry.
+    this._consecutiveQuotaWaits = new Map();
   }
 
   /**
@@ -452,6 +464,22 @@ class SchedulerService {
   }
 
   /**
+   * Record a consecutive quota-wait for the streak check in rescheduleSession.
+   * Invariant: quota-waits never consume `rescheduleCount`, but consecutive
+   * quota-waits are bounded by `maxRescheduleCount` so a session always
+   * terminates. A `null` cap (explicit retry-forever) leaves quota-waits
+   * uncapped, matching the operator's choice. The streak resets on any
+   * legacy counted retry and on refusal.
+   * @param {object} session - Session row (only `id` and `maxRescheduleCount` are read)
+   * @returns {boolean} True when the streak passed the cap and the caller must refuse.
+   */
+  _recordQuotaWait(session) {
+    const streak = (this._consecutiveQuotaWaits.get(session.id) || 0) + 1;
+    this._consecutiveQuotaWaits.set(session.id, streak);
+    return session.maxRescheduleCount !== null && streak > session.maxRescheduleCount;
+  }
+
+  /**
    * Reschedule a session with a delay
    * @param {string} sessionId - Session ID to reschedule
    * @param {string} reason - Reason for rescheduling
@@ -478,12 +506,22 @@ class SchedulerService {
       // Quota-waits are holds, not attempts: a fresh hint bypasses the
       // reschedule-count gate (hasReachedLimits is untouched so its contract
       // and tests are unchanged) while the token budget is still enforced.
+      // The consecutive-quota-wait streak below is the termination backstop
+      // for this path: without it a session with maxTotalTokens: null and
+      // endlessly refreshed hints would hop every MAX_QUOTA_WAIT_MS forever.
       if (this.hasReachedLaunchBudget(session)) {
         return this._refuseReschedulePastLimits(sessionId, reason);
       }
-    } else if (this.hasReachedLimits(session)) {
-      // Check reschedule limits
-      return this._refuseReschedulePastLimits(sessionId, reason);
+      if (this._recordQuotaWait(session)) {
+        this._consecutiveQuotaWaits.delete(sessionId);
+        return this._refuseReschedulePastLimits(sessionId, reason);
+      }
+    } else {
+      this._consecutiveQuotaWaits.delete(sessionId);
+      if (this.hasReachedLimits(session)) {
+        // Check reschedule limits
+        return this._refuseReschedulePastLimits(sessionId, reason);
+      }
     }
 
     const plan = this._resolveReschedulePlan(session, reason, quotaSchedule, now);
@@ -526,7 +564,7 @@ class SchedulerService {
       return {
         scheduledAt: quotaSchedule.scheduledAt,
         rescheduleCount: session.rescheduleCount,
-        error: quotaWaitErrorText(session.rescheduleCount, reason, quotaSchedule),
+        error: quotaWaitErrorText(reason, quotaSchedule),
       };
     }
     const scheduledAt = now + session.rescheduleDelayMinutes * 60 * 1000;
