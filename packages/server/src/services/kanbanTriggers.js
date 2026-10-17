@@ -132,10 +132,16 @@ export function getSessionAndProjectForTrigger(sessionId) {
  */
 export function startChildSession(newSession, prompt, workingDirectory, options = {}) {
   const { beforeProviderExecute, onProviderDispatchInitiated, ...runOptions } = options;
+  // Initiation is the dispatch boundary: pre-initiation throws are definitive
+  // refusals (nothing running); post-initiation throws are uncertain (a
+  // provider may be running). Only the former may resolve to false.
+  // One line (file line budget): initiation flag + tracking wrapper.
+  let initiated = false; const track = (...a) => { initiated = true; return onProviderDispatchInitiated?.(...a); };
   return runSession(newSession.id, prompt, workingDirectory, {
     ...runOptions,
     ...(beforeProviderExecute ? { beforeProviderExecute } : {}),
-    ...(onProviderDispatchInitiated ? { onProviderDispatchInitiated } : {}),
+    // Always tracked, even with no listener: internal classification state.
+    onProviderDispatchInitiated: track,
   }).then((result) =>
     // Older in-process adapters returned undefined. Keep that narrow
     // compatibility path, but never coerce arbitrary resolved values (in
@@ -151,7 +157,9 @@ export function startChildSession(newSession, prompt, workingDirectory, options 
       sessionId: newSession.id,
       session: errorSession,
     });
-    return false;
+    // Post-initiation throws rethrow the original error so the outbox keeps
+    // the intent (ambiguous) instead of a false pre-dispatch refusal.
+    if (initiated) throw error; return false;
   });
 }
 

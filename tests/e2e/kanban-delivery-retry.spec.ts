@@ -22,19 +22,24 @@ import {
 /**
  * E2E coverage for the kanban lane-entry delivery outbox
  * (packages/server/src/services/kanbanService.js drainLaneEntryTrigger): the
- * retry/backoff loop, the definitive-refusal path, the 1s background
- * retry worker, and terminal exhaustion after MAX_ENTRY_EVENT_ATTEMPTS (8)
- * attempts. None of this had test coverage before this file.
+ * retry/backoff loop, the `ambiguous_dispatch` state, the 1s background
+ * retry worker, and quarantine at exhaustion after MAX_ENTRY_EVENT_ATTEMPTS (8)
+ * attempts (status `invalid`: a post-initiation provider failure is genuinely
+ * uncertain, never a definitive refusal). None of this had test coverage
+ * before this file.
  *
  * Recipe: an onEnterPrompt with NO committed VCR cassette (UNRECORDED_PROMPT).
- * Attempt 1 creates the child and attaches it as the run's root, then the
- * provider dispatch is definitively refused (nothing started). A definitive
- * refusal is a confirmed undispatched start: the dispatch boundary is reset
- * (delivery_phase back to 'pending', dispatch_key cleared) while the refusal
- * is preserved in last_error, so every retry re-runs setup with the EXISTING
- * child instead of resolving 'ambiguous_dispatch' — no second child is ever
- * created. After the 8th attempt the event flips to terminal 'failed' and its
- * run is terminalized (releasing the lane slot so the queue drains).
+ * Attempt 1 creates the child, attaches it as the run's root, marks dispatch
+ * intent, then the VCR adapter throws deterministically inside the child's
+ * own turn. That independently fails the LANE RUN (via closeOwnWork — see
+ * kanban-lane-run-structured.spec.ts's "a permanent failure..." test for the
+ * same mechanism), while the ENTRY EVENT itself goes back to 'pending' for
+ * retry. From attempt 2 onward, resolveDeliveryState() sees an attached root
+ * with dispatch_intent but no acknowledgement -> 'ambiguous_dispatch', so it
+ * never calls triggerLaneEntryAutomation again — no second child is ever
+ * created. After the 8th attempt the event quarantines (terminal 'invalid'):
+ * the dispatch was initiated but never acknowledged, so it stays explicit
+ * for operator resolution instead of failing shut.
  *
  * The e2e server is shared across parallel spec files, and terminal events
  * persist (24h delivery-health window), so all server-info health
@@ -114,40 +119,33 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     // health assertion below is relative to this snapshot.
     const before = (await getServerInfo()).automationStatus.deliveryHealth.counts;
 
-    // Attempt 1 fails (no cassette). A definitive provider refusal is a
-    // confirmed undispatched start: the dispatch boundary is reset
-    // (delivery_phase back to 'pending', dispatch_key cleared) while the
-    // refusal itself is preserved in last_error.
+    // Attempt 1 fails (no cassette). Confirm it lands back at 'pending' with
+    // dispatch intent recorded — the precondition for 'ambiguous_dispatch'
+    // on every subsequent retry.
     const afterAttempt1 = await pollEntryEvent(
       eventId!,
-      (e) =>
-        e.status === 'pending'
-        && e.attempt_count >= 1
-        && e.delivery_phase === 'pending'
-        && e.dispatch_key == null
-        && String(e.last_error || '').includes('provider dispatch was not accepted'),
+      (e) => e.status === 'pending' && e.attempt_count >= 1 && e.delivery_phase === 'dispatch_intent',
       20000
     );
     expect(afterAttempt1.dispatch_acknowledged_at).toBeNull();
 
     // Anti-duplicate: the child created on attempt 1 is never replaced —
-    // every later retry re-runs setup with the existing child instead of
-    // allocating a new worker.
+    // resolveDeliveryState() short-circuits every later attempt to
+    // 'ambiguous_dispatch' before triggerLaneEntryAutomation ever runs again.
     const workspaceChildren = (await getProjectSessions(project.id)).filter(
       (s: any) => s.parentSessionId === workspace.id
     );
     expect(workspaceChildren).toHaveLength(1);
     const child = workspaceChildren[0];
 
-    // 'pending' counts retryable events outside dispatch intent — true from
-    // attempt 1 onward for a definitive refusal (refused events never enter
-    // the 'ambiguous' bucket). Unlike 'exhausted' (terminal, monotonic
-    // within the 24h health window), 'pending' is a live/transient count: a
-    // concurrently-running spec's event can exit that state between our two
-    // snapshots, so assert an absolute floor instead of a baseline-relative
-    // delta.
+    // 'ambiguous' counts any pending/claimed event whose delivery_phase is
+    // 'dispatch_intent' with no acknowledgement — true from attempt 1 onward.
+    // Unlike 'quarantined' (terminal, monotonic within the 24h health window),
+    // 'ambiguous' is a live/transient count: a concurrently-running spec's
+    // event can exit that state between our two snapshots, so assert an
+    // absolute floor instead of a baseline-relative delta.
     const duringRetries = (await getServerInfo()).automationStatus.deliveryHealth.counts;
-    expect(duringRetries.pending).toBeGreaterThanOrEqual(1);
+    expect(duringRetries.ambiguous).toBeGreaterThanOrEqual(1);
 
     // Worker-driven: with no test action, the 1s background retry worker
     // alone advances attempt_count past 1 (its poll tick lines up with the
@@ -171,17 +169,21 @@ test.describe('Kanban lane-entry delivery outbox', () => {
       iterations += 1;
     }
 
-    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'failed', 10000);
+    // Uncertain dispatches quarantine at exhaustion (status 'invalid'), never
+    // fail: a provider may already be running. Quarantine still stamps
+    // completed_at and keeps the ambiguous evidence in last_error.
+    const terminal = await pollEntryEvent(eventId!, (e) => e.status === 'invalid', 10000);
     expect(terminal.attempt_count).toBe(8);
     expect(terminal.completed_at).toBeTruthy();
-    expect(String(terminal.last_error || '')).toMatch(/provider dispatch was not accepted/);
+    expect(terminal.last_error).toMatch(/ambiguous|child ownership/);
 
     const afterHealth = (await getServerInfo()).automationStatus.deliveryHealth.counts;
-    expect(afterHealth.exhausted).toBeGreaterThanOrEqual((before.exhausted || 0) + 1);
+    expect(afterHealth.quarantined).toBeGreaterThanOrEqual((before.quarantined || 0) + 1);
 
-    // The card never advances. A definitive refusal terminalizes the run at
-    // exhaustion (releasing the lane slot so the queue drains) — the run's
-    // failure and the outbox's exhaustion are the same mechanism.
+    // The card never advances. The lane run independently failed (via the
+    // child's own turn error) well before the entry event exhausted its
+    // retries — the run's failure and the outbox's exhaustion are separate
+    // mechanisms that both land on the same conclusion.
     const boardAfter = await getBoard(project.id);
     expect(findLaneOfSession(boardAfter, workspace.id)).toBe(source.name);
     const finalCard = findCardOfSession(boardAfter, workspace.id);
@@ -197,7 +199,7 @@ test.describe('Kanban lane-entry delivery outbox', () => {
     expect(finalChildren[0].id).toBe(child.id);
   });
 
-  test('a refused dispatch never spawns a second worker across repeated retries', async ({ page }) => {
+  test('an ambiguous dispatch never spawns a second worker across repeated retries', async ({ page }) => {
     const board = await getBoard(project.id);
     const source = getLaneByName(board, 'To Do');
     const done = getLaneByName(board, 'Done');
@@ -228,16 +230,9 @@ test.describe('Kanban lane-entry delivery outbox', () => {
       )
       .toBeTruthy();
 
-    // Definitive refusal: the dispatch boundary resets (phase 'pending', no
-    // key) while the refusal is preserved — later retries reuse the child.
     await pollEntryEvent(
       eventId!,
-      (e) =>
-        e.status === 'pending'
-        && e.attempt_count >= 1
-        && e.delivery_phase === 'pending'
-        && e.dispatch_key == null
-        && String(e.last_error || '').includes('provider dispatch was not accepted'),
+      (e) => e.status === 'pending' && e.attempt_count >= 1 && e.delivery_phase === 'dispatch_intent',
       20000
     );
 
