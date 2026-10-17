@@ -13,7 +13,7 @@ import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
 import { activeSessions, isSessionStopping } from '../services/sessionExecutionOwnership.js';
 import { schedulerService } from '../services/schedulerService.js';
-import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
+import { persistOwnedOrDetachedSchedule } from '../services/workflowSessionService.js';
 import { removeSessionFromBoard } from '../services/kanbanService.js';
 import { runNowFailureResponse } from '../services/sessionRunNowFailure.js';
 import { recordExplicitSchedule } from '../services/scheduleWakeupBridge.js';
@@ -206,21 +206,41 @@ router.post('/:id/schedule', requireSession, (req, res) => {
     return res.status(result.status).json(result.error);
   }
 
-  const update = () => sessions.update(req.params.id, result.updateData);
-  const updated = req.session_.laneRunId && !result.scheduleOrigin.isTrustedUserSchedule
-    ? withActiveLaneRunOwnership(req.params.id, update) : update();
-  if (!updated) {
+  // Idle trusted-user schedules and non-participants never need the lane gate.
+  if (!req.session_.laneRunId || result.scheduleOrigin.isTrustedUserSchedule) {
+    const updated = sessions.update(req.params.id, result.updateData);
+    // Mark this as an explicit-schedule write only when it happened mid-turn —
+    // that's the only case where it can race a ScheduleWakeup call from the same
+    // turn (see scheduleWakeupBridge.js). A write to an idle session has no
+    // wakeup to take precedence over.
+    if (result.scheduleOrigin.hasActiveProviderTurn) {
+      recordExplicitSchedule(req.params.id, result.scheduleOrigin.controller);
+    }
+    broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
+    return res.json(updated);
+  }
+
+  // Mid-turn write on a lane participant: while the run is still owned this is
+  // lane work and applies unchanged; once detached the same wake-up persists
+  // as a lane-inert independent continuation (pendingInteractive user
+  // authority, FRD §3/OQ-1) instead of 409ing. Status handling matches
+  // running-session schedules: the current status is kept for the
+  // turn-completion hook to re-apply, never flipped mid-turn.
+  const detachedUpdate = { ...result.updateData, pendingInteractive: true };
+  const outcome = persistOwnedOrDetachedSchedule(
+    req.params.id,
+    () => sessions.update(req.params.id, result.updateData),
+    () => sessions.update(req.params.id, detachedUpdate),
+  );
+  if (!outcome) {
     return res.status(409).json({ error: 'Session no longer owns an active lane run' });
   }
-  // Mark this as an explicit-schedule write only when it happened mid-turn —
-  // that's the only case where it can race a ScheduleWakeup call from the same
-  // turn (see scheduleWakeupBridge.js). A write to an idle session has no
-  // wakeup to take precedence over.
   if (result.scheduleOrigin.hasActiveProviderTurn) {
     recordExplicitSchedule(req.params.id, result.scheduleOrigin.controller);
   }
-  broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
-  res.json(updated);
+  const appliedUpdate = outcome.detached ? detachedUpdate : result.updateData;
+  broadcastSessionUpdate(req.params.id, req.session_.projectId, outcome.updated, appliedUpdate);
+  res.json(outcome.updated);
 });
 
 // POST /api/sessions/:id/run-scheduled-now - Run a pending scheduled turn now.

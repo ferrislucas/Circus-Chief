@@ -96,6 +96,35 @@ export function withActiveLaneRunOwnership(sessionId, mutation) {
   });
 }
 
+/** Persist a mid-turn `POST /:id/schedule` write, splitting lane work from
+ * independent wake-ups (FRD: detached-session scheduling, OQ-1 Option 1).
+ *
+ * Scheduling a wake-up is not spending lane authority: while the run is still
+ * owned the lane write applies unchanged; once detached (set-but-superseded)
+ * the same prompt/timestamp persists as a lane-inert independent continuation
+ * (`pendingInteractive=true`, user authority) that can never claim a run,
+ * transition a card, or auto-send lane work — those fences keep today's
+ * ownership checks untouched. The predicate and whichever write applies share
+ * one SQLite transaction, so a concurrent manual move cannot half-apply: the
+ * outcome is either a pre-supersession lane schedule or a post-supersession
+ * independent schedule, never lane work on a moved card.
+ *
+ * Board-inert audit: this performs zero card/lane/run mutations — only the
+ * session's own schedule columns.
+ *
+ * Returns `{ detached, updated }`, or null when the session row is gone. */
+export function persistOwnedOrDetachedSchedule(sessionId, ownedMutation, detachedMutation) {
+  return databaseManager.transaction(() => {
+    const db = databaseManager.get();
+    const session = db.prepare(SELECT_SESSION_BY_ID).get(sessionId);
+    if (!session) return null;
+    if (session.lane_run_id && (session.own_work_state !== 'open' || !activeRunOwnsSession(db, session))) {
+      return { detached: true, updated: detachedMutation() };
+    }
+    return { detached: false, updated: ownedMutation() };
+  });
+}
+
 /** Clear state which could otherwise revive a superseded worker.
  *
  * This transaction authoritatively cancels the member's workflow obligation
