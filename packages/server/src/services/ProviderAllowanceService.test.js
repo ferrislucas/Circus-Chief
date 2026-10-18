@@ -413,4 +413,85 @@ describe('ProviderAllowanceService', () => {
 
     expect(service.getSnapshots().snapshots[0]).toMatchObject({ status: 'available', stale: true, staleAt: -4_999 });
   });
+
+  describe('getSnapshot', () => {
+    const observed = {
+      providerId: enabled.id, providerName: enabled.name, providerKind: enabled.kind,
+      status: 'warning', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+      allowances: [{ key: 'requests', label: 'Requests', remaining: 25, limit: 100, remainingPercent: 25, unit: 'requests', resetsAt: 3 }],
+    };
+
+    it('returns the stored normalized snapshot after observe', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      const stored = service.observe(observed);
+
+      expect(service.getSnapshot(enabled.id)).toEqual(stored);
+    });
+
+    it('returns null for an unknown provider id', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      service.observe(observed);
+
+      expect(service.getSnapshot('no-such-provider')).toBeNull();
+    });
+
+    it('returns an equal but not identical copy on each call', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      service.observe(observed);
+
+      const first = service.getSnapshot(enabled.id);
+      const second = service.getSnapshot(enabled.id);
+
+      expect(first).toEqual(second);
+      expect(first).not.toBe(second);
+      expect(first.allowances).not.toBe(second.allowances);
+    });
+
+    it('isolates stored state from mutations of a returned snapshot', () => {
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [enabled] } });
+      service.observe(observed);
+
+      const snapshot = service.getSnapshot(enabled.id);
+      snapshot.allowances.push({
+        key: 'injected', label: 'Injected', remaining: 0, value: 0, valueKind: 'remaining',
+        limit: 100, remainingPercent: 0, unit: 'requests', resetsAt: null,
+      });
+      snapshot.status = 'exhausted';
+
+      const reread = service.getSnapshot(enabled.id);
+      expect(reread.allowances).toHaveLength(1);
+      expect(reread.status).toBe('warning');
+    });
+
+    it('reads without broadcasting and without mutating the stored snapshot', () => {
+      const broadcaster = vi.fn();
+      const service = new ProviderAllowanceService({
+        providerRepository: { getAll: () => [enabled] }, broadcaster,
+      });
+      const stored = service.observe(observed);
+      broadcaster.mockClear();
+
+      const first = service.getSnapshot(enabled.id);
+      const second = service.getSnapshot(enabled.id);
+
+      expect(first).toEqual(stored);
+      expect(second).toEqual(stored);
+      expect(broadcaster).not.toHaveBeenCalled();
+    });
+
+    it('still returns a stored snapshot for a disabled provider', () => {
+      const google = { id: 'google-default', name: 'Google', kind: 'google', enabled: true };
+      const service = new ProviderAllowanceService({ providerRepository: { getAll: () => [google] } });
+      const stored = service.observe({
+        providerId: google.id, providerName: google.name, providerKind: google.kind,
+        status: 'available', source: 'provider', updatedAt: 1, staleAt: null, unavailableReason: null,
+        allowances: [{ key: 'requests', label: 'Requests', remaining: 75, limit: 100, remainingPercent: 75, unit: 'requests', resetsAt: null }],
+      });
+      // Provider is now disabled: the list prunes it, but the read-only
+      // getter still serves the stored snapshot.
+      service.providerRepository = { getAll: () => [{ ...google, enabled: false }] };
+
+      expect(service.getSnapshot(google.id)).toEqual(stored);
+    });
+  });
 });
