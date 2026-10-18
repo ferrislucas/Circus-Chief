@@ -442,6 +442,10 @@ useWorkspaceListRealtime(listProjectId, (refreshProjectId) => {
   patchEvent: (event) => {
     if (workspaceList.projectId !== listProjectId.value) return null;
     if (event.kind === 'onSessionSummaryUpdated') return workspaceList.applySummaryEvent(event.sessionId, event.summary);
+    if (event.kind === 'onKanbanEntryQueued' || event.kind === 'onKanbanQueueDrained'
+      || event.kind === 'onKanbanCardMoved' || event.kind === 'onKanbanCardRemoved') {
+      return workspaceList.applyQueueEvent(event);
+    }
     return workspaceList.applyCommandRunEvent(event);
   },
   refreshCard: (sessionId) => {

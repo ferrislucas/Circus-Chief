@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { commandRunPatch, summaryPatch } from './workspaceListEvents.js';
+import { commandRunPatch, summaryPatch, queuePatches } from './workspaceListEvents.js';
 import { queryKey, isAbort } from './workspaceListQuery.js';
 import { refreshWorkspaceCard } from './workspaceListCardRefresh.js';
 
@@ -239,6 +239,13 @@ export const useWorkspaceListStore = defineStore('workspaceList', {
 
     applySummaryEvent(sessionId, summary) {
       return this._applyPatch(summaryPatch(this.cardsById, sessionId, summary));
+    },
+
+    applyQueueEvent(event) {
+      const patches = queuePatches(this.cardsById, event);
+      if (!patches.length) return null;
+      for (const next of patches) this._applyPatch(next);
+      return patches[0].cardId;
     },
 
     refreshCard: refreshWorkspaceCard,

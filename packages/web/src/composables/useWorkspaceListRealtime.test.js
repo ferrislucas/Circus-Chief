@@ -15,7 +15,7 @@ function createSubscription(projectId) {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     emit(name, ...args) {
-      handlers[name]?.callback(...args);
+      for (const registration of handlers[name] || []) registration.callback(...args);
     },
   };
   for (const name of [
@@ -24,13 +24,16 @@ function createSubscription(projectId) {
     'onCommandRunStarted', 'onCommandRunComplete', 'onCommandRunError',
     'onCommandRunKilled', 'onCommandRunDeleted', 'onKanbanBoardUpdated', 'onKanbanCardMoved',
     'onKanbanCardAdded', 'onKanbanCardRemoved',
+    'onKanbanEntryQueued', 'onKanbanQueueDrained',
   ]) {
     subscription[name] = vi.fn((callback) => {
       const registration = {
         active: true,
         callback: (...args) => registration.active && callback(...args),
       };
-      handlers[name] = registration;
+      // Production `on` supports multiple listeners per message type (the
+      // composable registers both a refresh and a patch handler for moves).
+      (handlers[name] ||= []).push(registration);
       return vi.fn(() => { registration.active = false; });
     });
   }
@@ -161,6 +164,66 @@ describe('useWorkspaceListRealtime', () => {
 
     expect(patchEvent).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('patches queue broadcasts locally without issuing a list request', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => 'card-1');
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onKanbanEntryQueued', {
+      projectId: 'project-a', cardId: 'card-1', laneId: 'lane-1', queuePosition: 2, queueDepth: 2,
+    });
+    subscription.emit('onKanbanQueueDrained', { projectId: 'project-a', laneId: 'lane-1', drainedCount: 1 });
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS * 4);
+
+    expect(patchEvent).toHaveBeenCalledTimes(2);
+    expect(patchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'onKanbanEntryQueued', cardId: 'card-1', queuePosition: 2,
+    }));
+    expect(patchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'onKanbanQueueDrained', laneId: 'lane-1',
+    }));
+    expect(refresh).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('falls back to a refresh when a queue broadcast names no loaded card', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => null);
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onKanbanEntryQueued', {
+      projectId: 'project-a', cardId: 'card-ghost', laneId: 'lane-1', queuePosition: 1, queueDepth: 1,
+    });
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS);
+
+    expect(patchEvent).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('patches move/remove queue state immediately while still refreshing the card fields', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const patchEvent = vi.fn(() => 'card-1');
+    const wrapper = mountRealtime(ref('project-a'), refresh, undefined, patchEvent);
+    const subscription = subscriptions.get('project-a');
+
+    subscription.emit('onKanbanCardMoved', 'card-1', 'lane-a', 'lane-b', { id: 'card-1', laneId: 'lane-b' });
+    subscription.emit('onKanbanCardRemoved', 'card-1', 'lane-b');
+    await vi.advanceTimersByTimeAsync(WORKSPACE_LIST_REFRESH_DELAY_MS * 4);
+
+    expect(patchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'onKanbanCardMoved', cardId: 'card-1',
+    }));
+    expect(patchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'onKanbanCardRemoved', cardId: 'card-1',
+    }));
+    // Membership-affecting events still converge the remaining fields via refresh.
+    expect(refresh).toHaveBeenCalled();
     wrapper.unmount();
   });
 

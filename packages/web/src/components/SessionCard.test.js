@@ -366,6 +366,103 @@ describe('SessionCard', () => {
     });
   });
 
+  describe('queued badge', () => {
+    const aggregate = {
+      runningCount: 0, waitingCount: 0, scheduledCount: 0, descendantCount: 0,
+    };
+
+    it('renders Queued #N from card-API queue fields', () => {
+      const wrapper = mountComponent({
+        workflowAggregate: aggregate,
+        session: {
+          ...baseSession,
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane', entryState: 'queued', queuePosition: 2 },
+        },
+      });
+
+      const badge = wrapper.find('.session-meta [data-testid="queued-badge"]');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('Queued');
+      expect(badge.text()).toContain('#2');
+    });
+
+    it('renders Queued without a position when the position is unknown', () => {
+      const wrapper = mountComponent({
+        workflowAggregate: aggregate,
+        session: {
+          ...baseSession,
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane', entryState: 'queued' },
+        },
+      });
+
+      expect(wrapper.find('.session-meta [data-testid="queued-badge"]').text()).toContain('Queued');
+    });
+
+    it('renders no badge for running or off-board workspaces', () => {
+      for (const session of [
+        {
+          ...baseSession,
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane', entryState: 'running' },
+        },
+        { ...baseSession, kanban: null },
+      ]) {
+        const wrapper = mountComponent({ workflowAggregate: aggregate, session });
+        expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+      }
+    });
+
+    it('falls back to the kanban store when the card API carries no queue fields', () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue(
+        { id: 'card-1', laneId: 'lane-1', entryState: 'queued', queuePosition: 1 }
+      );
+
+      const wrapper = mountComponent({
+        workflowAggregate: aggregate,
+        session: {
+          ...baseSession,
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+        },
+      });
+
+      const badge = wrapper.find('.session-meta [data-testid="queued-badge"]');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('#1');
+    });
+
+    it('never renders a badge for child sessions', () => {
+      const wrapper = mountComponent({
+        isChild: true,
+        workflowAggregate: aggregate,
+        session: {
+          ...baseSession,
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane', entryState: 'queued', queuePosition: 3 },
+        },
+      });
+
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+    });
+
+    it('converges the badge when the listed card is patched, without remounting', async () => {
+      const plain = {
+        ...baseSession,
+        kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+      };
+      const wrapper = mountComponent({ workflowAggregate: aggregate, session: plain });
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+
+      await wrapper.setProps({
+        session: {
+          ...plain,
+          kanban: { ...plain.kanban, entryState: 'queued', queuePosition: 1 },
+        },
+      });
+      expect(wrapper.find('[data-testid="queued-badge"]').text()).toContain('#1');
+
+      await wrapper.setProps({ session: plain });
+      expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+    });
+  });
+
   describe('project name display', () => {
     it('shows project name when showProject is true', () => {
       const wrapper = mountComponent({

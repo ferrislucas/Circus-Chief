@@ -10,6 +10,8 @@
 // Session metadata updates are activity too, so take the greatest timestamp
 // per member before aggregating. COALESCE(last_activity_at, updated_at, ...)
 // would permanently mask updated_at after the activity column is backfilled.
+import { attachQueueState } from './workspace-queue-state.js';
+
 const WORKSPACE_AGGREGATES_CTE = `
   WITH RECURSIVE tree(root_id, id, project_id, path) AS (
     SELECT id, id, project_id, '/' || id || '/'
@@ -221,6 +223,7 @@ export function getWorkspaceCardPage(db, projectId, options = {}) {
   );
   const { visibleRows, hasMore, facets, total } = parseCardPageRows(resultRows, limit);
   const cards = visibleRows.map(toWorkspaceCard);
+  attachQueueState(db, cards);
   return {
     cards,
     facets,

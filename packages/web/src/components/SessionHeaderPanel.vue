@@ -36,6 +36,13 @@
           @add-to-board="emit('add-to-board', session)"
           @open-move="openMoveModal"
         />
+        <QueuedBadge
+          v-if="queueState"
+          :entry-state="queueState.entryState"
+          :entry-status="queueState.entryStatus"
+          :queue-position="queueState.queuePosition"
+          :archived="!!session.archived"
+        />
         <GitStatusChip
           :session-id="sessionId"
           :summary-text="gitStatusSummary"
@@ -81,7 +88,10 @@ import MoveCardModal from './MoveCardModal.vue';
 import SessionKanbanControls from './SessionKanbanControls.vue';
 import SessionNameEditor from './SessionNameEditor.vue';
 import GitStatusChip from './GitStatusChip.vue';
+import QueuedBadge from './QueuedBadge.vue';
 import { useKanbanStore } from '../stores/kanban.js';
+import { useSessionsStore } from '../stores/sessions.js';
+import { resolveQueueState } from '../utils/queuedState.js';
 
 const props = defineProps({
   /** The current session ID */
@@ -122,18 +132,43 @@ const props = defineProps({
 const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'unarchive', 'delete', 'star', 'add-to-board']);
 
 const kanbanStore = useKanbanStore();
+const sessionsStore = useSessionsStore();
 const sessionNameEditor = ref(null);
+
+// A kanban store failure degrades to no card (and no badge), never an
+// error banner for board state.
+function safeCardLookup(sessionId) {
+  try {
+    return kanbanStore.getCardBySessionId(sessionId) || null;
+  } catch {
+    return null;
+  }
+}
 
 // Get the lane name if this session is on the kanban board
 const sessionLane = computed(() => {
-  const card = kanbanStore.getCardBySessionId(props.sessionId);
+  const card = safeCardLookup(props.sessionId);
   if (!card) return null;
   const lane = kanbanStore.getLaneById(card.laneId);
   return lane;
 });
 
 // Get the card for this session
-const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.sessionId));
+const sessionCard = computed(() => safeCardLookup(props.sessionId));
+
+// Queue state for the badge. The queue parks the workflow, so resolve the
+// root first and fall back to the session id (same resolution as
+// archiveWorkflowCard in SessionDetailView).
+const queueCard = computed(() => {
+  try {
+    const rootId = sessionsStore.getRootSession(props.sessionId)?.id || props.sessionId;
+    return safeCardLookup(rootId) || safeCardLookup(props.sessionId);
+  } catch {
+    return null;
+  }
+});
+
+const queueState = computed(() => resolveQueueState(null, queueCard.value));
 
 const showAddToBoardButton = computed(() =>
   props.canAddToBoard &&

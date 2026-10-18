@@ -16,11 +16,10 @@
       class="status-badge status-waiting"
       aria-label="Agent input required"
     >needs input</span>
-    <span
-      v-if="entryState === 'queued'"
-      class="status-badge status-queued"
-      data-testid="queued-badge"
-    >Queued<span v-if="queuePosition != null">&nbsp;#{{ queuePosition }}</span></span>
+    <QueuedBadge
+      :entry-state="entryState"
+      :queue-position="queuePosition"
+    />
     <span
       v-if="session.mode"
       class="card-mode"
@@ -83,6 +82,7 @@
 
 <script setup>
 import PrIndicators from './PrIndicators.vue';
+import QueuedBadge from './QueuedBadge.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import { laneRunLabel, formatLaneRunTime, isPausedLaneRun } from '../composables/useLaneRunStatus.js';

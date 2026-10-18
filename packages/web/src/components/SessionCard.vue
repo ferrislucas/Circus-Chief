@@ -114,6 +114,13 @@
               scheduled
             </span>
 
+            <!-- Queued status badge (workflow parked in a kanban queue) -->
+            <QueuedBadge
+              v-if="queueState"
+              v-bind="queueState"
+              :archived="!!session.archived"
+            />
+
             <!-- Scheduled time display (for this session when it's scheduled) -->
             <span
               v-if="scheduledTimeDisplay"
@@ -267,6 +274,8 @@ import { isSessionActivelyRunning, summarizeWorkflowSessions } from '../utils/wo
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
+import QueuedBadge from './QueuedBadge.vue';
+import { resolveQueueState } from '../utils/queuedState.js';
 import SessionCardSummary from './SessionCardSummary.vue';
 import SessionCardHeaderActions from './SessionCardHeaderActions.vue';
 import SessionLogStream from './SessionLogStream.vue';
@@ -345,6 +354,12 @@ const sessionLane = computed(() => {
   if (props.session.kanban) return { id: props.session.kanban.laneId, name: props.session.kanban.laneName };
   if (!sessionCard.value) return null;
   return kanbanStore.getLaneById(sessionCard.value.laneId);
+});
+
+// Queue badge state: card-API fields first, kanban-store fallback; never for child sessions.
+const queueState = computed(() => {
+  if (props.isChild) return null;
+  return resolveQueueState(props.session.kanban || null, kanbanStore.getCardBySessionId(props.session.id));
 });
 
 const onAddToBoardClick = () => {
