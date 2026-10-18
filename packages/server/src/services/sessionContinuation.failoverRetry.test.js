@@ -86,6 +86,7 @@ vi.mock('./workflowSessionService.js', async (importOriginal) => {
 
 import { continueSessionCore } from './sessionContinuation.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
+import { broadcastSessionStatus } from './streamEventHandler.js';
 
 // A real harvested quota string from the pinned corpus (tight-gate eligible).
 const QUOTA_ERROR_MESSAGE = SESSION_ERROR_FIXTURES.find(
@@ -299,6 +300,135 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     }
   });
 
+  it('never hijacks an explicit concrete-model override (no retry, no cooling, no event)', async () => {
+    const { session } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+      ],
+      { modelId: 'retry-a', providerId: providerA.id }
+    );
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }];
+
+    await expect(continueSessionCore(session.id, 'Follow-up on hand-picked model', '/tmp/test', {
+      options: { model: 'retry-b', providerId: providerB.id }, callbacks: mockCallbacks,
+    })).rejects.toThrow();
+    try {
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-b');
+      expect(failoverEvents()).toHaveLength(0);
+      // The snapshot member never ran — it must not be cooled.
+      expect(isUnhealthy(providerA.id, 'retry-a')).toBe(false);
+      // The explicitly chosen member also carries no tier side effects.
+      expect(isUnhealthy(providerB.id, 'retry-b')).toBe(false);
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+      clearUnhealthy(providerB.id, 'retry-b');
+    }
+  });
+
+  it('fails normally on an explicit different-tier override (no retry into the new tier)', async () => {
+    modelProviders.addModel(providerA.id, { modelId: 'retry-a3', displayName: 'Retry A3' });
+    const { session } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+      ],
+      { modelId: 'retry-a', providerId: providerA.id }
+    );
+    const otherTier = modelTiers.create({
+      name: 'Other Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'retry-a2', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a3', position: 1 },
+      ],
+      autoFailoverEnabled: true,
+    });
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }];
+
+    await expect(continueSessionCore(session.id, 'Follow-up on other tier', '/tmp/test', {
+      options: { model: buildTierRef(otherTier.id) }, callbacks: mockCallbacks,
+    })).rejects.toThrow();
+    try {
+      // Dispatched on the explicitly selected tier's live member, then failed
+      // through the normal error path — no same-turn retry into retry-a3.
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-a2');
+      expect(failoverEvents()).toHaveLength(0);
+      expect(isUnhealthy(providerA.id, 'retry-a')).toBe(false);
+      expect(isUnhealthy(providerA.id, 'retry-a2')).toBe(false);
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+      clearUnhealthy(providerA.id, 'retry-a2');
+      clearUnhealthy(providerA.id, 'retry-a3');
+    }
+  });
+
+  it('cools the dispatched member (not the snapshot) after an own-binding advance', async () => {
+    modelProviders.addModel(providerA.id, { modelId: 'retry-a3', displayName: 'Retry A3' });
+    const { session } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+        { providerId: providerA.id, modelId: 'retry-a3', position: 2 },
+      ],
+      { modelId: 'retry-a', providerId: providerA.id }
+    );
+    // Pre-cooled snapshot: §5.1 advances this turn onto retry-a2, so the
+    // retry must attribute to retry-a2 (the member that ran), not retry-a.
+    markUnhealthy(providerA.id, 'retry-a');
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }, {}];
+
+    try {
+      await continueSessionCore(session.id, 'Follow-up after advance', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+
+      expect(dispatched).toHaveLength(2);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-a2');
+      expect(dispatched[1].queryParams.options?.model).toBe('retry-a3');
+      const events = failoverEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0][2]).toMatchObject({ fromModel: 'retry-a', toModel: 'retry-a2' });
+      expect(events[1][2]).toMatchObject({ fromModel: 'retry-a2', toModel: 'retry-a3' });
+      expect(isUnhealthy(providerA.id, 'retry-a2')).toBe(true);
+      expect(sessions.getById(session.id).resolvedModel).toBe('retry-a3');
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+      clearUnhealthy(providerA.id, 'retry-a2');
+      clearUnhealthy(providerA.id, 'retry-a3');
+    }
+  });
+
+  it('still retries once when the follow-up echoes the bound tier ref', async () => {
+    const { session, tierRef } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+      ],
+      { modelId: 'retry-a', providerId: providerA.id }
+    );
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }, {}];
+
+    try {
+      // What the web client sends on a normal follow-up: the bound tier ref.
+      // This is a keep-current echo, not an explicit move off the binding.
+      await continueSessionCore(session.id, 'Normal follow-up', '/tmp/test', {
+        options: { model: tierRef }, callbacks: mockCallbacks,
+      });
+
+      expect(dispatched).toHaveLength(2);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-a');
+      expect(dispatched[1].queryParams.options?.model).toBe('retry-a2');
+      const events = failoverEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0][2]).toMatchObject({ fromModel: 'retry-a', toModel: 'retry-a2' });
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+      clearUnhealthy(providerA.id, 'retry-a2');
+    }
+  });
+
   it('settles normally when the successor cooled mid-turn (no silent unsettled rethrow)', async () => {
     const { session } = createPinnedSession(
       [
@@ -327,5 +457,97 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
       clearUnhealthy(providerA.id, 'retry-a');
       clearUnhealthy(providerA.id, 'retry-a2');
     }
+  });
+
+  describe('failover event names the dispatched member (PR #1180 review #2)', () => {
+    function createEditableTierSession() {
+      const rowB = modelProviders.addModel(providerA.id, { modelId: 'edit-b', displayName: 'Edit B' });
+      const rowC = modelProviders.addModel(providerA.id, { modelId: 'edit-c', displayName: 'Edit C' });
+      const tier = modelTiers.create({
+        name: 'Edit Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+          { providerId: providerA.id, modelId: 'edit-b', position: 1 },
+          { providerId: providerA.id, modelId: 'edit-c', position: 2 },
+        ],
+        autoFailoverEnabled: true,
+      });
+      const row = sessions.create(project.id, 'Edit session', 'Initial prompt', 'standard');
+      sessions.update(row.id, {
+        status: 'waiting',
+        model: buildTierRef(tier.id),
+        agentType: 'claude-code',
+        resolvedModel: 'retry-a',
+        resolvedProviderId: providerA.id,
+      });
+      const session = sessions.getById(row.id);
+      const active = conversations.ensureActiveConversation(session.id);
+      messages.create(session.id, 'user', 'earlier question', { conversationId: active.id });
+      messages.create(session.id, 'assistant', 'earlier answer', { conversationId: active.id });
+      return { tier, session, rowB, rowC };
+    }
+
+    async function runWithMidTurnTierEdit() {
+      const { session, rowB } = createEditableTierSession();
+      // Structural tier edit landing strictly between arming the retry and
+      // the second attempt's live re-resolution. Hooked on the arm-time
+      // running-status broadcast (the retry re-arms running after the failed
+      // attempt releases it) — a seam that exists regardless of when the
+      // failover event itself is emitted.
+      const prevImpl = broadcastSessionStatus.getMockImplementation();
+      let edited = false;
+      broadcastSessionStatus.mockImplementation((...statusArgs) => {
+        if (!edited && statusArgs[0] === session.id && statusArgs[1] === 'running' && dispatched.length === 1) {
+          edited = true;
+          modelProviders.removeModel(rowB.id);
+        }
+        return prevImpl?.(...statusArgs);
+      });
+      try {
+        executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }, {}];
+        await continueSessionCore(session.id, 'Follow-up across tier edit', '/tmp/test', {
+          options: {}, callbacks: mockCallbacks,
+        });
+        const failedCooled = isUnhealthy(providerA.id, 'retry-a');
+        const skippedCooled = isUnhealthy(providerA.id, 'edit-b');
+        const events = failoverEvents();
+        const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+        return {
+          session,
+          edited,
+          dispatchedModels: dispatched.map((d) => d.queryParams.options?.model),
+          events,
+          logRows: rows,
+          resolvedModel: sessions.getById(session.id).resolvedModel,
+          failedCooled,
+          skippedCooled,
+        };
+      } finally {
+        broadcastSessionStatus.mockReset();
+        clearUnhealthy(providerA.id, 'retry-a');
+        clearUnhealthy(providerA.id, 'edit-b');
+        clearUnhealthy(providerA.id, 'edit-c');
+      }
+    }
+
+    it('event, log entry, and snapshot name the member that actually dispatches', async () => {
+      const outcome = await runWithMidTurnTierEdit();
+      expect(outcome.edited).toBe(true);
+      expect(outcome.dispatchedModels).toEqual(['retry-a', 'edit-c']);
+      // Exactly one failover marker for the turn, naming the actual switch.
+      expect(outcome.events).toHaveLength(1);
+      expect(outcome.events[0][2]).toMatchObject({ fromModel: 'retry-a', toModel: 'edit-c' });
+      expect(outcome.logRows).toHaveLength(1);
+      const logged = outcome.logRows[0].metadata ?? outcome.logRows[0];
+      expect(logged.toModel ?? outcome.logRows[0].toModel).toBe('edit-c');
+      expect(outcome.resolvedModel).toBe('edit-c');
+    });
+
+    it('cools the failed member exactly once and never cools the skipped member', async () => {
+      const outcome = await runWithMidTurnTierEdit();
+      expect(outcome.edited).toBe(true);
+      expect(outcome.failedCooled).toBe(true);
+      expect(outcome.skippedCooled).toBe(false);
+    });
   });
 });

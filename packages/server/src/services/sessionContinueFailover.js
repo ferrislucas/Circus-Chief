@@ -20,8 +20,15 @@ import { activeConversationIds, broadcastSessionStatus } from './streamEventHand
  * and that successor's kind is liftable (NG3). Anything else stays
  * health-only, preserving today's pinned failure path.
  */
-export function buildContinueTierContext(session, effectiveModel, authorizeFailover) {
-  const health = buildTierHealthContext(session);
+export function buildContinueTierContext(session, effectiveModel, authorizeFailover, opts = {}) {
+  // An explicit move off the session's own binding (a concrete-model pick or
+  // a different tier) runs tier-free: the turn fails normally with no retry,
+  // no member cooling, and no failover event — the explicit choice must never
+  // be silently replaced by a tier successor (PR #1180 review #1). A
+  // same-tier echo (requestedModel === session.model) is keep-current, not a
+  // move, and still authorizes the retry.
+  if (opts.explicitOffBindingMove) return null;
+  const health = buildTierHealthContext(session, { dispatchedPair: opts.dispatchedPair });
   if (!health || !authorizeFailover || !effectiveModel) return health;
   const tier = modelTiers.getById(parseTierRef(session.model));
   if (tier && tier.autoFailoverEnabled === false) return health;
@@ -60,28 +67,43 @@ export function considerContinueFailoverRetry({ sessionId, error, tierContext, c
 }
 
 /**
- * Apply a same-turn failover retry's side effects: cool the failed member
- * exactly once (FR3 — the pre-settlement rethrow skipped health attribution)
- * and emit the failover event (G4). Returns the boundary marker injected into
- * the retry prompt so the successor continues the failed turn's transcript
- * instead of re-executing it (NG1).
+ * Apply a same-turn failover retry's arm-time side effects: cool the failed
+ * member exactly once (FR3 — the pre-settlement rethrow skipped health
+ * attribution). The failover event is NOT emitted here — it is deferred to
+ * second-attempt dispatch (see `emitContinueFailoverDispatched`), because the
+ * armed successor is only a prediction and a tier edit before dispatch can
+ * re-resolve the retry onto a different member (PR #1180 review #2). Returns
+ * the boundary marker injected into the retry prompt so the successor
+ * continues the failed turn's transcript instead of re-executing it (NG1).
  */
 export function applyContinueFailoverRetry(sessionId, retry) {
   markUnhealthy(retry.fromMember.providerId, retry.fromMember.modelId);
-  const session = sessions.getById(sessionId);
-  const tierId = parseTierRef(session?.model);
-  const tierName = (tierId && modelTiers.getById(tierId)?.name) || tierId || session?.model;
-  emitTierFailoverEvent(retry.error, {
-    sessionId,
-    member: { modelId: retry.fromMember.modelId, providerId: retry.fromMember.providerId },
-    tierRef: session?.model,
-    tierName,
-    nextMember: retry.nextMember,
-  });
   const reason = sanitizeTierFailureReason(retry.error);
   return `<tier_failover_boundary>
 The previous attempt on ${retry.fromMember.modelId} failed (${reason}). The transcript above already contains its partial work — treat that work as done or partially done and DO NOT re-execute it. Continue from where it left off.
 </tier_failover_boundary>\n\n`;
+}
+
+/**
+ * Emit the failover event (G4) at second-attempt dispatch time, naming the
+ * member that actually dispatches. The retry arms against a live-resolved
+ * successor, but the second attempt re-resolves live again — a tier edit in
+ * between can land it on a different member, and the marker must describe the
+ * actual switch. Cooling was already applied at arm time; this only emits the
+ * broadcast + log entry with the live-resolved target.
+ */
+export function emitContinueFailoverDispatched(sessionId, unsettledError, dispatchedPair) {
+  if (!unsettledError || !dispatchedPair?.model) return;
+  const session = sessions.getById(sessionId);
+  const tierId = parseTierRef(session?.model);
+  const tierName = (tierId && modelTiers.getById(tierId)?.name) || tierId || session?.model;
+  emitTierFailoverEvent(unsettledError.error, {
+    sessionId,
+    member: { modelId: unsettledError.fromMember.modelId, providerId: unsettledError.fromMember.providerId },
+    tierRef: session?.model,
+    tierName,
+    nextMember: { modelId: dispatchedPair.model, providerId: dispatchedPair.providerId },
+  });
 }
 
 /**

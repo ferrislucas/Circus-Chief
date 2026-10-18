@@ -309,26 +309,34 @@ export function findNextHealthyTierMember(tierRef, failedMember) {
  *
  * @param {Object|null} session - Refreshed session row after continuation
  *   model resolution (model, resolvedModel, resolvedProviderId).
+ * @param {{ dispatchedPair?: { model: string|null, providerId: string|null } }} [opts] -
+ *   The concrete pair actually about to be dispatched. Resolution may have
+ *   advanced off a cooled snapshot (§5.1) or backfilled a legacy row, so the
+ *   persisted snapshot can lag one attempt behind — attribute to the
+ *   dispatched pair instead. Still validated against CURRENT membership;
+ *   falls back to the snapshot when no dispatched pair is supplied.
  * @returns {{ currentMemberId: string, currentMemberProviderId: string, allowFailover: false }|null}
  */
-export function buildTierHealthContext(session) {
+export function buildTierHealthContext(session, { dispatchedPair = null } = {}) {
   if (!session || !isTierRef(session.model)) return null;
   const tierId = parseTierRef(session.model);
   if (!tierId) return null;
 
-  const { resolvedModel, resolvedProviderId } = session;
-  if (!resolvedModel || !resolvedProviderId) return null;
+  const candidate = dispatchedPair
+    ? { modelId: dispatchedPair.model, providerId: dispatchedPair.providerId }
+    : { modelId: session.resolvedModel, providerId: session.resolvedProviderId };
+  if (!candidate.modelId || !candidate.providerId) return null;
 
   // Only attribute health to a member that is still a current, resolvable
-  // member of the bound tier — never to a stale snapshot.
+  // member of the bound tier — never to a stale snapshot or an unrelated pair.
   const mapsToCurrentMember = getTierMembersResolved(tierId).some(
-    (member) => member.providerId === resolvedProviderId && member.modelId === resolvedModel
+    (member) => member.providerId === candidate.providerId && member.modelId === candidate.modelId
   );
   if (!mapsToCurrentMember) return null;
 
   return {
-    currentMemberId: resolvedModel,
-    currentMemberProviderId: resolvedProviderId,
+    currentMemberId: candidate.modelId,
+    currentMemberProviderId: candidate.providerId,
     // Pinned conversation: may report member health, may not fail over.
     allowFailover: false,
   };

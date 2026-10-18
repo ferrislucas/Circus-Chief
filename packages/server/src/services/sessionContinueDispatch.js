@@ -13,7 +13,7 @@ import { startedSessionExecution } from './sessionStartResult.js';
 import { isUserStopAbort } from './sessionAbort.js';
 import {
   armContinueFailoverRetry, buildContinueTierContext, considerContinueFailoverRetry,
-  resolvesToFailedMember, settleUnsettledContinueError,
+  emitContinueFailoverDispatched, resolvesToFailedMember, settleUnsettledContinueError,
 } from './sessionContinueFailover.js';
 import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
 
@@ -82,7 +82,13 @@ export function buildContinueModelAndEnv(session, sessionId, model, { providerId
     updatedSession = sessions.getById(sessionId);
   }
 
-  return { effectiveModel, providerIdHint, sessionEnv, commitAttributionOverride, modelChanged, session: updatedSession };
+  // An explicit request that moves OFF the session's own tier binding (a
+  // concrete-model pick or a different tier ref). A same-tier echo
+  // (requestedModel === session.model) is keep-current, not a move. The
+  // failover machinery uses this to run the attempt tier-free (review #1).
+  const explicitOffBindingMove = model != null && model !== session.model;
+
+  return { effectiveModel, providerIdHint, sessionEnv, commitAttributionOverride, modelChanged, session: updatedSession, dispatchedPair, explicitOffBindingMove };
 }
 
 /**
@@ -140,8 +146,13 @@ async function prepareContinueDispatch({
 }) {
   // Tier context for this attempt, built AFTER resolution so a backfilled
   // snapshot is visible. Health attribution always; failover authorization
-  // only on the turn's first attempt (§5.2).
-  const tierContext = buildContinueTierContext(session, modelEnv.effectiveModel, authorizeFailover);
+  // only on the turn's first attempt (§5.2). Attribution follows the
+  // actually-dispatched pair (never a lagging snapshot), and an explicit move
+  // off the own binding runs tier-free (review #1).
+  const tierContext = buildContinueTierContext(session, modelEnv.effectiveModel, authorizeFailover, {
+    dispatchedPair: modelEnv.dispatchedPair,
+    explicitOffBindingMove: modelEnv.explicitOffBindingMove,
+  });
   if (session.gitWorktree && modelEnv.commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
@@ -154,7 +165,7 @@ async function prepareContinueDispatch({
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent, failoverBoundary,
   });
-  return { tierContext, agentType, agent, queryParams, agentCallMeta };
+  return { tierContext, agentType, agent, queryParams, agentCallMeta, dispatchedPair: modelEnv.dispatchedPair };
 }
 
 /**
@@ -180,6 +191,13 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
       promptWithAttachments, workingDirectory, controller,
       failoverBoundary: turn.failoverBoundary, authorizeFailover: firstAttempt,
     });
+    if (!firstAttempt && turn.unsettledError) {
+      // The retry's second attempt resolved successfully: emit the deferred
+      // failover event naming the member that actually dispatches (review
+      // #2). A settling path (resolvesToFailedMember / prep throw) emits
+      // nothing — no successful switch happened.
+      emitContinueFailoverDispatched(sessionId, turn.unsettledError, dispatch.dispatchedPair);
+    }
     return { dispatch, session: modelEnv.session };
   } catch (prepError) {
     if (!turn.unsettledError) throw prepError;
