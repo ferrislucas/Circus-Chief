@@ -15,6 +15,7 @@ import {
   armContinueFailoverRetry, buildContinueTierContext, considerContinueFailoverRetry,
   resolvesToFailedMember, settleUnsettledContinueError,
 } from './sessionContinueFailover.js';
+import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
 
 /**
  * Resolve model/provider and build session environment for a continue
@@ -26,7 +27,7 @@ import {
  * ONE resolution/persistence contract. That helper guarantees a raw
  * `tier::<id>` sentinel is never forwarded to the agent.
  */
-export function buildContinueModelAndEnv(session, sessionId, model, providerId = null) {
+export function buildContinueModelAndEnv(session, sessionId, model, { providerId = null, suppressAdvanceNotice = false } = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
   // matching the start path's `_runTierBoundSession` behavior.
@@ -61,8 +62,10 @@ export function buildContinueModelAndEnv(session, sessionId, model, providerId =
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
 
   // Visible fallback notice when the own binding silently moved off its
-  // previously executed member (review issue 1).
-  notifyOwnBindingFallback(session, model, dispatchedPair);
+  // previously executed member (review issue 1), or advanced off a cooled
+  // snapshot (§5.1). Suppressed on a same-turn retry's second attempt — its
+  // advance was already announced when the retry armed.
+  notifyOwnBindingFallback(session, model, dispatchedPair, { suppressAdvanceNotice });
 
   // A switch is determined from the previous EXECUTED concrete pair and the
   // newly validated candidate — not the model string or tier sentinel alone.
@@ -166,7 +169,8 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
     workingDirectory, controller, callbacks, interactive, firstAttempt } = opts;
   try {
     const modelEnv = buildContinueModelAndEnv(
-      turn.session, sessionId, firstAttempt ? model : null, firstAttempt ? providerId : null
+      turn.session, sessionId, firstAttempt ? model : null,
+      { providerId: firstAttempt ? providerId : null, suppressAdvanceNotice: !firstAttempt }
     );
     if (!firstAttempt && resolvesToFailedMember(modelEnv, turn.unsettledError)) {
       throw turn.unsettledError.error;
@@ -217,12 +221,17 @@ export async function executeContinueAttempt(sessionId, turn, dispatch, opts) {
 }
 
 /**
- * Settle a terminal attempt failure or rethrow it. A pre-settlement rethrow
- * with no live successor (it cooled mid-turn) settles through the normal
- * failure path; anything else propagates unchanged.
+ * Settle a terminal attempt failure or rethrow it. Only a pre-settlement
+ * rethrow — `_executeSession` exited via `shouldRethrowForTierFailover`
+ * before running the terminal pipeline, and the retry never materialized
+ * (its successor cooled mid-turn) — settles through the normal failure path.
+ * An already-settled throw (the pipeline ran inside `_executeSession`)
+ * propagates unchanged; re-entering `handleTurnFailure` would run member
+ * cooling, reschedule evaluation, and the visible error a second time.
  */
 async function settleOrThrowContinueError({ sessionId, error, tierContext, controller, callbacks, interactive, firstAttempt }) {
-  if (firstAttempt && tierContext?.allowFailover === true && !isUserStopAbort(controller)) {
+  if (firstAttempt && tierContext?.allowFailover === true && !isUserStopAbort(controller)
+    && shouldRethrowForTierFailover(sessionId, error, tierContext)) {
     const settled = await settleUnsettledContinueError({ sessionId, error, callbacks, controller, interactive });
     if (settled) return { completed: true, result: settled };
   }

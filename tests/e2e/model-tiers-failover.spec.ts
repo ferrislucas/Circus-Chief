@@ -658,6 +658,134 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     ws.close();
   });
 
+  test('next-turn advance off a cooled snapshot emits the event, log, and marker (§5.1)', async ({ page }) => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}NextTurn Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'nt-model-a', displayName: 'NextTurn Model A' });
+    const providerB = await createProvider({ name: `${TEST_PREFIX}NextTurn Provider B`, kind: 'anthropic' });
+    await addProviderModel(providerB.id, { modelId: 'nt-model-b', displayName: 'NextTurn Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Next-Turn Tier`,
+      members: [
+        { providerId: providerA.id, modelId: 'nt-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'nt-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+
+    // S1 and S2 both start on A. S2's follow-up fails quota on A (same-turn
+    // retry lands on B and cools A). S1 — still pinned to A — then follows
+    // up: its snapshot is cooled, so §5.1 advances it to B on the NEXT turn.
+    // Same-kind members keep the advance clear of cross-kind policy.
+    writeScript({
+      queues: {
+        [`${providerA.id}::nt-model-a`]: ['success', 'success', 'quota_error'],
+        [`${providerB.id}::nt-model-b`]: ['success', 'success'],
+      },
+    });
+
+    const project = await seedProject('Tier Next-Turn Project', process.cwd());
+    const firstSession = await seedSession(project.id, {
+      prompt: 'Tier next-turn first session e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(firstSession.id, 'waiting', 15000);
+    const secondSession = await seedSession(project.id, {
+      prompt: 'Tier next-turn second session e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(secondSession.id, 'waiting', 15000);
+    await waitForCaptureRecords(2);
+
+    const secondFollowUp = await sendFollowUp(secondSession.id, null, 'Second session follow-up');
+    expect(secondFollowUp.ok).toBe(true);
+    await waitForStatus(secondSession.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(secondSession.id)).resolvedModel).toBe('nt-model-b');
+
+    // Member A is now cooling: the first session's follow-up must advance to
+    // B visibly. Subscribe before sending so the prep-time event is observed.
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, firstSession.id);
+    const failoverPromise = waitForWSMessage(ws, 'tier:failover', 15000);
+
+    const firstFollowUp = await sendFollowUp(firstSession.id, null, 'First session follow-up after cooldown');
+    expect(firstFollowUp.ok).toBe(true);
+
+    const failoverEvent = await failoverPromise;
+    expect(failoverEvent.tierRef).toBe(`tier::${tier.id}`);
+    expect(failoverEvent.fromModel).toBe('nt-model-a');
+    expect(failoverEvent.toModel).toBe('nt-model-b');
+
+    await waitForStatus(firstSession.id, 'waiting', 15000);
+    const finalFirst = await waitForResolvedModel(firstSession.id);
+    expect(finalFirst.model).toBe(`tier::${tier.id}`);
+    expect(finalFirst.resolvedModel).toBe('nt-model-b');
+
+    // The first session's follow-up ran on B — the cooled snapshot was not reused.
+    const records = await waitForCaptureRecords(5);
+    const firstSessionRecords = records.filter((r: any) => r.sessionId === firstSession.id);
+    expect(firstSessionRecords.map((r: any) => r.modelId)).toEqual(['nt-model-a', 'nt-model-b']);
+
+    const logs = await getAgentCallLogs({ sessionId: firstSession.id, callType: 'tierFailover' });
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+    expect(logs[0].metadata?.fromModel ?? logs[0].fromModel).toBe('nt-model-a');
+    expect(logs[0].metadata?.toModel ?? logs[0].toModel).toBe('nt-model-b');
+
+    await navigateAndWait(page, `${BASE_URL}/sessions/${firstSession.id}/summary`);
+    await openSessionOverlay(page);
+    const marker = page.getByTestId('tier-failover-marker');
+    await expect(marker.first()).toBeVisible({ timeout: 10000 });
+    await expect(marker.first()).toContainText('Switched from nt-model-a to nt-model-b');
+
+    ws.close();
+  });
+
+  test('flag-off tier attempts only the resolved member at start (FR0)', async () => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}FlagOffStart Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'fos-model-a', displayName: 'FlagOffStart Model A' });
+    const providerB = await createProvider({ name: `${TEST_PREFIX}FlagOffStart Provider B`, kind: 'anthropic' });
+    await addProviderModel(providerB.id, { modelId: 'fos-model-b', displayName: 'FlagOffStart Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Flag-Off Start Tier`,
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'fos-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'fos-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+    expect(tier.autoFailoverEnabled).toBe(false);
+
+    writeScript({
+      queues: {
+        [`${providerA.id}::fos-model-a`]: ['quota_error'],
+        [`${providerB.id}::fos-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Flag-Off Start Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier flag-off start e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+
+    // Disabled means attempt only the resolved member, then surface the
+    // error — the healthy successor is never dispatched.
+    await waitForStatus(session.id, 'error', 15000);
+
+    const records = await waitForCaptureRecords(1);
+    expect(records).toHaveLength(1);
+    expect(records[0].providerId).toBe(providerA.id);
+    expect(records[0].modelId).toBe('fos-model-a');
+
+    const failoverLogs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(failoverLogs).toHaveLength(0);
+  });
+
   test('flag-off tier stays pinned on mid-session quota failure (FR0)', async ({ page }) => {
     const providerA = await createProvider({ name: `${TEST_PREFIX}FlagOff Provider A`, kind: 'anthropic' });
     await addProviderModel(providerA.id, { modelId: 'flagoff-a', displayName: 'Flagoff A' });

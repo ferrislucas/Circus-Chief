@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { projects, sessions, messages, conversations, modelTiers, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelTiers, modelProviders, agentCallLogs } from '../database.js';
 import { buildTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { clearUnhealthy, isUnhealthy, markUnhealthy } from './tierResolutionService.js';
 import { SESSION_ERROR_FIXTURES } from './sessionErrorFixtures.js';
@@ -260,6 +260,43 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     })).rejects.toThrow();
     expect(dispatched).toHaveLength(1);
     expect(failoverEvents()).toHaveLength(0);
+  });
+
+  it('emits a TIER_FAILOVER event + tierFailover log when a follow-up advances off a cooled snapshot (§5.1)', async () => {
+    const { session } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+      ],
+      { modelId: 'retry-a', providerId: providerA.id }
+    );
+    // The snapshotted member cooled (e.g. quota failure on a previous turn)
+    // before this follow-up starts — §5.1 must advance visibly, not silently.
+    markUnhealthy(providerA.id, 'retry-a');
+    executeScript = [{}];
+
+    try {
+      await continueSessionCore(session.id, 'Follow-up after cooldown', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-a2');
+
+      const row = sessions.getById(session.id);
+      expect(row.resolvedModel).toBe('retry-a2');
+
+      const events = failoverEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0][2]).toMatchObject({ fromModel: 'retry-a', toModel: 'retry-a2' });
+
+      const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].metadata?.fromModel ?? rows[0].fromModel).toBe('retry-a');
+      expect(rows[0].metadata?.toModel ?? rows[0].toModel).toBe('retry-a2');
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+    }
   });
 
   it('settles normally when the successor cooled mid-turn (no silent unsettled rethrow)', async () => {

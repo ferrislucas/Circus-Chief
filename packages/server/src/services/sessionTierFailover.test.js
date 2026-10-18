@@ -544,6 +544,40 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
+  it('attempts only the resolved member once when automatic failover is disabled (FR0)', async () => {
+    const flagOffTier = modelTiers.create({
+      name: 'Flag Off Tier',
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+      ],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(flagOffTier.id) });
+
+    // First member fails with an eligible exhaustion error.
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    const failoverCountBefore = broadcastToSession.mock.calls
+      .filter((call) => call[1] === 'tier:failover').length;
+
+    // Disabled means attempt only the resolved member, then surface the
+    // terminal error (same contract as a single-member tier: the original
+    // error, not an exhaustion wrapper) — the healthy successor is never
+    // attempted.
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover'))
+      .toHaveLength(failoverCountBefore);
+    // The failed member still cools so future sessions skip it.
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+  });
+
   it('keeps a genuinely empty tier distinct from cooldown exhaustion', async () => {
     const emptyTier = modelTiers.create({ name: 'Empty Tier' });
 
