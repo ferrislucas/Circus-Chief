@@ -283,4 +283,27 @@ describe('ModelTiersView', () => {
 
     expect(updateTier).toHaveBeenCalledWith('tier-1', { autoFailoverEnabled: false });
   });
+
+  it('reverts the toggle to the persisted value when the PATCH fails', async () => {
+    const tiersStore = useTiersStore();
+    const { useUiStore } = await import('../stores/ui.js');
+    const uiStore = useUiStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Flagged tier', description: null, autoFailoverEnabled: true,
+      members: [],
+    }];
+    vi.spyOn(tiersStore, 'updateTier').mockRejectedValue(new Error('PATCH failed'));
+    const errorSpy = vi.spyOn(uiStore, 'error');
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    const toggle = wrapper.get('[data-testid="auto-failover-toggle"]');
+    expect(toggle.element.checked).toBe(true);
+
+    await toggle.setValue(false);
+    await flushPromises();
+
+    expect(toggle.element.checked).toBe(true);
+    expect(errorSpy).toHaveBeenCalled();
+  });
 });

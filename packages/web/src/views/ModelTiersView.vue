@@ -558,6 +558,8 @@ async function toggleAutoFailover(tier, event) {
   try {
     await tiersStore.updateTier(tier.id, { autoFailoverEnabled });
   } catch (err) {
+    const checkbox = event.target;
+    if (checkbox) checkbox.checked = tier.autoFailoverEnabled !== false;
     uiStore.error(err.message || 'Failed to update tier');
   }
 }
