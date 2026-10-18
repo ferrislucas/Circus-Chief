@@ -236,6 +236,12 @@ describe('SchedulingEditModal.vue', () => {
       wrapper.findComponent({ name: 'TemplateSelector' }).vm.$emit('update:template-id', 'template-2');
       await nextTick();
 
+      // eslint-disable-next-line no-console
+      console.log('CI-DIAG body-len:', document.body.innerHTML.length,
+        'has-modal:', document.body.innerHTML.includes('modal-backdrop'),
+        'wrapper-html-len:', wrapper.html().length,
+        'same-document:', wrapper.element.ownerDocument === document,
+        'host-in-body:', document.body.contains(wrapper.element));
       document.body.querySelector('.modal-footer .btn-primary').click();
       await flushPromises();
       expect(mockUpdateSessionFields).toHaveBeenCalledWith(
