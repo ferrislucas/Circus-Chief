@@ -226,6 +226,27 @@ describe('SchedulingEditModal.vue', () => {
     });
   });
 
+  describe('template chain editing', () => {
+    it('applies a TemplateSelector pick to the saved payload', async () => {
+      const mockUpdateSessionFields = vi.fn().mockResolvedValue({});
+      useSessionsStore.mockReturnValue({ updateSessionFields: mockUpdateSessionFields });
+      const wrapper = mountComponent({ isOpen: true });
+      await nextTick();
+
+      wrapper.findComponent({ name: 'TemplateSelector' }).vm.$emit('update:template-id', 'template-2');
+      await nextTick();
+
+      document.body.querySelector('.modal-footer .btn-primary').click();
+      await flushPromises();
+      expect(mockUpdateSessionFields).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ nextTemplateId: 'template-2' })
+      );
+      wrapper.unmount();
+      document.body.innerHTML = '';
+    });
+  });
+
   describe('stale model/tier selection guard', () => {
     it('blocks save when the bound tier has no usable members', async () => {
       const tiersStore = useTiersStore();
@@ -239,6 +260,7 @@ describe('SchedulingEditModal.vue', () => {
         session: { ...scheduledSession, model: 'tier::t-empty', providerId: null },
       });
       await wrapper.setProps({ isOpen: true });
+      await flushPromises();
       await nextTick();
 
       // The modal teleports to document.body (the Teleport stub above does
@@ -261,6 +283,7 @@ describe('SchedulingEditModal.vue', () => {
       useSessionsStore.mockReturnValue({ updateSessionFields: mockUpdateSessionFields });
       const wrapper = mountComponent({ isOpen: false, session });
       await wrapper.setProps({ isOpen: true });
+      await flushPromises();
       await nextTick();
       return { wrapper, mockUpdateSessionFields };
     }

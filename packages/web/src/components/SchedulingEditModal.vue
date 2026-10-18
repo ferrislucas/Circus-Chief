@@ -303,6 +303,12 @@ function close() {
   emit('close');
 }
 
+// TemplateSelector emits the picked template id; the form owns
+// nextTemplateId until save (unlike cards that persist immediately).
+function handleTemplateChange(templateId) {
+  form.nextTemplateId = templateId;
+}
+
 // Canonical session sync (hydration, convergence, guard, websocket intake)
 // lives in useSchedulingSessionSync to keep this component under the
 // file-size lint budget — same behavior, operated on `form` in place.
