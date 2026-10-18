@@ -119,10 +119,24 @@ export function queuePatches(cardsById, event) {
   }
 }
 
+/**
+ * Restore the server-provided paused-lane marker (`entryStatus: 'queued'`)
+ * that `stripQueueFields` removes. Preserve-only: the causeless queued
+ * broadcasts carry no cause, so the marker is kept iff the loaded card
+ * already held it — never invented when absent.
+ */
+function preservePausedMarker(current, next) {
+  if (current?.entryStatus === 'queued') return { ...next, entryStatus: 'queued' };
+  return next;
+}
+
 function queuedCardPatch(cardsById, event) {
   const card = cardByKanbanCardId(cardsById, event.cardId);
   if (!card?.kanban) return [];
-  const kanban = { ...stripQueueFields(card.kanban), entryState: 'queued' };
+  const kanban = preservePausedMarker(
+    card.kanban,
+    { ...stripQueueFields(card.kanban), entryState: 'queued' },
+  );
   if (event.queuePosition != null) kanban.queuePosition = event.queuePosition;
   return [{ cardId: card.id, patch: { kanban } }];
 }
@@ -145,7 +159,10 @@ function movedCardPatch(cardsById, event) {
 }
 
 function queuedBroadcastKanban(current, broadcast) {
-  const kanban = { ...stripQueueFields(current), entryState: 'queued' };
+  const kanban = preservePausedMarker(
+    current,
+    { ...stripQueueFields(current), entryState: 'queued' },
+  );
   if (broadcast.queuePosition != null) kanban.queuePosition = broadcast.queuePosition;
   if (broadcast.entryStatus === 'queued') kanban.entryStatus = 'queued';
   return kanban;
