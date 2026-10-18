@@ -3242,6 +3242,25 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    // Loaded providers catalog so the short model ids below resolve to an
+    // authoritative kind (all claude-code): same-kind picker changes persist
+    // without confirmation. Started-session changes with an unloaded catalog
+    // instead show the FRD §4/G4 generic confirmation (covered in the
+    // cross-kind describe block), so these persistence tests need a catalog.
+    vi.mocked(useProvidersStore).mockReturnValue({
+      providers: [
+        {
+          id: 'anthropic-persist', name: 'Anthropic', kind: 'anthropic', isBuiltIn: true,
+          models: [
+            { id: 'm-sonnet-45', modelId: 'claude-sonnet-4-5', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+            { id: 'm-sonnet', modelId: 'sonnet', displayName: 'Sonnet', tier: 'sonnet' },
+            { id: 'm-opus', modelId: 'opus', displayName: 'Opus', tier: 'opus' },
+            { id: 'm-haiku', modelId: 'haiku', displayName: 'Haiku', tier: 'haiku' },
+          ],
+        },
+      ],
+      fetchProviders: vi.fn().mockResolvedValue(undefined),
+    });
     scheduleMutations = reactive({});
 
     mockSessionsStore = {
@@ -3523,11 +3542,12 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       // Component should still be functional (not crashed)
       expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
 
-      // Error should be logged
-      expect(console.error).toHaveBeenCalledWith(
-        'Failed to persist model selection:',
-        expect.any(Error)
-      );
+      // Error surfaces via toast with the backend copy
+      expect(mockUiStore.error).toHaveBeenCalledWith('Network error');
+
+      // Transient (non-4xx) failure keeps the user choice: the server outcome
+      // is unknown and draft submits / same-kind sends self-heal with it
+      expect(wrapper.find('.model-selector-stub').attributes('data-model')).toBe('opus');
     });
   });
 
@@ -4570,5 +4590,257 @@ describe('ConversationTab - scrollToInitialTarget decision logic', () => {
       ],
     });
     expect(action).toBe('scrollToBottom');
+  });
+});
+
+describe('ConversationTab - cross-kind switch confirmation (FRD §4)', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let mockProvidersStore;
+  let consoleError;
+
+  const ANTHROPIC_PID = 'anthropic-xkind';
+  const OPENAI_PID = 'openai-xkind';
+  const GOOGLE_PID = 'google-xkind';
+  const CLAUDE_MODEL = 'claude-sonnet-xkind';
+  const GPT_MODEL = 'gpt-xkind';
+  const GEMINI_MODEL = 'gemini-xkind';
+  const CONFIRM_COPY =
+    'Switch from Claude Code to Codex? Native context is cleared; full text history is passed to the new provider.';
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [{ role: 'assistant', content: 'prior turn' }],
+      currentSession: {
+        id: 'sess-123',
+        status: 'stopped',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: CLAUDE_MODEL,
+        providerId: ANTHROPIC_PID,
+        projectId: 'proj-1',
+      },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateSessionModel: vi.fn().mockResolvedValue({}),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+      switchConversation: vi.fn().mockResolvedValue(),
+      branchConversation: vi.fn().mockResolvedValue({ id: 'conv-2' }),
+      runScheduledNow: vi.fn().mockResolvedValue({}),
+      updateSessionFields: vi.fn().mockResolvedValue({}),
+      scheduleMutationInFlight: () => null,
+      beginScheduleMutation: vi.fn().mockReturnValue(true),
+      endScheduleMutation: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    mockProvidersStore = {
+      providers: [
+        {
+          id: ANTHROPIC_PID, name: 'Anthropic XK', kind: 'anthropic', isBuiltIn: true,
+          models: [{ id: 'm-claude', modelId: CLAUDE_MODEL, displayName: 'Claude XK', tier: 'sonnet' }],
+        },
+        {
+          id: OPENAI_PID, name: 'OpenAI XK', kind: 'openai',
+          models: [{ id: 'm-gpt', modelId: GPT_MODEL, displayName: 'GPT XK', tier: 'custom' }],
+        },
+        {
+          id: GOOGLE_PID, name: 'Google XK', kind: 'google',
+          models: [{ id: 'm-gemini', modelId: GEMINI_MODEL, displayName: 'Gemini XK', tier: 'custom' }],
+        },
+      ],
+      fetchProviders: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    vi.mocked(useProvidersStore).mockReturnValue(mockProvidersStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: {
+            name: 'ModelSelector',
+            props: ['modelValue', 'disabled'],
+            emits: ['update:modelValue', 'update:providerId'],
+            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+          },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          SchedulingEditModal: { template: '<div class="scheduling-edit-modal-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  /** Drive the (stubbed) picker as if the user chose another provider's model. */
+  async function switchPicker(wrapper, modelId, providerId) {
+    const stub = wrapper.findComponent({ name: 'ModelSelector' });
+    expect(stub.exists()).toBe(true);
+    stub.vm.$emit('update:modelValue', modelId);
+    stub.vm.$emit('update:providerId', providerId);
+    await flushAll(wrapper);
+  }
+
+  it('confirming a claude→codex switch dispatches updateSessionModel with the new model+providerId', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(CONFIRM_COPY);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledTimes(1);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
+  });
+
+  it('cancelling the confirmation dispatches nothing and rolls the picker back', async () => {
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false));
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    expect(wrapper.find('.model-selector-stub').attributes('data-model')).toBe(CLAUDE_MODEL);
+  });
+
+  it('unloaded providers catalog + differing models shows the generic confirmation (PR #1)', async () => {
+    const GENERIC_COPY =
+      'Switch model? Native context is cleared; full text history is passed to the new provider.';
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    // Catalog not yet loaded: neither end resolves to an authoritative kind.
+    mockProvidersStore.providers = [];
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(GENERIC_COPY);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledTimes(1);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
+  });
+
+  it('deleted provider on the old end shows the generic confirmation, not a mislabeled copy (PR #1)', async () => {
+    const GENERIC_COPY =
+      'Switch model? Native context is cleared; full text history is passed to the new provider.';
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    // The provider that owned the old model was deleted and no remaining
+    // provider owns its model id: the old end is unresolvable.
+    mockProvidersStore.providers = mockProvidersStore.providers.filter(
+      (p) => p.id !== ANTHROPIC_PID,
+    );
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+    await switchPicker(wrapper, GPT_MODEL, OPENAI_PID);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(GENERIC_COPY);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
+  });
+
+  it('gemini switch asks nothing and surfaces the existing backend error copy on failure', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    mockSessionsStore.updateSessionModel.mockRejectedValueOnce(
+      Object.assign(
+        new Error('Cannot switch agent kind mid-session (Claude Code → Gemini)'),
+        { status: 400 },
+      ),
+    );
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+
+    await switchPicker(wrapper, GEMINI_MODEL, GOOGLE_PID);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GEMINI_MODEL, GOOGLE_PID);
+    expect(mockUiStore.error).toHaveBeenCalledWith(
+      'Cannot switch agent kind mid-session (Claude Code → Gemini)',
+    );
+    expect(wrapper.find('.model-selector-stub').attributes('data-model')).toBe(CLAUDE_MODEL);
   });
 });

@@ -126,6 +126,7 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :has-worktree="!!(sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
         :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
@@ -555,13 +556,13 @@ async function handleUnarchive() {
   }
 }
 
-async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
+async function confirmArchive({ runCleanup, removeFromBoard, deleteWorktree } = {}) {
   archiving.value = true;
   // Capture before archiving: navigation below tears down this view.
   const projectId = sessionsStore.currentSession?.projectId;
   const workflowCard = archiveWorkflowCard.value;
   try {
-    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
+    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup, deleteWorktree });
     uiStore.success('Session archived');
 
     if (removeFromBoard && workflowCard && projectId) {

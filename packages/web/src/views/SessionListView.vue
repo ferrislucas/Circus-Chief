@@ -302,6 +302,7 @@
       :is-open="showArchiveModal"
       :session-name="sessionToArchive?.name || 'this session'"
       :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
+      :has-worktree="!!(sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
       :is-on-kanban-board="isArchiveSessionOnBoard"
       :loading="archiving"
       @confirm="confirmArchive"
@@ -509,14 +510,14 @@ const archiveWorkflowCard = computed(() => {
 
 const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
 
-async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
+async function confirmArchive({ runCleanup, removeFromBoard, deleteWorktree } = {}) {
   if (!sessionToArchive.value) return;
   archiving.value = true;
   // Capture before the finally block clears sessionToArchive.
   const archiveProjectId = projectId.value;
   const workflowCard = archiveWorkflowCard.value;
   try {
-    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup, deleteWorktree });
     workspaceList.removeCard?.(sessionToArchive.value.id);
     uiStore.success('Session archived');
 

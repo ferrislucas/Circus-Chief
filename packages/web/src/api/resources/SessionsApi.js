@@ -378,11 +378,12 @@ export function SessionsApi(ApiClient) {
      * Archive a session
      * @param {string} id - Session ID
      * @param {Object} [options] - Archive options
-     * @param {boolean} [options.cleanup=false] - Whether to clean up git worktree
+     * @param {boolean} [options.cleanup=false] - Whether to run the project cleanup hook
+     * @param {boolean} [options.deleteWorktree=false] - Whether to delete the git worktree
      * @returns {Promise<Object>}
      */
-    async archiveSession(id, { cleanup = false } = {}) {
-      return this._post(`/sessions/${id}/archive`, { cleanup });
+    async archiveSession(id, { cleanup = false, deleteWorktree = false } = {}) {
+      return this._post(`/sessions/${id}/archive`, { cleanup, deleteWorktree });
     },
 
     /**

@@ -12,11 +12,17 @@ import { validateModelAndProvider } from './model-validation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 import {
+  agentLabel,
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
   resolveModelForAgentKind,
+  deriveCrossKindAgentTypeUpdate,
+  isCrossKindBlockLiftable,
+  pendingModelClearanceForKindSwitch,
+  clearResumeChainOnKindSwitch,
 } from '../services/sessionAgentGuard.js';
+import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
 const router = Router();
 
@@ -77,6 +83,65 @@ function resetPrStateForSession(sessionId, projectId) {
 }
 
 /**
+ * Reject a PATCH that supplies `model` and `pendingModel` resolving to
+ * different agent kinds: no single `agentType` can agree with both persisted
+ * fields, and the follow-up turn would run adapter-kind ≠ model-kind.
+ * Skipped unless both fields are non-empty strings (anything else cannot
+ * resolve to an authoritative kind).
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkDivergentModelKinds(updateData) {
+  const { model, pendingModel } = updateData;
+  if (typeof model !== 'string' || model === '' || typeof pendingModel !== 'string' || pendingModel === '') {
+    return null;
+  }
+  const modelKind = resolveAgentTypeFromModel(model);
+  const pendingKind = resolveAgentTypeFromModel(pendingModel);
+  if (modelKind === pendingKind) return null;
+  return {
+    error: 'DIVERGENT_MODEL_KINDS',
+    message: `Cannot set model and pendingModel to different agent kinds (${agentLabel(modelKind)} → ${agentLabel(pendingKind)})`,
+  };
+}
+
+/**
+ * Reject a pendingModel-only change that crosses agent kinds on a started
+ * session (has prior assistant turns). Persisting it would strand
+ * model/agentType on different kinds — the next plain turn runs the adapter
+ * for session.agentType with env rebuilt from session.model (FR8). Skipped
+ * unless pendingModel is the only model field supplied as a non-empty
+ * string (anything else cannot strand the row), and skipped on drafts (the
+ * draft re-derivation path below owns those). Same-kind pendingModel-only
+ * changes pass through (checkCrossKindSwitch returns null for them).
+ * @param {Object} session
+ * @param {string} sessionId
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkPendingModelOnlyKindSwitch(session, sessionId, updateData) {
+  if (sessionHasNoAssistantMessages(sessionId)) return null;
+  // Only a non-empty string `model` counts as "model supplied": an explicit
+  // null/'' clear carries no kind, so a cross-kind `pendingModel` alongside
+  // it is still a pendingModel-only kind switch and must be rejected.
+  if (typeof updateData.model === 'string' && updateData.model !== '') return null;
+  const { pendingModel } = updateData;
+  if (typeof pendingModel !== 'string' || pendingModel === '') return null;
+  return checkCrossKindSwitch(session, pendingModel);
+}
+
+/**
+ * First model-kind invariant gate for a pending update: the both-fields
+ * divergent-pair rejection, then the pendingModel-only cross-kind rejection
+ * (Option A — 4xx with no mutation; the UI always sends `model` together
+ * with `pendingModel`, so the latter only affects direct API callers).
+ */
+function checkModelKindInvariant(session, sessionId, updateData) {
+  return checkDivergentModelKinds(updateData)
+    ?? checkPendingModelOnlyKindSwitch(session, sessionId, updateData);
+}
+
+/**
  * Apply the cross-kind agent/model drift guard to a pending update.
  * Each normalized (model, providerId) pair is validated with its OWN
  * provider — never a lookup-preferred owner, and never one pair's provider
@@ -90,10 +155,13 @@ function resetPrStateForSession(sessionId, projectId) {
  * @param {Object} updateData - Normalized pairs (see normalizeSessionSelectionPairs).
  * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
  */
-function applyModelDriftGuard(session, sessionId, updateData) {
+function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
+  const driftError = checkModelKindInvariant(session, sessionId, updateData);
+  if (driftError) return { driftError, agentTypeUpdate: {} };
   const currentChanged = Object.hasOwn(updateData, 'model') || Object.hasOwn(updateData, 'providerId');
   const pendingChanged = Object.hasOwn(updateData, 'pendingModel') || Object.hasOwn(updateData, 'pendingProviderId');
   if (!currentChanged && !pendingChanged) return { driftError: null, agentTypeUpdate: {} };
+  const newModel = updateData.pendingModel ?? updateData.model ?? null;
   if (sessionHasNoAssistantMessages(sessionId)) {
     // Drafts stay mutable: re-derive the agent kind from the CURRENT binding
     // only. A pending selection is a future dispatch, not the present
@@ -101,17 +169,68 @@ function applyModelDriftGuard(session, sessionId, updateData) {
     const agentTypeUpdate = currentChanged
       ? deriveAgentTypeUpdate(session, sessionId, updateData.model, { providerId: updateData.providerId })
       : {};
-    return { driftError: null, agentTypeUpdate };
+    return { driftError: null, agentTypeUpdate: withStalePendingModelClearance(session, updateData, agentTypeUpdate) };
   }
-  if (currentChanged) {
-    const driftError = checkCrossKindSwitch(session, updateData.model, updateData.providerId);
-    if (driftError) return { driftError, agentTypeUpdate: {} };
+  // Started session: validate each changed pair with its OWN provider —
+  // never a lookup-preferred owner, and never one pair's provider standing
+  // in for the other's — so neither change can hide the other. In-scope
+  // MODEL switches proceed (FR1/FR2); gemini, provider-only rebinds,
+  // tier-kind changes and dead tiers stay rejected here.
+  const pairError = checkStartedSelectionPairs(session, updateData);
+  if (pairError) return { driftError: pairError, agentTypeUpdate: {} };
+  if (!checkCrossKindSwitch(session, newModel)) {
+    return { driftError: null, agentTypeUpdate: {} };
   }
-  if (pendingChanged) {
-    const driftError = checkCrossKindSwitch(session, updateData.pendingModel, updateData.pendingProviderId);
-    if (driftError) return { driftError, agentTypeUpdate: {} };
+  // Allowed in-place switch: persist the re-derived kind (+ auto providerId
+  // when the caller didn't supply one explicitly).
+  return {
+    driftError: null,
+    agentTypeUpdate: withStalePendingModelClearance(
+      session, updateData, deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId),
+    ),
+  };
+}
+
+/**
+ * Validate each changed (model, providerId) pair of a started session with
+ * its OWN provider. Returns the first unliftable block payload, or null when
+ * every changed pair either stays in-kind or is an allowed in-scope MODEL
+ * switch (lifted via isCrossKindBlockLiftable).
+ * @param {Object} session - Current session row.
+ * @param {Object} updateData - Normalized pairs.
+ * @returns {{ error: string }|null} Block payload, or null.
+ */
+function checkStartedSelectionPairs(session, updateData) {
+  for (const [modelField, providerField] of [['model', 'providerId'], ['pendingModel', 'pendingProviderId']]) {
+    if (!Object.hasOwn(updateData, modelField) && !Object.hasOwn(updateData, providerField)) continue;
+    const fieldError = checkCrossKindSwitch(session, updateData[modelField], updateData[providerField]);
+    if (fieldError && !isCrossKindBlockLiftable(session, updateData[modelField], updateData[providerField], fieldError)) {
+      return fieldError;
+    }
   }
-  return { driftError: null, agentTypeUpdate: {} };
+  return null;
+}
+
+/**
+ * Merge a stale-`pendingModel` clearance into an applied kind-change update.
+ * Only acts when the update actually flips `agentType`: the effective
+ * override (explicitly supplied, else the stored row value) is dropped when
+ * it resolves to a different kind than the new one, so a later scheduled
+ * fire cannot strand the row or silently switch it back. A same-new-kind
+ * override stays coherent and is kept; same-kind switches (no `agentType`
+ * in the update) are untouched.
+ * @param {Object} session - The session row before the update.
+ * @param {Object} updateData - The pending PATCH fields.
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ * @returns {Object} The update with clearance merged in (possibly unchanged).
+ */
+function withStalePendingModelClearance(session, updateData, agentTypeUpdate) {
+  if (!agentTypeUpdate.agentType) return agentTypeUpdate;
+  const effectivePendingModel = updateData.pendingModel ?? session.pendingModel ?? null;
+  return {
+    ...agentTypeUpdate,
+    ...pendingModelClearanceForKindSwitch(effectivePendingModel, agentTypeUpdate.agentType),
+  };
 }
 
 /**
@@ -146,12 +265,23 @@ function normalizeSessionSelectionPairs(input, session) {
   ];
   for (const [modelField, providerField, currentModel, currentProvider] of pairs) {
     if (!Object.hasOwn(updateData, modelField) && !Object.hasOwn(updateData, providerField)) continue;
-    const model = Object.hasOwn(updateData, modelField) ? updateData[modelField] : currentModel;
-    const providerId = Object.hasOwn(updateData, providerField) ? updateData[providerField] : currentProvider;
+    const modelSupplied = Object.hasOwn(updateData, modelField);
+    const providerSupplied = Object.hasOwn(updateData, providerField);
+    const model = modelSupplied ? updateData[modelField] : currentModel;
+    // A supplied model without a provider must NOT inherit the current
+    // provider for validation: the pair may be switching kinds (FR1/FR2),
+    // and ownership against the stale provider would wrongly reject it.
+    // Leaving the provider absent lets validation check the model alone and
+    // the drift guard re-derive the provider on a real switch; persistence
+    // skips absent fields so the stored provider is preserved otherwise.
+    // A tier ref still clears the provider (no single owning provider).
+    const providerId = providerSupplied ? updateData[providerField] : (modelSupplied ? undefined : currentProvider);
     const normalized = validateModelAndProvider(model, providerId, { fieldName: modelField });
     if (normalized.error) return { error: normalized.error };
     updateData[modelField] = normalized.model;
-    updateData[providerField] = normalized.providerId;
+    if (providerSupplied || isTierRef(normalized.model)) {
+      updateData[providerField] = normalized.providerId;
+    }
   }
   return { updateData };
 }
@@ -212,8 +342,8 @@ function normalizeScheduleCancellation(updateData) {
 // Run the drift guard, snapshot reconcile, and lane-ownership-gated update as
 // one unit. Returns { updated } or { driftError } / { updated: null } for the
 // handler to map to 400 / 409.
-function applyGuardedSessionUpdate(sessionRow, sessionId, updateData) {
-  const { driftError, agentTypeUpdate } = applyModelDriftGuard(sessionRow, sessionId, updateData);
+function applyGuardedSessionUpdate(sessionRow, sessionId, updateData, suppliedProviderId) {
+  const { driftError, agentTypeUpdate } = applyModelDriftGuard(sessionRow, sessionId, updateData, suppliedProviderId);
   if (driftError) return { driftError };
   Object.assign(updateData, agentTypeUpdate);
   Object.assign(updateData, reconcileBindingSnapshot(sessionRow, updateData));
@@ -225,7 +355,7 @@ function applyGuardedSessionUpdate(sessionRow, sessionId, updateData) {
   const updated = schedulingMutation && sessionRow.laneRunId && !userScheduleLive
     ? withActiveLaneRunOwnership(sessionId, update)
     : update();
-  return { updated };
+  return { updated, agentTypeUpdate };
 }
 
 // Validate and normalize the PATCH body into the update payload. Returns
@@ -251,7 +381,7 @@ router.patch('/:id', requireSession, (req, res) => {
   }
   const updateData = validated.updateData;
 
-  const guarded = applyGuardedSessionUpdate(req.session_, req.params.id, updateData);
+  const guarded = applyGuardedSessionUpdate(req.session_, req.params.id, updateData, req.body.providerId);
   if (guarded.driftError) {
     return res.status(400).json(guarded.driftError);
   }
@@ -262,6 +392,7 @@ router.patch('/:id', requireSession, (req, res) => {
       code: 'LANE_RUN_OWNERSHIP_LOST',
     });
   }
+  clearResumeChainOnKindSwitch(req.session_, req.params.id, guarded.agentTypeUpdate);
   handlePrUrlSideEffects(req.session_, req.params.id, updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
   res.json(updated);

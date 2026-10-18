@@ -1,7 +1,10 @@
-import { messages, sessions, workLogs } from '../database.js';
+import { conversations, messages, sessions, workLogs } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveActiveModel, resolveAnyMember } from './tierResolutionService.js';
+
+// Default agent kind when none is recorded or resolvable.
+const DEFAULT_AGENT_TYPE = 'claude-code';
 
 // Human-readable labels used in the cross-kind switch error message.
 export const AGENT_TYPE_LABELS = Object.freeze({
@@ -10,6 +13,32 @@ export const AGENT_TYPE_LABELS = Object.freeze({
   gemini: 'Gemini',
   muse: 'Muse',
 });
+
+/**
+ * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4).
+ * `gemini` is deliberately excluded: any kind change involving it keeps the
+ * old `CROSS_KIND_MODEL_SWITCH` rejection.
+ */
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse']);
+
+/**
+ * Whether a model switch out of `sessionAgentType` is an allowed in-place
+ * cross-provider switch. Same-kind changes are trivially allowed; a kind
+ * change is allowed iff BOTH sides are in `IN_SCOPE_SWITCH_KINDS`.
+ *
+ * Unknown/null models fall back to `claude-code` resolution (never throws);
+ * callers validate model ids separately before consulting this helper.
+ *
+ * @param {string} sessionAgentType - The session's current agent type.
+ * @param {string|null} requestedModel - The requested model id (may be null).
+ * @returns {boolean} True when the switch may proceed on interactive paths.
+ */
+export function isCrossKindSwitchAllowed(sessionAgentType, requestedModel) {
+  const from = sessionAgentType || 'claude-code';
+  const to = resolveAgentTypeFromModel(requestedModel);
+  if (to === from) return true;
+  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+}
 
 /**
  * @param {string} agentType
@@ -107,7 +136,7 @@ export function resolveModelForAgentKind(modelOrRef, providerIdHint = null, sess
  */
 export function deriveAgentTypeForModelOrTier(modelOrRef) {
   const resolved = resolveModelForAgentKind(modelOrRef);
-  if (resolved.unresolved) return 'claude-code';
+  if (resolved.unresolved) return DEFAULT_AGENT_TYPE;
   return resolveAgentTypeFromModel(resolved.modelId, resolved.providerIdHint);
 }
 
@@ -313,7 +342,18 @@ export function buildLastExecutedUpdate(session, model, providerId) {
 }
 
 export function checkCrossKindSwitch(session, requestedModel, requestedProviderId = null) {
-  const sessionAgentType = session.agentType || 'claude-code';
+  // No requested selection at all means no switch: a turn that carries no
+  // explicit model continues same-kind on the existing adapter, even when
+  // the stored model id has gone stale (unknown ids fall back to
+  // 'claude-code' resolution, which must never read as a kind change).
+  // A provider-only change still falls through: it is judged against the
+  // session's current binding below.
+  if (!requestedModel && requestedProviderId == null) return null;
+  const sessionAgentType = session.agentType || DEFAULT_AGENT_TYPE;
+  // Resolve tier refs through the explicit candidate pair: a tier whose
+  // active member belongs to another kind is judged by its concrete member,
+  // and the explicit providerId (not catalog lookup order) decides the kind
+  // when one model id is registered under several providers.
   const effectiveModel = requestedModel || session.model;
   const resolved = resolveModelForAgentKind(effectiveModel, requestedProviderId, session);
   if (resolved.unresolved) {
@@ -331,6 +371,35 @@ export function checkCrossKindSwitch(session, requestedModel, requestedProviderI
     error: 'CROSS_KIND_MODEL_SWITCH',
     message: `Cannot switch agent kind mid-session (${agentLabel(sessionAgentType)} → ${agentLabel(requestedAgentType)})`,
   };
+}
+
+/**
+ * Whether a CROSS_KIND_MODEL_SWITCH block may be lifted for an allowed
+ * in-place MODEL switch (FR1/FR3): the requested model differs from the
+ * session's binding, is concrete, and both the current and requested kinds
+ * are in IN_SCOPE_SWITCH_KINDS. The requested kind is derived from the
+ * explicit (model, providerId) pair so an explicit providerId (not catalog
+ * lookup order) decides when one model id spans several providers.
+ *
+ * Tier-kind changes stay rejected (a tier whose member resolves cross-kind
+ * must not slip through; same-kind tiers never error), as do provider-only
+ * moves under an unchanged model id (a rebind, not a switch) and any
+ * non-CROSS_KIND error such as TIER_UNRESOLVABLE.
+ *
+ * @param {Object} session - Current session row.
+ * @param {string|null|undefined} requestedModel - Requested model (absent for provider-only moves).
+ * @param {string|null|undefined} requestedProviderId - Explicit provider (absent when not supplied).
+ * @param {{ error: string }|null} crossKindError - Block payload from checkCrossKindSwitch.
+ * @returns {boolean} True when the switch may proceed despite the block.
+ */
+export function isCrossKindBlockLiftable(session, requestedModel, requestedProviderId, crossKindError) {
+  if (!crossKindError || crossKindError.error !== 'CROSS_KIND_MODEL_SWITCH') return false;
+  if (isTierRef(requestedModel)) return false;
+  const currentModel = session.model ?? null;
+  if ((requestedModel ?? currentModel) === currentModel) return false;
+  const fromKind = session.agentType || DEFAULT_AGENT_TYPE;
+  const toKind = resolveAgentTypeFromModel(requestedModel, requestedProviderId ?? undefined);
+  return IN_SCOPE_SWITCH_KINDS.includes(fromKind) && IN_SCOPE_SWITCH_KINDS.includes(toKind);
 }
 
 /**
@@ -420,6 +489,106 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   // per-run rather than persisted as session.providerId (Work Item 1).
   if (opts.providerId === undefined && !isTier) {
     const derivedProvider = resolveProviderFromModel(resolved.modelId, resolved.providerIdHint);
+    if (derivedProvider && derivedProvider.id !== session.providerId) {
+      update.providerId = derivedProvider.id;
+    }
+  }
+
+  return update;
+}
+/**
+ * Derive the agentType (+ auto providerId) update for an ALLOWED in-place
+ * cross-kind switch on a started session. Unlike `deriveAgentTypeUpdate`,
+ * this skips the draft check — the caller already verified
+ * `isCrossKindSwitchAllowed`. Same providerId contract as the draft path:
+ * an explicitly-supplied id wins; otherwise the owning provider is derived
+ * from the model.
+ *
+ * @param {Object} session - The current session row.
+ * @param {string} newModel - The new model being applied.
+ * @param {string|null|undefined} suppliedProviderId - Explicit providerId, or undefined when absent.
+ * @returns {Object} Partial update to merge into the update payload.
+ */
+export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId) {
+  if (!newModel) return {};
+  return deriveKindUpdate(session, newModel, suppliedProviderId);
+}
+
+/**
+ * Clearance for a stale `pendingModel` override when an allowed cross-kind
+ * switch applies a new agent kind. A `pendingModel` that resolves to the new
+ * kind stays coherent and is kept; one that resolves to any other kind would
+ * strand the row (or silently switch it back) at the next scheduled fire, so
+ * it is dropped. Non-string values (null/absent) need no clearance.
+ *
+ * @param {string|null} pendingModel - Effective override (supplied ?? stored).
+ * @param {string} newAgentType - The agent kind the switch is applying.
+ * @returns {Object} `{ pendingModel: null }` on disagreement, else `{}`.
+ */
+export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
+  if (typeof pendingModel !== 'string' || pendingModel === '') return {};
+  if (!newAgentType) return {};
+  if (resolveAgentTypeFromModel(pendingModel) === newAgentType) return {};
+  return { pendingModel: null };
+}
+
+/**
+ * Discard the native resume chain when an update applies an actual in-place
+ * kind flip on a started session (FRD §2.2, FR4). The follow-up turn carries
+ * `model == session.model`, so the turn-time detector cannot see the switch
+ * afterward — without this, a stale cross-kind resume pointer would either
+ * leak into the new provider (claude-code ↔ muse) or linger silently
+ * (→ codex). Only acts on started sessions (drafts have no chain) and only
+ * when the update actually flips `agentType`; same-kind updates keep the
+ * chain (FR6), and gemini flips never reach here (400 with no mutation).
+ *
+ * @param {Object} session - The session row before the update.
+ * @param {string} sessionId
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ */
+export function clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate) {
+  const newAgentType = agentTypeUpdate.agentType;
+  if (!newAgentType || newAgentType === (session.agentType || 'claude-code')) return;
+  if (sessionHasNoAssistantMessages(sessionId)) return;
+  for (const conversation of conversations.getBySessionId(sessionId)) {
+    if (conversation.claudeSessionId) {
+      conversations.update(conversation.id, { claudeSessionId: null });
+    }
+  }
+}
+
+/**
+ * Resolve the concrete (model, providerHint) pair a kind derivation should
+ * judge. Tier refs resolve to their live member first: a tier whose active
+ * member belongs to another kind derives that kind (never the 'claude-code'
+ * default a raw `tier::` sentinel would fall through to), while an
+ * unresolvable tier (or any concrete model) derives from the id as given.
+ */
+function resolveKindDerivationPair(newModel, suppliedProviderId, session) {
+  if (!isTierRef(newModel)) return { model: newModel, providerHint: undefined };
+  const resolved = resolveModelForAgentKind(newModel, suppliedProviderId ?? undefined, session);
+  if (resolved.unresolved) return { model: newModel, providerHint: undefined };
+  return { model: resolved.modelId, providerHint: resolved.providerIdHint };
+}
+
+/**
+ * Shared agentType/providerId re-derivation core.
+ */
+function deriveKindUpdate(session, newModel, suppliedProviderId) {
+  const { model: effectiveModel, providerHint: effectiveHint } =
+    resolveKindDerivationPair(newModel, suppliedProviderId, session);
+  const derivedAgentType = resolveAgentTypeFromModel(effectiveModel, effectiveHint);
+  const update = {};
+
+  if (derivedAgentType && derivedAgentType !== session.agentType) {
+    update.agentType = derivedAgentType;
+  }
+
+  // Auto-set providerId from model when the caller didn't pass one explicitly
+  // — but never for a tier binding, whose concrete provider is resolved
+  // per-run rather than persisted as session.providerId.
+  if (suppliedProviderId === undefined && !isTierRef(newModel)) {
+    const derivedProvider = resolveProviderFromModel(effectiveModel, effectiveHint);
     if (derivedProvider && derivedProvider.id !== session.providerId) {
       update.providerId = derivedProvider.id;
     }

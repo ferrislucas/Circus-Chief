@@ -33,6 +33,20 @@
           </p>
 
           <div
+            v-if="hasWorktree"
+            class="cleanup-option"
+          >
+            <label class="checkbox-label">
+              <input
+                v-model="deleteWorktree"
+                type="checkbox"
+                aria-label="Delete git worktree"
+              >
+              <span>Delete git worktree</span>
+            </label>
+          </div>
+
+          <div
             v-if="hasCleanupScript"
             class="cleanup-option"
           >
@@ -98,6 +112,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  hasWorktree: {
+    type: Boolean,
+    default: false,
+  },
   isOnKanbanBoard: {
     type: Boolean,
     default: false,
@@ -112,6 +130,7 @@ const emit = defineEmits(['confirm', 'cancel']);
 
 const runCleanup = ref(true);
 const removeFromBoard = ref(true);
+const deleteWorktree = ref(true);
 
 // Reset checkbox state whenever modal opens
 watch(
@@ -120,6 +139,7 @@ watch(
     if (isOpen) {
       runCleanup.value = true;
       removeFromBoard.value = true;
+      deleteWorktree.value = true;
     }
   }
 );
@@ -129,6 +149,7 @@ function handleConfirm() {
     runCleanup: runCleanup.value,
     // Only pass true when the checkbox is actually visible; otherwise always false.
     removeFromBoard: props.isOnKanbanBoard ? removeFromBoard.value : false,
+    deleteWorktree: props.hasWorktree ? deleteWorktree.value : false,
   });
 }
 

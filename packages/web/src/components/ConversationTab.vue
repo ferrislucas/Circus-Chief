@@ -150,6 +150,7 @@ import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { isTierRef, useTiersStore } from '../stores/tiers.js';
+import { useModelSelectionPersist } from '../composables/useModelSelectionPersist.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -171,11 +172,11 @@ const props = defineProps({
 defineEmits(['prompt-focus', 'prompt-blur']);
 
 const sessionsStore = useInjectedSessionsStore();
+const providersStore = useProvidersStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
-const providersStore = useProvidersStore();
 const tiersStore = useTiersStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
@@ -201,7 +202,17 @@ const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
-let suppressNextModelPersist = false;
+
+// Picker → session model persistence (confirm/revert flow lives here so the
+// component stays under the max-lines budget).
+const { pauseModelPersist, resumeModelPersist } = useModelSelectionPersist({
+  getSessionId: () => props.sessionId,
+  selectedModel,
+  selectedProviderId,
+  sessionsStore,
+  providersStore,
+  uiStore,
+});
 
 // Draft saving composable
 const {
@@ -551,7 +562,7 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
-      suppressNextModelPersist = true;
+      pauseModelPersist();
       const pair = normalizeModelProviderPair(
         sessionsStore.currentSession?.model ||
           getProjectDefaultModel() ||
@@ -563,33 +574,12 @@ watch(
       selectedModel.value = pair.model;
       selectedProviderId.value = pair.providerId;
       nextTick(() => {
-        suppressNextModelPersist = false;
+        resumeModelPersist();
       });
     }
   },
   { immediate: true }
 );
-
-// Persist model selection to session
-watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
-  if (suppressNextModelPersist) {
-    suppressNextModelPersist = false;
-    return;
-  }
-  if (oldModel !== null && newModel && newModel !== oldModel) {
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
-    } catch (err) {
-      console.error('Failed to persist model selection:', err);
-    }
-  } else if (newModel && newProviderId !== oldProviderId) {
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
-    } catch (err) {
-      console.error('Failed to persist model provider selection:', err);
-    }
-  }
-});
 
 // Form submission handler
 function getSubmittedInputValue(textareaRef) {
@@ -705,7 +695,7 @@ async function applyTemplateModel(model, providerId) {
   // skips when the model was never initialized. Suppress the watcher so we
   // don't issue a duplicate PATCH for the same change.
   if (model !== selectedModel.value || providerId !== selectedProviderId.value) {
-    suppressNextModelPersist = true;
+    pauseModelPersist();
     selectedModel.value = model;
     selectedProviderId.value = providerId;
   }
