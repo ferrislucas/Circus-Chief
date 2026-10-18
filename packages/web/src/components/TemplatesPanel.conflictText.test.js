@@ -59,7 +59,7 @@ describe('TemplatesPanel pure-conflict banner text', () => {
       createGlobalTemplate: vi.fn(),
     });
     useUiStore.mockReturnValue({ success: vi.fn(), error: vi.fn() });
-    useProvidersStore.mockReturnValue({ providers: [] });
+    useProvidersStore.mockReturnValue({ providers: [], fetchProviders: vi.fn() });
   });
 
   it('renders a non-empty paragraph on a pure conflict', async () => {
