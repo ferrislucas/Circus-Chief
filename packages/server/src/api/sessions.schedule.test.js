@@ -125,7 +125,7 @@ describe('Sessions API - POST /:id/schedule', () => {
       .expect(400);
 
     expect(response.body).toEqual({
-      error: 'Unexpected field(s): interactive. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.',
+      error: 'Unexpected field(s): interactive. Only prompt, scheduledAt, model, and providerId are accepted; set reschedule policy via PATCH /api/sessions/:id.',
     });
   });
 
@@ -673,4 +673,92 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(response.body.error).toMatch(/Unexpected field/i);
     expect(response.body.error).toContain('junkKey');
   });
+
+  // ── Explicit provider pairs on schedule (finding 7) ───────────────────────
+  // The schedule endpoint must validate the explicit (model, providerId) pair
+  // it will later dispatch — not whichever owner a model-id lookup prefers.
+  describe('schedule explicit provider pairs (finding 7)', () => {
+    const SHARED_MODEL = 'shared-schedule-model';
+    let claudeProvider;
+    let codexProvider;
+
+    beforeEach(() => {
+      claudeProvider = modelProviders.create({ name: 'Claude Schedule', kind: 'anthropic' });
+      codexProvider = modelProviders.create({ name: 'Codex Schedule', kind: 'openai' });
+      modelProviders.addModel(claudeProvider.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+      modelProviders.addModel(codexProvider.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+    });
+
+    afterEach(() => {
+      try { modelProviders.delete(claudeProvider.id); } catch { /* noop */ }
+      try { modelProviders.delete(codexProvider.id); } catch { /* noop */ }
+    });
+
+    function createEstablishedSession() {
+      const established = sessions.create(project.id, 'Established Schedule Session', 'Initial prompt', 'standard');
+      sessions.update(established.id, {
+        status: 'waiting', model: SHARED_MODEL, providerId: claudeProvider.id, agentType: 'claude-code',
+      });
+      messages.create(established.id, 'assistant', 'Prior answer.');
+      return sessions.getById(established.id);
+    }
+
+    it('rejects scheduling an incompatible explicit pair, storing nothing', async () => {
+      const established = createEstablishedSession();
+
+      const res = await request(app)
+        .post(`/api/sessions/${established.id}/schedule`)
+        .send({
+          prompt: 'Continue later',
+          scheduledAt: Date.now() + 3600000,
+          model: SHARED_MODEL,
+          providerId: codexProvider.id,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+
+      const unchanged = sessions.getById(established.id);
+      expect(unchanged.pendingModel ?? null).toBe(null);
+      expect(unchanged.pendingPrompt ?? null).toBe(null);
+    });
+
+    it('accepts scheduling a compatible explicit pair', async () => {
+      const established = createEstablishedSession();
+
+      const res = await request(app)
+        .post(`/api/sessions/${established.id}/schedule`)
+        .send({
+          prompt: 'Continue later',
+          scheduledAt: Date.now() + 3600000,
+          model: SHARED_MODEL,
+          providerId: claudeProvider.id,
+        })
+        .expect(200);
+
+      expect(res.body.pendingModel).toBe(SHARED_MODEL);
+      expect(sessions.getById(established.id).pendingProviderId).toBe(claudeProvider.id);
+    });
+
+    it('rejects scheduling a pair whose provider is disabled (finding 5)', async () => {
+      const established = createEstablishedSession();
+      modelProviders.update(codexProvider.id, { enabled: false });
+      try {
+        const res = await request(app)
+          .post(`/api/sessions/${established.id}/schedule`)
+          .send({
+            prompt: 'Continue later',
+            scheduledAt: Date.now() + 3600000,
+            model: SHARED_MODEL,
+            providerId: codexProvider.id,
+          });
+        expect(res.status).toBe(400);
+
+        const unchanged = sessions.getById(established.id);
+        expect(unchanged.pendingModel ?? null).toBe(null);
+      } finally {
+        modelProviders.update(codexProvider.id, { enabled: true });
+      }
+    });
+  });
+
 });

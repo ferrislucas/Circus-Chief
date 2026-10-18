@@ -1,0 +1,2333 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { buildTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
+
+// Mock the SDK to prevent real API calls — capture queryParams for assertions
+const { mockQuery } = vi.hoisted(() => ({
+  mockQuery: vi.fn(async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-haiku-4-5-20251001', slash_commands: [] };
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+    yield { type: 'result', subtype: 'success' };
+  }),
+}));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: mockQuery,
+}));
+
+// Mock the WebSocket layer so Fix 6's stale-tier notice can be asserted
+// without needing a real connected socket. Every other test in this file
+// only relies on runSession completing — none inspect WS traffic — so this
+// is a behavior-neutral swap-in.
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
+}));
+
+// Summary generation runs on the terminal-error path (finalizeSessionError →
+// onSessionComplete) and dispatches its own model call through the SAME mocked
+// SDK, which would pollute mockQuery call counts. No test in this file asserts
+// summary behavior, so swap in no-op stubs.
+vi.mock('./summaryService.js', () => ({
+  onSessionActivity: vi.fn(),
+  onSessionComplete: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
+  generateSummaryNow: vi.fn(),
+  generateSummaryIfNeeded: vi.fn(),
+  cleanupSession: vi.fn(),
+}));
+
+import { continueSession, runSession } from './sessionManager.js';
+import { ProjectRepository } from '../db/ProjectRepository.js';
+import { SessionRepository } from '../db/SessionRepository.js';
+import { modelProviders, modelTiers, agentCallLogs, workLogs, sessions } from '../database.js';
+import { clearUnhealthy, isUnhealthy, markUnhealthy } from './tierResolutionService.js';
+import { agentGateway } from '../agents/AgentGateway.js';
+import { BaseAgent } from '../agents/BaseAgent.js';
+import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
+import { broadcastToSession } from '../websocket.js';
+import {
+  runSessionWithTierFailover,
+  sanitizeTierFailureReason,
+} from './sessionTierFailover.js';
+import { resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
+import { checkCrossKindSwitch } from './sessionAgentGuard.js';
+
+describe('sanitizeTierFailureReason', () => {
+  it('bounds and redacts credential-like values before outward reporting', () => {
+    const reason = sanitizeTierFailureReason(new Error(
+      'Provider rejected request: authorization=Bearer secret-token api_key=sk-super-secret\nretry later'
+    ));
+
+    expect(reason).toContain('[redacted]');
+    expect(reason).not.toContain('secret-token');
+    expect(reason).not.toContain('sk-super-secret');
+    expect(reason).not.toContain('\n');
+  });
+});
+
+describe('runSessionCore tier failover (integration)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-haiku-4-5-20251001', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'tier-failover-test-'));
+    const project = projectRepo.create('Test Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Tier Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Tier Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'model-b', displayName: 'Model B' });
+
+    tier = modelTiers.create({
+      name: 'Test Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('starts on the first member when it is healthy', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(buildTierRef(tier.id));
+    expect(updated.resolvedModel).toBe('model-a');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+
+  it('fails over to the next member for a status-only SDK error at start', async () => {
+    // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw Object.assign(new Error('Request failed'), { status: 503 });
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    const updated = sessionRepo.getById(session.id);
+    // The tier ref is preserved as the session's model (not the concrete member)
+    expect(updated.model).toBe(buildTierRef(tier.id));
+    expect(updated.resolvedModel).toBe('model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    // Should not be left in an error state after a successful failover
+    expect(updated.status).not.toBe('error');
+
+    // First member should now be in cooldown
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+
+    // Regression: the broadcast payload must carry `sessionId` — the web
+    // client's onTierFailover handler filters every incoming message on
+    // `msg.sessionId === sessionId` (useSessionSubscription.js), so omitting
+    // it silently drops the notice client-side even though the server "sent"
+    // it (a real bug the scripted E2E failover suite caught — see
+    // model-tiers-e2e-coverage-plan.md Phase 2).
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2].sessionId).toBe(session.id);
+  });
+
+  it('never broadcasts raw credentials from the failing member error', async () => {
+    const sentinel = 'sentinel-3f9b-broadcast-secret';
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw Object.assign(
+        new Error(`GET https://example/v1/models/model-a:generateContent?key=${sentinel} failed`),
+        { status: 503 }
+      );
+    });
+
+    const callsBefore = broadcastToSession.mock.calls.length;
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const failoverBroadcast = broadcastToSession.mock.calls
+      .slice(callsBefore)
+      .find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast).toBeTruthy();
+    expect(JSON.stringify(failoverBroadcast[2])).not.toContain(sentinel);
+  });
+
+  it('uses one member snapshot when the tier is edited during a failed attempt', async () => {
+    // The failover loop has already resolved A → B at this point. Removing B
+    // from live configuration must not make stream policy, the notice, and
+    // the retry disagree about which successor this run chose.
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      modelTiers.update(tier.id, {
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(mockQuery.mock.calls[1][0].options.model).toBe('model-b');
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
+  });
+
+  it('fails over when a retryable provider failure arrives as result:error', async () => {
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).not.toBe('error');
+    expect(updated.error).toBeFalsy();
+    expect(updated.resolvedModel).toBe('model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+
+    // The failed attempt is transparent: only the tier-failover notice is
+    // emitted, never a terminal session error / visible error message.
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'session:error')).toBe(false);
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(true);
+  });
+
+  it.each([
+    ['a thrown structured error', () =>
+      // eslint-disable-next-line require-yield -- simulates an SDK failure before the first provider event
+      async function* () {
+        throw Object.assign(new Error('Internal server error'), { status: 500 });
+      }],
+    ['a streamed result:error', () => async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'generic-500-stream', model: 'model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: { message: 'Internal server error' }, status: 500 };
+    }],
+  ])('retains a generic HTTP 500 from %s instead of failing over', async (_shape, providerFailure) => {
+    mockQuery.mockImplementationOnce(providerFailure());
+    const failoverCountBefore = broadcastToSession.mock.calls
+      .filter((call) => call[1] === 'tier:failover').length;
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, { model: null })
+      .then(() => null, error => error);
+
+    expect(failure).toMatchObject({ message: 'Internal server error' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+    expect(broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover')).toHaveLength(failoverCountBefore);
+  });
+
+  it('exhausts the tier when the final member reports result:error without snapshotting it', async () => {
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, { model: null })
+      .then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({
+      name: 'ModelTierExhaustedError',
+      code: 'MODEL_TIER_EXHAUSTED',
+      attempts: [
+        { providerId: providerA.id, modelId: 'model-a', reason: 'Rate limit exceeded' },
+        { providerId: providerB.id, modelId: 'model-b', reason: 'Rate limit exceeded' },
+      ],
+    });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBeFalsy();
+    expect(updated.resolvedProviderId).toBeFalsy();
+    expect(updated.status).toBe('error');
+  });
+
+  it('marks the failed member unhealthy so a subsequent session start skips it', async () => {
+    // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    mockQuery.mockClear();
+
+    // Start a second session bound to the same tier — should skip the cooled-down
+    // member A entirely and go straight to member B.
+    const project = { id: session.projectId };
+    const session2 = sessionRepo.create(project.id, 'Second Session', 'Second prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated = sessionRepo.getById(session2.id);
+    expect(updated.resolvedModel).toBe('model-b');
+  });
+
+  it('throws when all members are exhausted at start (no silent hang)', async () => {
+    // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
+    mockQuery.mockImplementation(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    const updated = sessionRepo.getById(session.id);
+    // Existing error path applies when the whole tier is exhausted
+    expect(updated.status).toBe('error');
+  });
+
+  it('does not fail over on a non-eligible error (e.g. auth failure)', async () => {
+    // eslint-disable-next-line require-yield -- always throws before yielding, matching agent.execute()'s async-iterable contract
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Invalid API key provided');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/Invalid API key/);
+
+    // Should not have attempted member B
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Member A should NOT be marked unhealthy (non-eligible errors don't trigger cooldown)
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+  });
+
+  it('does not fail over after a tool use is persisted before an eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'tool-use-session', model: 'model-a', slash_commands: [] };
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'README.md' } }] },
+      };
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The prompt must never be replayed on a later tier member after the tool
+    // call has been persisted as observable agent activity.
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(workLogs.getBySessionId(session.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'tool_input', toolName: 'Read' }),
+    ]));
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('does not fail over after a tool use before a streamed eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'tool-result-error-session', model: 'model-a', slash_commands: [] };
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_2', name: 'Bash', input: { command: 'pwd' } }] },
+      };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/Rate limit exceeded/);
+
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('does not fail over after textual assistant output before an eligible provider failure', async () => {
+    broadcastToSession.mockClear();
+    const attemptedModels = [];
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'text-session', model: 'model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'I started the task.' }] } };
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    for (const [queryParams] of mockQuery.mock.calls) {
+      if (queryParams.options?.model) attemptedModels.push(queryParams.options.model);
+    }
+    expect(attemptedModels).not.toContain('model-b');
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  // Fix 5: terminal-member + auto-reschedule — resolvedModel must NOT be set
+  it('does not snapshot resolvedModel when the session was rescheduled (Fix 5)', async () => {
+    // Scenario: single-member tier, auto-reschedule enabled.
+    // The only member fails at start with a service error. Because there is no
+    // next healthy member, the error is NOT tier-failover-eligible (there's
+    // nothing to advance to). shouldRescheduleOnError returns true, so
+    // _executeSession reschedules the session and returns normally — without
+    // throwing. The failover loop must detect the 'scheduled' status and skip
+    // the resolvedModel snapshot.
+
+    // Create a single-member tier
+    const singleMemberTier = modelTiers.create({
+      name: 'Single',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+
+    // Enable auto-reschedule on the session
+    sessionRepo.update(session.id, {
+      model: buildTierRef(singleMemberTier.id),
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+
+    // Agent throws a service error immediately (no assistant output)
+    // eslint-disable-next-line require-yield -- always throws before yielding
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    // Run the session — it should end up in 'scheduled' status (rescheduled),
+    // not throw and not snapshot resolvedModel to the failed member.
+    // It may throw if reschedule is not enabled in the test DB; catch either.
+    try {
+      await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    } catch (_err) {
+      // Acceptable: exhausted tier error propagates when reschedule is disabled
+      // in the test environment. The assertion below is what matters.
+    }
+
+    const updated = sessionRepo.getById(session.id);
+    // resolvedModel must NOT be set to the failed member
+    // (either null from initialization or 'scheduled' state)
+    if (updated.status === 'scheduled') {
+      expect(updated.resolvedModel).not.toBe('model-a');
+    } else {
+      // Non-reschedule path: the session errored — resolvedModel should be null/undefined
+      expect(updated.resolvedModel == null || updated.resolvedModel !== 'model-a').toBe(true);
+    }
+  });
+
+  // Work Item 1: an ordered tier is exhausted before failure — no arbitrary
+  // attempt cap. A member beyond position ten can still succeed, and an
+  // >10-member tier that fully fails only reaches terminal error status
+  // after every eligible member has actually been attempted.
+  it('succeeds on an eligible member beyond position ten, attempting every prior member exactly once in order', async () => {
+    const members = [];
+    for (let i = 0; i < 11; i++) {
+      const provider = modelProviders.create({ name: `Big Provider ${i}`, kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: `big-model-${i}`, displayName: `Big Model ${i}` });
+      members.push({ providerId: provider.id, modelId: `big-model-${i}`, position: i });
+    }
+    const bigTier = modelTiers.create({ name: 'Big Tier', members });
+    sessionRepo.update(session.id, { model: buildTierRef(bigTier.id) });
+
+    const attemptedProviderIds = [];
+    let callCount = 0;
+    mockQuery.mockImplementation(async function* () {
+      attemptedProviderIds.push(members[callCount].providerId);
+      callCount++;
+      if (callCount <= 10) {
+        throw new Error('Error: 529 Service overloaded');
+      }
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'big-model-10', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Eleventh response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // All eleven members were attempted, in configured order, exactly once each.
+    expect(mockQuery).toHaveBeenCalledTimes(11);
+    expect(attemptedProviderIds).toEqual(members.map((m) => m.providerId));
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(buildTierRef(bigTier.id));
+    expect(updated.resolvedModel).toBe('big-model-10');
+    expect(updated.resolvedProviderId).toBe(members[10].providerId);
+    expect(updated.status).not.toBe('error');
+  });
+
+  it('reaches terminal error status only after every member of an >10-member tier has been attempted', async () => {
+    const members = [];
+    for (let i = 0; i < 12; i++) {
+      const provider = modelProviders.create({ name: `Exhaust Provider ${i}`, kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: `exhaust-model-${i}`, displayName: `Exhaust Model ${i}` });
+      members.push({ providerId: provider.id, modelId: `exhaust-model-${i}`, position: i });
+    }
+    const exhaustTier = modelTiers.create({ name: 'Exhaust Tier', members });
+    sessionRepo.update(session.id, { model: buildTierRef(exhaustTier.id) });
+
+    // eslint-disable-next-line require-yield -- always throws before yielding
+    mockQuery.mockImplementation(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    // Every eligible member was attempted — no silent hang, no arbitrary cap.
+    expect(mockQuery).toHaveBeenCalledTimes(12);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).toBe('error');
+    expect(updated.error).toContain('529');
+  });
+
+  it("skips a cooled-down member without consuming a later member's turn", async () => {
+    // Pre-cool member A (position 0) so the loop must skip straight to B.
+    const { markUnhealthy: markUnhealthyDirect } = await import('./tierResolutionService.js');
+    markUnhealthyDirect(providerA.id, 'model-a');
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Only B was attempted — the cooldown skip did not consume an attempt
+    // that would otherwise have been available to a later member.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+
+  it('reports cooldown exhaustion without attempting configured members', async () => {
+    markUnhealthy(providerA.id, 'model-a');
+    markUnhealthy(providerB.id, 'model-b');
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, { model: null })
+      .then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({
+      code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE',
+      tierId: tier.id,
+      tierName: 'Test Tier',
+    });
+    expect(failure.message).toMatch(/all members are cooling down/);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('keeps a genuinely empty tier distinct from cooldown exhaustion', async () => {
+    const emptyTier = modelTiers.create({ name: 'Empty Tier' });
+
+    await expect(runSessionWithTierFailover(
+      session.id,
+      'Initial prompt',
+      tempDir,
+      { tierRef: buildTierRef(emptyTier.id) }
+    )).rejects.toThrow('No members configured for tier "Empty Tier"');
+  });
+});
+
+// ── Fix 2: successor-aware cooldown ──────────────────────────────────────────
+
+describe('handleTierMemberFailure cooldown', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix2-cooldown-test-'));
+    const project = projectRepo.create('Fix2 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Fix2 Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Fix2 Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'fix2-model-a', displayName: 'Fix2 Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'fix2-model-b', displayName: 'Fix2 Model B' });
+
+    tier = modelTiers.create({
+      name: 'Fix2 Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'fix2-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'fix2-model-b', position: 1 },
+      ],
+    });
+    session = sessionRepo.create(project.id, 'Fix2 Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    // Cooldown state is process-local: reset it so each test starts with a
+    // healthy tier instead of inheriting a previous test's cooldowns.
+    if (providerA && providerB) {
+      clearUnhealthy(providerA.id, 'fix2-model-a');
+      clearUnhealthy(providerB.id, 'fix2-model-b');
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('cools down the first failing member when a successor exists (F21 still steers)', async () => {
+    // A fails → B is healthy → A should be cooled, B should succeed
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix2-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'B response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await runSession(session.id, 'prompt', tempDir, { model: null });
+
+    // A must be cooled (had a healthy successor B)
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+    // B ran successfully and must NOT be cooled
+    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(false);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('fix2-model-b');
+  });
+
+  it('skips a member cooled mid-loop without attempting it (cooldown re-checked per attempt)', async () => {
+    let queryCalls = 0;
+    // A fails with an eligible outage; while A's attempt is in flight a
+    // concurrent session cools B.
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      queryCalls += 1;
+      markUnhealthy(providerB.id, 'fix2-model-b', DEFAULT_TIER_COOLDOWN_MS);
+      throw new Error('Error: 529 Service overloaded');
+    });
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      queryCalls += 1;
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix2-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'B response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await expect(runSession(session.id, 'prompt', tempDir, { model: null })).rejects.toThrow();
+
+    // B was cooled before its attempt: the loop must skip it, not hammer it.
+    expect(queryCalls).toBe(1);
+    // A was attempted and failed → cooled; B was never attempted.
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+  });
+
+  it('cools down the last failing member when no successor exists', async () => {
+    // A fails → B fails (no next after B) → both should be cooled
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementation(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    // A was cooled (B was available when A failed)
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+    // B also failed with a retryable outage and must be cooled.
+    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(true);
+
+    // Fresh sessions do not immediately hammer an entirely unavailable tier.
+    const { resolveActiveModel } = await import('./tierResolutionService.js');
+    const resolved = resolveActiveModel(buildTierRef(tier.id), {});
+    expect(resolved).toBeNull();
+  });
+
+  it('cools down a failing single-member tier', async () => {
+    // Single-member tier: A fails with service error + auto-reschedule enabled.
+    // The sole member must be cooled so unrelated starts do not hammer it.
+    const singleTier = modelTiers.create({
+      name: 'Fix2 Single',
+      members: [{ providerId: providerA.id, modelId: 'fix2-model-a', position: 0 }],
+    });
+    const singleSession = sessionRepo.create(session.projectId, 'Fix2 Single Session', 'prompt', 'standard');
+    sessionRepo.update(singleSession.id, {
+      model: buildTierRef(singleTier.id),
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    // Session is expected to be rescheduled (not throw)
+    try {
+      await runSession(singleSession.id, 'prompt', tempDir, { model: null });
+    } catch (_err) {
+      // Acceptable if reschedule is not enabled in test env; main assertion below.
+    }
+
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+  });
+});
+
+// ── Fix 3: preserve resolvedModel on proactive reschedule ───────────────────
+
+describe('runSessionWithTierFailover preserves resolvedModel on proactive reschedule (Fix 3)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let tier;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix3-snapshot-test-'));
+    const project = projectRepo.create('Fix3 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Fix3 Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'fix3-model-a', displayName: 'Fix3 Model A' });
+
+    tier = modelTiers.create({
+      name: 'Fix3 Tier',
+      members: [{ providerId: providerA.id, modelId: 'fix3-model-a', position: 0 }],
+    });
+    session = sessionRepo.create(project.id, 'Fix3 Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: buildTierRef(tier.id),
+      // Low proactive reschedule threshold so the post-turn check fires
+      autoRescheduleEnabled: true,
+      rescheduleAtTokenCount: 1,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('snapshots resolvedModel even when the session is proactively rescheduled after a successful run', async () => {
+    // Agent responds successfully but reports enough tokens to trigger the
+    // proactive reschedule threshold (rescheduleAtTokenCount=1).
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix3-model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+      // Include usage so the token-count DB update fires and exceeds the threshold
+      yield { type: 'result', subtype: 'success', usage: { input_tokens: 50, output_tokens: 50 } };
+    });
+
+    await runSession(session.id, 'prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // The session ran (produced assistant output) — resolvedModel MUST be recorded
+    // regardless of whether the session was proactively rescheduled afterwards.
+    expect(updated.resolvedModel).toBe('fix3-model-a');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+});
+
+// ── Issue 4: failover log entry reflects the source agent type ─────────────
+//
+// _logFailoverEvent previously hardcoded agentType: 'claude-code' and
+// success: false. When failing over *from* a Codex/Gemini member the logged
+// agent type was wrong, and success:false mapped the row to status 'error'
+// even though a failover that successfully advances is a benign system
+// event, not a call failure.
+
+describe('tier failover log entry reflects source agentType (Issue 4)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerCodex;
+  let providerClaude;
+  let tier;
+  let originalCodexAdapter;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'issue4-agenttype-test-'));
+    const project = projectRepo.create('Issue4 Project', tempDir);
+
+    // First member resolves to a Codex ('openai' kind) provider — its
+    // adapter is swapped below for a fake that fails deterministically
+    // without spawning a real CLI process.
+    providerCodex = modelProviders.create({ name: 'Issue4 Codex Provider', kind: 'openai' });
+    providerClaude = modelProviders.create({ name: 'Issue4 Claude Provider', kind: 'anthropic' });
+    modelProviders.addModel(providerCodex.id, { modelId: 'codex-model-a', displayName: 'Codex Model A' });
+    modelProviders.addModel(providerClaude.id, { modelId: 'claude-model-b', displayName: 'Claude Model B' });
+
+    tier = modelTiers.create({
+      name: 'Issue4 Tier',
+      members: [
+        { providerId: providerCodex.id, modelId: 'codex-model-a', position: 0 },
+        { providerId: providerClaude.id, modelId: 'claude-model-b', position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'Issue4 Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+
+    // Swap in a fake Codex adapter that fails at start with a failover-eligible
+    // error, without touching a real Codex CLI process.
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    class FailingCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- always throws before yielding
+      async *execute() {
+        throw new Error('Error: 529 Service overloaded');
+      }
+    }
+    agentGateway.registerAdapter('codex', FailingCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('logs the failing member\'s agentType (codex) instead of hardcoding claude-code', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Failed over from Codex to Claude
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('claude-model-b');
+
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentType).toBe('codex');
+    // A failover that successfully advances is a neutral system event, not
+    // a call failure — status must not be 'error'.
+    expect(rows[0].status).not.toBe('error');
+    expect(rows[0].status).toBe('completed');
+  });
+});
+
+// ── Fix 1 / Fix 4: provider-aware failover across a duplicate modelId ───────
+//
+// Two tier members can legitimately share the same `modelId` string while
+// belonging to different providers/agent kinds. A plain model-id lookup
+// cannot disambiguate them; the exact member's own `providerId` must be
+// threaded through every step (agent-type derivation, env resolution, and
+// the failover log's source agentType) or the wrong adapter/env gets used.
+
+describe('cross-provider failover with a duplicate modelId (Fix 1 / Fix 4)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerCodex;
+  let providerClaude;
+  let tier;
+  let originalCodexAdapter;
+  const sharedModelId = 'shared-model-id';
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: sharedModelId, slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'dup-model-id-test-'));
+    const project = projectRepo.create('DupModel Project', tempDir);
+
+    // Both providers register the SAME modelId string — only `providerId`
+    // can tell them apart.
+    providerCodex = modelProviders.create({ name: 'DupModel Codex Provider', kind: 'openai' });
+    providerClaude = modelProviders.create({ name: 'DupModel Claude Provider', kind: 'anthropic' });
+    modelProviders.addModel(providerCodex.id, { modelId: sharedModelId, displayName: 'Shared (Codex)' });
+    modelProviders.addModel(providerClaude.id, { modelId: sharedModelId, displayName: 'Shared (Claude)' });
+
+    tier = modelTiers.create({
+      name: 'DupModel Tier',
+      members: [
+        { providerId: providerCodex.id, modelId: sharedModelId, position: 0 },
+        { providerId: providerClaude.id, modelId: sharedModelId, position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'DupModel Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+
+    // The first member resolves to a Codex provider — fail it deterministically
+    // without spawning a real CLI process.
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    class FailingCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- always throws before yielding
+      async *execute() {
+        throw new Error('Error: 529 Service overloaded');
+      }
+    }
+    agentGateway.registerAdapter('codex', FailingCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves each attempt against its OWN providerId, not an ambiguous modelId lookup', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Failed over from the Codex member to the Claude member — both share
+    // `sharedModelId`, so this only succeeds if providerId disambiguated them.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe(sharedModelId);
+    expect(updated.resolvedProviderId).toBe(providerClaude.id);
+    // The session's agentType must reflect the member it actually SUCCEEDED
+    // on (Claude), not the Codex member it failed over from.
+    expect(updated.agentType).toBe('claude-code');
+
+    // The failover log's source agentType must reflect the FAILED member
+    // (Codex) — proving the codex attempt was correctly identified as codex
+    // despite sharing a modelId with the claude member it advanced to.
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentType).toBe('codex');
+  });
+});
+
+// ── Fix 6: safe degradation for stale tier refs at session start ───────────
+//
+// A tier ref that no longer resolves to any member (deleted, emptied, or
+// every member's provider/model removed) at new/scheduled session start must
+// degrade to a concrete fallback model — NOT throw outright the way a live
+// "all members failed" exhaustion (S3) correctly does.
+
+describe('stale tier ref at session start (Fix 6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix6-stale-tier-test-'));
+
+    providerA = modelProviders.create({ name: 'Fix6 Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the server default when a deleted tier ref has no prior concrete snapshot', async () => {
+    const project = projectRepo.create('Fix6 Project 1', tempDir);
+    const tier = modelTiers.create({
+      name: 'Doomed Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Fix6 Session 1', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef, resolvedModel: null, resolvedProviderId: null });
+
+    // The tier is deleted before the session ever starts.
+    modelTiers.delete(tier.id);
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // Degraded to the server default (null model/provider) rather than failing outright.
+    expect(updated.model).toBeNull();
+    expect(updated.providerId).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(updated.resolvedProviderId).toBeNull();
+    expect(updated.status).not.toBe('error');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // A visible notice was broadcast naming the stale tier ref.
+    const failoverCalls = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(failoverCalls.length).toBeGreaterThan(0);
+    expect(failoverCalls[0][2].tierRef).toBe(tierRef);
+    // Regression: see the sessionId assertion above — the client-side filter
+    // silently drops this notice without it.
+    expect(failoverCalls[0][2].sessionId).toBe(session.id);
+
+    // And logged.
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].metadata.tierRef ?? tierRef).toBe(tierRef);
+  });
+
+  it('falls back to the server default when a scheduled session\'s tier was emptied of members', async () => {
+    const project = projectRepo.create('Fix6 Project 2', tempDir);
+    const tier = modelTiers.create({ name: 'Emptied Tier' }); // no members
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Fix6 Session 2', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: null,
+      resolvedProviderId: null,
+      status: 'scheduled',
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.status).not.toBe('error');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues using the last resolved concrete snapshot when the tier becomes stale after a prior successful run', async () => {
+    const project = projectRepo.create('Fix6 Project 3', tempDir);
+    const tier = modelTiers.create({
+      name: 'Later Doomed Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Session already ran once and has a concrete snapshot from that run.
+    const session = sessionRepo.create(project.id, 'Fix6 Session 3', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+
+    // The tier is deleted before the NEXT start (e.g. a reschedule/new run).
+    modelTiers.delete(tier.id);
+
+    await runSession(session.id, 'Second run prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // Falls back to the session's OWN last-resolved snapshot, not the bare server default.
+    expect(updated.model).toBe('model-a');
+    expect(updated.providerId).toBe(providerA.id);
+    expect(updated.status).not.toBe('error');
+  });
+});
+
+describe('resolveTierRefForContinueWithStaleFallback (continuation-path degradation, PRD E3/D6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+  let project;
+
+  beforeEach(() => {
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'stale-continue-test-'));
+
+    providerA = modelProviders.create({ name: 'Stale Continue Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+    project = projectRepo.create('Stale Continue Project', tempDir);
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  const tierBoundSession = ({ resolvedModel = null, resolvedProviderId = null }) => {
+    const tier = modelTiers.create({
+      name: 'Continue Stale Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const session = sessionRepo.create(project.id, 'Stale Continue Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: buildTierRef(tier.id),
+      resolvedModel,
+      resolvedProviderId,
+    });
+    return { tier, session, freshSession: sessionRepo.getById(session.id) };
+  };
+
+  it('degrades a truly-stale binding with NO snapshot to the server default, clearing the binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({});
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    // Degraded: the tier binding is cleared, resolution is a plain passthrough
+    // on the (null) concrete model = server default.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(result.effectiveModel).toBeNull();
+    expect(result.persist).toEqual({});
+
+    // The same visible notice + sessionId the start path emits.
+    const failoverCalls = broadcastToSession.mock.calls.filter((c) => c[1] === 'tier:failover');
+    expect(failoverCalls.length).toBeGreaterThan(0);
+    expect(failoverCalls[0][2].sessionId).toBe(session.id);
+  });
+
+  it('degrades a truly-stale binding WITH a snapshot to the snapshotted concrete model', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe('model-a');
+    expect(updated.providerId).toBe(providerA.id);
+    expect(result.effectiveModel).toBe('model-a');
+    expect(result.providerIdHint).toBe(providerA.id);
+  });
+
+  it('degrades when the explicit request echoes session.model (the web client payload)', () => {
+    const { tier, session, freshSession } = tierBoundSession({});
+    const tierRef = freshSession.model;
+    modelTiers.delete(tier.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, tierRef);
+
+    expect(result.effectiveModel).toBeNull();
+    expect(sessionRepo.getById(session.id).model).toBeNull();
+  });
+
+  it('continues structurally when all members are merely in cooldown', () => {
+    const { session, freshSession } = tierBoundSession({});
+    const tierRefBefore = freshSession.model;
+    markUnhealthy(providerA.id, 'model-a');
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    expect(result.effectiveModel).toBe('model-a');
+    expect(sessionRepo.getById(session.id).model).toBe(tierRefBefore);
+  });
+
+  it('rethrows for a DIFFERENT unresolvable tier requested by the user', () => {
+    const { session, freshSession } = tierBoundSession({});
+    const otherTier = modelTiers.create({ name: 'Other Empty Tier', members: [] });
+
+    expect(() =>
+      resolveTierRefForContinueWithStaleFallback(session.id, freshSession, buildTierRef(otherTier.id))
+    ).toThrow(/no enabled configured members/);
+
+    // Own binding untouched.
+    expect(sessionRepo.getById(session.id).model).toBe(freshSession.model);
+  });
+
+  it('ignores a snapshot whose own pair is no longer valid when degrading a stale binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+    // The pinned pair itself is gone too (provider deleted) — reusing the
+    // snapshot would persist an undispatchable model id. Degrade to the
+    // server default instead of the invalid snapshot.
+    modelProviders.delete(providerA.id);
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.providerId).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(result.effectiveModel).toBeNull();
+  });
+
+  it('ignores a snapshot whose provider was disabled when degrading a stale binding', () => {
+    const { tier, session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+    modelTiers.delete(tier.id);
+    modelProviders.update(providerA.id, { enabled: false });
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    expect(sessionRepo.getById(session.id).model).toBeNull();
+    expect(result.effectiveModel).toBeNull();
+  });
+
+  it('returns the snapshot resolution unchanged for a healthy binding', () => {
+    const { session, freshSession } = tierBoundSession({
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+
+    const result = resolveTierRefForContinueWithStaleFallback(session.id, freshSession, null);
+
+    expect(result).toEqual({
+      effectiveModel: 'model-a',
+      providerIdHint: providerA.id,
+      persist: {},
+    });
+    expect(broadcastToSession).not.toHaveBeenCalled();
+  });
+});
+
+// ── Mid-conversation cooldown attribution (continuation path) ────────────────
+//
+// A tier-bound conversation that has already started stays PINNED to its
+// concrete member — it never fails over in place (PRD F17/F20). But an
+// eligible rate-limit/quota/availability failure during a continuation must
+// still feed the shared tier health state (F21/E7), so the NEXT new session
+// bound to the same tier skips the failed member while its cooldown is
+// active. Health attribution and failover authorization are separate
+// concerns: a pinned continuation may report member health but may never
+// advance to another member.
+
+describe('mid-conversation cooldown attribution (continuation path)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+  let session;
+  let tierRef;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mc-success', model: 'mc-model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'mc-cooldown-test-'));
+    const project = projectRepo.create('MC Cooldown Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'MC Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'MC Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'mc-model-a', displayName: 'MC Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'mc-model-b', displayName: 'MC Model B' });
+
+    tier = modelTiers.create({
+      name: 'MC Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'mc-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'mc-model-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+
+    session = sessionRepo.create(project.id, 'MC Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  function failOnceWithEligibleError() {
+    // eslint-disable-next-line require-yield -- simulates a provider failure before any event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+  }
+
+  async function startOnMemberA() {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(sessionRepo.getById(session.id).resolvedModel).toBe('mc-model-a');
+    mockQuery.mockClear();
+  }
+
+  it('records tier health for the pinned member when a continuation fails with an eligible error', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // Pinned: exactly ONE member was invoked — the continuation never
+    // advanced to member B (no in-place failover).
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+
+    // Health: the exact originating member entered cooldown; no other member
+    // was touched.
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+
+    // Binding intact: still tier-bound with the same concrete snapshot —
+    // a health update must not mutate the binding.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('mc-model-a');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+
+    // Logs/telemetry must distinguish a health update from a failover
+    // attempt: no tier:failover notice may fire for a pinned continuation.
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+  });
+
+  it('makes the next new session skip a member cooled down mid-conversation', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    mockQuery.mockClear();
+    // A brand-new session on the same tier must skip the cooled member A.
+    const session2 = sessionRepo.create(session.projectId, 'MC Session 2', 'Second prompt', 'standard');
+    sessionRepo.update(session2.id, { model: tierRef });
+
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-b');
+    const updated = sessionRepo.getById(session2.id);
+    expect(updated.resolvedModel).toBe('mc-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+
+  it('also records health when the eligible continuation failure arrives as a streamed result:error', async () => {
+    await startOnMemberA();
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mc-result-error', model: 'mc-model-a', slash_commands: [] };
+      yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
+    });
+
+    // A streamed result:error terminates without throwing on the continuation
+    // path — the member must cool down all the same.
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+  });
+
+  it('records health for a legacy snapshot-less row via the live-resolved member', async () => {
+    // Legacy row: tier-bound but never resolved, so the continuation resolves
+    // live (and backfills the snapshot). The backfilled member is the member
+    // that served the attempt — health must be attributed to it.
+    sessionRepo.update(session.id, { resolvedModel: null, resolvedProviderId: null });
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+  });
+
+  it('returns the cooled member to service once its cooldown expires', async () => {
+    await startOnMemberA();
+    failOnceWithEligibleError();
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+
+    // Existing cooldown-expiry behavior: once past the default cooldown
+    // window, the member is healthy again.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + DEFAULT_TIER_COOLDOWN_MS + 1_000);
+      expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // And the next new session bound to the tier resolves it again.
+    mockQuery.mockClear();
+    const session3 = sessionRepo.create(session.projectId, 'MC Session 3', 'Third prompt', 'standard');
+    sessionRepo.update(session3.id, { model: tierRef });
+
+    await runSession(session3.id, 'Third prompt', tempDir, { model: null });
+
+    expect(sessionRepo.getById(session3.id).resolvedModel).toBe('mc-model-a');
+  });
+
+  // ── Boundaries: health must NOT change ──────────────────────────────────
+
+  it('does not record tier health for a non-tier continuation failure', async () => {
+    // The session is bound CONCRETELY to mc-model-a (which also happens to be
+    // a member of the tier) — member identity must never be inferred from the
+    // tier definition for a non-tier session.
+    sessionRepo.update(session.id, {
+      model: 'mc-model-a',
+      providerId: providerA.id,
+      resolvedModel: null,
+      resolvedProviderId: null,
+    });
+    failOnceWithEligibleError();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+
+  it('does not record tier health when the continuation failure is not cooldown-eligible', async () => {
+    await startOnMemberA();
+    // eslint-disable-next-line require-yield -- simulates a non-capacity provider failure
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Invalid API key provided');
+    });
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/Invalid API key/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+  });
+
+  it('does not record tier health when the bound tier was deleted before the continuation', async () => {
+    await startOnMemberA();
+    modelTiers.delete(tier.id);
+    failOnceWithEligibleError();
+
+    // The stale-binding degradation continues on the snapshot; the eligible
+    // failure must NOT mark any member — the tier reference is gone.
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+
+  it('does not record tier health when the snapshot is no longer a current tier member', async () => {
+    await startOnMemberA();
+
+    // Remove member A from the tier — the persisted snapshot can no longer be
+    // mapped to a current member of the bound tier.
+    modelTiers.update(tier.id, {
+      members: [{ providerId: providerB.id, modelId: 'mc-model-b', position: 0 }],
+    });
+    failOnceWithEligibleError();
+
+    // The continuation still runs on its pinned snapshot (existing behavior)…
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+
+    // …but health must not be attributed to an unmappable member.
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(false);
+    expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
+  });
+});
+
+// ── Pin on first durable activity (review remediation §1) ───────────────────
+//
+// A tier member that has produced durable, user-observable activity owns the
+// conversation even if its turn later ends in a terminal error. The session
+// must be pinned to that concrete member the moment the activity is persisted
+// — not only after an entirely successful turn — so the next continuation
+// dispatches to the member that already did the work instead of re-resolving
+// the tier (which would replay on a different member and, across agent kinds,
+// trip the CROSS_KIND_MODEL_SWITCH guard).
+
+describe('pins the first member that produces durable activity', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerClaude;
+  let providerCodex;
+  let tier;
+  let tierRef;
+  let originalCodexAdapter;
+  let codexAttempts;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    // Member A (Claude) fails at start BEFORE any provider event — the classic
+    // transparent startup failover — advancing the loop to member B.
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementation(async function* () {
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'pin-on-activity-test-'));
+    const project = projectRepo.create('Pin On Activity Project', tempDir);
+
+    // Cross-provider tier: member A is an Anthropic (claude-code) model,
+    // member B is an OpenAI (codex) model.
+    providerClaude = modelProviders.create({ name: 'Pin Claude Provider', kind: 'anthropic' });
+    providerCodex = modelProviders.create({ name: 'Pin Codex Provider', kind: 'openai' });
+    modelProviders.addModel(providerClaude.id, { modelId: 'pin-model-a', displayName: 'Pin Model A' });
+    modelProviders.addModel(providerCodex.id, { modelId: 'pin-model-b', displayName: 'Pin Model B' });
+
+    tier = modelTiers.create({
+      name: 'Pin Tier',
+      members: [
+        { providerId: providerClaude.id, modelId: 'pin-model-a', position: 0 },
+        { providerId: providerCodex.id, modelId: 'pin-model-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+
+    session = sessionRepo.create(project.id, 'Pin Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+
+    codexAttempts = 0;
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    // Member B produces durable assistant activity, then dies with a terminal
+    // provider error — the exact post-activity failure the plan targets.
+    class ActivityThenErrorCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      async *execute() {
+        codexAttempts++;
+        yield { type: 'system', subtype: 'init', session_id: 'pin-codex-init', model: 'pin-model-b', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Member B produced durable output.' }] } };
+        throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+      }
+    }
+    agentGateway.registerAdapter('codex', ActivityThenErrorCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('pins the session to member B the moment its durable activity is persisted, before its terminal error', async () => {
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // Member A failed once (pre-activity) and member B ran once.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(codexAttempts).toBe(1);
+
+    const updated = sessionRepo.getById(session.id);
+    // The tier binding stays in `model`; the concrete snapshot records the
+    // member that actually produced the conversation's durable activity.
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('pin-model-b');
+    expect(updated.resolvedProviderId).toBe(providerCodex.id);
+    expect(updated.agentType).toBe('codex');
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      session.id,
+      'session:updated',
+      expect.objectContaining({ session: expect.objectContaining({ model: tierRef, resolvedModel: 'pin-model-b', resolvedProviderId: providerCodex.id }) })
+    );
+  });
+
+  it('continues on the pinned member without re-resolving the tier or raising a cross-kind switch', async () => {
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The cross-kind guard must accept the session's own tier binding now
+    // that the snapshot identifies member B (codex) as the established member.
+    const fresh = sessionRepo.getById(session.id);
+    expect(checkCrossKindSwitch(fresh, null)).toBeNull();
+
+    await expect(
+      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
+    ).rejects.toThrow(/529 Service overloaded/);
+
+    // The continuation dispatched DIRECTLY to member B: the codex adapter ran
+    // again, and the Claude SDK (member A) was never re-consulted.
+    expect(codexAttempts).toBe(2);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    const after = sessionRepo.getById(session.id);
+    expect(after.model).toBe(tierRef);
+    expect(after.resolvedModel).toBe('pin-model-b');
+    expect(after.resolvedProviderId).toBe(providerCodex.id);
+  });
+
+  it('does not pin a member whose failure precedes any durable activity', async () => {
+    // Member B also fails pre-activity: the whole tier exhausts without any
+    // member producing observable activity, so nothing may be snapshotted and
+    // the members stay eligible for normal startup failover.
+    class SilentFailureCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+      async *execute() {
+        codexAttempts++;
+        throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+      }
+    }
+    agentGateway.registerAdapter('codex', SilentFailureCodexAdapter);
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(codexAttempts).toBe(1);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBeFalsy();
+    expect(updated.resolvedProviderId).toBeFalsy();
+  });
+});
+
+// ── Finding 5: strict per-attempt identity at startup ───────────────────────
+//
+// Each frozen tier member is validated as an exact (providerId, modelId)
+// identity at its attempt boundary. A member whose provider was deleted or
+// disabled mid-flight — or whose model row was removed/renamed — is
+// UNAVAILABLE: the loop must never dispatch it to a different provider that
+// happens to own the same model id, nor to SDK defaults. The stale attempt is
+// recorded and the loop advances (when a successor exists and no durable
+// activity happened yet) or exhausts.
+
+function finding5SuccessStream(model) {
+  return async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'finding5-ok', model, slash_commands: [] };
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+    yield { type: 'result', subtype: 'success' };
+  };
+}
+
+describe('stale frozen member at a startup attempt (finding 5)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let providerDecoy;
+  let tier;
+  const FIRST_MODEL = 'finding5-first-model';
+  const SHARED_MODEL = 'finding5-shared-model';
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    // Attempts after the first succeed IF dispatched — so any second provider
+    // call proves the stale member leaked to a live dispatch.
+    mockQuery.mockImplementation(finding5SuccessStream(SHARED_MODEL));
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding5-stale-member-'));
+    const project = projectRepo.create('Finding5 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Finding5 A', kind: 'anthropic' });
+    providerB = modelProviders.create({
+      name: 'Finding5 B',
+      kind: 'anthropic',
+      additionalEnvVars: { FINDING5_OWNER_MARKER: 'provider-b' },
+    });
+    providerDecoy = modelProviders.create({ name: 'Finding5 Decoy', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: FIRST_MODEL, displayName: 'First' });
+    modelProviders.addModel(providerB.id, { modelId: SHARED_MODEL, displayName: 'Shared' });
+
+    tier = modelTiers.create({
+      name: 'Finding5 Tier',
+      members: [
+        { providerId: providerA.id, modelId: FIRST_MODEL, position: 0 },
+        { providerId: providerB.id, modelId: SHARED_MODEL, position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'Finding5 Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function failFirstAttemptEligiblyAfterMutation(mutate) {
+    let releaseAttempt;
+    const gate = new Promise((resolve) => { releaseAttempt = resolve; });
+    // eslint-disable-next-line require-yield -- gated startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      await gate;
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    // The first attempt is now in flight (paused inside the provider call).
+    await vi.waitFor(() => expect(mockQuery).toHaveBeenCalledTimes(1));
+    await mutate();
+    releaseAttempt();
+    return runPromise.then(() => null, (error) => error);
+  }
+
+  it('never dispatches a stale member to another provider owning the same model id', async () => {
+    const failure = await failFirstAttemptEligiblyAfterMutation(async () => {
+      // Member 2 loses its model mid-flight; the decoy owns the same id.
+      const doomed = modelProviders.getModels(providerB.id)
+        .find((entry) => entry.modelId === SHARED_MODEL);
+      modelProviders.removeModel(doomed.id);
+      modelProviders.addModel(providerDecoy.id, { modelId: SHARED_MODEL, displayName: 'Shared decoy' });
+    });
+
+    expect(failure).toMatchObject({ name: 'ModelTierExhaustedError', code: 'MODEL_TIER_EXHAUSTED' });
+    // Exactly one provider call (the failed first attempt): the stale second
+    // member never dispatched — neither to the decoy nor anywhere else.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(failure.attempts).toHaveLength(2);
+    expect(failure.attempts[1]).toMatchObject({ providerId: providerB.id, modelId: SHARED_MODEL });
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).toBe('error');
+    expect(updated.resolvedModel).toBeFalsy();
+    expect(updated.resolvedProviderId).toBeFalsy();
+  });
+
+  it('never dispatches a stale member to SDK defaults when no other provider owns the model', async () => {
+    const failure = await failFirstAttemptEligiblyAfterMutation(async () => {
+      // Member 2's provider is disabled mid-flight; nobody else owns the id.
+      modelProviders.update(providerB.id, { enabled: false });
+    });
+
+    expect(failure).toMatchObject({ name: 'ModelTierExhaustedError', code: 'MODEL_TIER_EXHAUSTED' });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(failure.attempts).toHaveLength(2);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.status).toBe('error');
+    expect(updated.resolvedModel).toBeFalsy();
+  });
+
+  it('derives adapter kind, env, and metadata from the exact member owner (valid-member control)', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // First member succeeds on its own dispatch shape.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe(FIRST_MODEL);
+
+    // Fail the first member so the run advances to member 2, whose env must
+    // carry provider B's marker — proving the dispatch environment came from
+    // the exact frozen owner, never a same-model-id neighbor or defaults.
+    mockQuery.mockClear();
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+    mockQuery.mockImplementation(finding5SuccessStream(SHARED_MODEL));
+
+    const session2 = sessionRepo.create(session.projectId, 'Finding5 Control 2', 'prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const member2Env = mockQuery.mock.calls[1][0].options.env;
+    expect(member2Env.FINDING5_OWNER_MARKER).toBe('provider-b');
+
+    const updated = sessionRepo.getById(session2.id);
+    expect(updated.resolvedModel).toBe(SHARED_MODEL);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+// ── Finding 11: auto-send must not let a stale attempt corrupt continuation identity ──
+//
+// Start tier A on member A; queue auto-send with tier B and a distinct member
+// B on a compatible provider kind. A completes; B's continuation resolves and
+// dispatches correctly — but B's durable activity must pin B, not the stale
+// attempt-A registration that is still open while A's outer execution unwinds.
+// A's late success snapshot must likewise not overwrite B.
+
+function finding11SuccessStream() {
+  return async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'finding11-ok', model: 'finding11', slash_commands: [] };
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+    yield { type: 'result', subtype: 'success' };
+  };
+}
+
+describe('auto-send keeps the newly selected tier identity (finding 11)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierA;
+  let tierB;
+  let tierARef;
+  let tierBRef;
+  let observedDuringB;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    observedDuringB = null;
+    let calls = 0;
+    mockQuery.mockImplementation(async function* () {
+      calls += 1;
+      const thisCall = calls;
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-ok', model: 'finding11', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: `reply ${thisCall}` }] } };
+      // The generator resumes here only after the consumer persisted the
+      // assistant event above — so this observes identity DURING B's activity.
+      if (thisCall === 2) {
+        const row = sessionRepo.getById(session.id);
+        observedDuringB = {
+          model: row.model,
+          resolvedModel: row.resolvedModel,
+          resolvedProviderId: row.resolvedProviderId,
+          lastExecutedModel: row.lastExecutedModel,
+          lastExecutedProviderId: row.lastExecutedProviderId,
+        };
+      }
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-autosend-'));
+    const project = projectRepo.create('Finding11 Project', tempDir);
+
+    // Distinct provider accounts on a compatible (anthropic) kind so account
+    // misattribution is observable and no cross-kind guard interferes.
+    providerA = modelProviders.create({ name: 'Finding11 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-model-b', displayName: 'B' });
+
+    tierA = modelTiers.create({
+      name: 'Finding11 Tier A',
+      members: [{ providerId: providerA.id, modelId: 'finding11-model-a', position: 0 }],
+    });
+    tierB = modelTiers.create({
+      name: 'Finding11 Tier B',
+      members: [{ providerId: providerB.id, modelId: 'finding11-model-b', position: 0 }],
+    });
+    tierARef = buildTierRef(tierA.id);
+    tierBRef = buildTierRef(tierB.id);
+
+    session = sessionRepo.create(project.id, 'Finding11 Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierARef });
+    // Queue auto-send with tier B BEFORE the start: completion dispatches the
+    // continuation while A's outer attempt registration is still open.
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up via auto-send',
+      pendingModel: tierBRef,
+      pendingProviderId: providerB.id,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pins B's identity during B's activity and keeps it after A's execution unwinds", async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    // During B's activity the session already carries B in every identity field.
+    expect(observedDuringB).toMatchObject({
+      model: tierBRef,
+      resolvedModel: 'finding11-model-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-model-b',
+      lastExecutedProviderId: providerB.id,
+    });
+
+    // A's late success snapshot must not overwrite B after unwind.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierBRef);
+    expect(updated.resolvedModel).toBe('finding11-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-model-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('routes a subsequent model-less follow-up to B, never back to A', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    mockQuery.mockClear();
+    mockQuery.mockImplementation(finding11SuccessStream());
+    await continueSession(session.id, 'Another question', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('finding11-model-b');
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+describe('tier attempt ownership (finding 11 unit)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierARef;
+  let tierBRef;
+
+  beforeEach(async () => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    const { registerTierAttemptMember: _r, clearTierAttemptMember: _c } = await import('./tierMemberPin.js');
+    expect(typeof _r).toBe('function');
+    expect(typeof _c).toBe('function');
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-ownership-'));
+    const project = projectRepo.create('Finding11 Ownership Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 Own A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 Own B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-own-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-own-b', displayName: 'B' });
+    const tierA = modelTiers.create({
+      name: 'Finding11 Own Tier A',
+      members: [{ providerId: providerA.id, modelId: 'finding11-own-a', position: 0 }],
+    });
+    const tierB = modelTiers.create({
+      name: 'Finding11 Own Tier B',
+      members: [{ providerId: providerB.id, modelId: 'finding11-own-b', position: 0 }],
+    });
+    tierARef = buildTierRef(tierA.id);
+    tierBRef = buildTierRef(tierB.id);
+    session = sessionRepo.create(project.id, 'Finding11 Ownership', 'prompt', 'standard');
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('stale cleanup for an older attempt cannot clear a successor registration', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinTierMemberOnDurableActivity } =
+      await import('./tierMemberPin.js');
+    sessionRepo.update(session.id, { model: tierBRef });
+    const staleToken = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-a', providerId: providerA.id }, { tierRef: tierARef }
+    );
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-b', providerId: providerB.id }, { tierRef: tierBRef }
+    );
+    clearTierAttemptMember(session.id, staleToken);
+    // The successor registration survived: durable activity still pins B.
+    expect(pinTierMemberOnDurableActivity(session.id)).toBe(true);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-own-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
+  });
+
+  it('durable activity for a superseded tier never overwrites the current binding', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinTierMemberOnDurableActivity } =
+      await import('./tierMemberPin.js');
+    // The session moved on to tier B; a late event from attempt A arrives.
+    sessionRepo.update(session.id, {
+      model: tierBRef,
+      resolvedModel: 'finding11-own-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-own-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-own-a', providerId: providerA.id }, { tierRef: tierARef }
+    );
+    expect(pinTierMemberOnDurableActivity(session.id)).toBe(false);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-own-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
+  });
+});
+
+// ── Finding 11 (same-tier): a retired startup attempt must not overwrite a
+// same-tier successor's identity ──
+//
+// A tier contains same-kind members A and B. A produces durable activity,
+// then A's provider is disabled through the normal catalog mutation path
+// (which repairs the stale snapshot but keeps the tier binding). The queued
+// auto-send continuation re-resolves live to B on the SAME tier ref and
+// executes B. When the original startup call unwinds, its late token-scoped
+// success snapshot for A must be rejected — including after the continuation
+// cleaned up its own registration, when no active registration exists.
+describe('same-tier retired attempt cannot overwrite successor identity (finding 11 same-tier unit)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierRef;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-sametier-'));
+    const project = projectRepo.create('Finding11 SameTier Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 Same A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 Same B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-same-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-same-b', displayName: 'B' });
+    const tier = modelTiers.create({
+      name: 'Finding11 Same Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding11-same-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding11-same-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+    session = sessionRepo.create(project.id, 'Finding11 SameTier', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a retired token-scoped pin after its registration was cleaned up', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinSessionToTierMember } =
+      await import('./tierMemberPin.js');
+    // Attempt A registers, then retires (the auto-send handoff clears the
+    // originating registration before the continuation dispatches).
+    const tokenA = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef }
+    );
+    clearTierAttemptMember(session.id, tokenA);
+    // The continuation established B's identity on the same tier binding and
+    // has itself finished (no active registration remains).
+    sessionRepo.update(session.id, {
+      resolvedModel: 'finding11-same-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-same-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    // A's late success snapshot unwinds now.
+    expect(pinSessionToTierMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef, attemptToken: tokenA }
+    )).toBe(false);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('finding11-same-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-same-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('rejects a retired token-scoped pin while the successor is still registered', async () => {
+    const { registerTierAttemptMember, clearTierAttemptMember, pinSessionToTierMember } =
+      await import('./tierMemberPin.js');
+    const tokenA = registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef }
+    );
+    clearTierAttemptMember(session.id, tokenA);
+    sessionRepo.update(session.id, {
+      resolvedModel: 'finding11-same-b',
+      resolvedProviderId: providerB.id,
+      lastExecutedModel: 'finding11-same-b',
+      lastExecutedProviderId: providerB.id,
+    });
+    // A newer execution registered itself; A's late write must still lose.
+    registerTierAttemptMember(
+      session.id, { modelId: 'finding11-same-b', providerId: providerB.id }, { tierRef }
+    );
+    expect(pinSessionToTierMember(
+      session.id, { modelId: 'finding11-same-a', providerId: providerA.id }, { tierRef, attemptToken: tokenA }
+    )).toBe(false);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('finding11-same-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-same-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+    clearTierAttemptMember(session.id);
+  });
+});
+
+// ── Finding 11 (same-tier auto-send integration): the full trigger chain ──
+//
+// Start tier T (members A, B) on A with auto-send queued and no model
+// override, so the continuation keeps the same tier binding. A's stream
+// emits durable activity (pinning A), then pauses on a deferred barrier.
+// While paused, A's provider is disabled through the normal catalog
+// mutation path: the repair sweep clears A's stale snapshot but retains
+// the tier ref. The continuation re-resolves live to B, executes B, and
+// the original startup call unwinds afterward. All four identity fields
+// must remain B and the tier ref unchanged.
+describe('auto-send keeps the same-tier successor identity (finding 11 same-tier)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tierRef;
+  let releaseA;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    let calls = 0;
+    let gateResolve;
+    const gate = new Promise((resolve) => { gateResolve = resolve; });
+    releaseA = gateResolve;
+    mockQuery.mockImplementation(async function* () {
+      calls += 1;
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-same-ok', model: 'finding11-same', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: `reply ${calls}` }] } };
+      // The first attempt pauses after its durable activity is observable so
+      // the catalog mutation lands strictly before the queued continuation
+      // dispatches — a deferred barrier, not a timing sleep.
+      if (calls === 1) await gate;
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding11-sametier-auto-'));
+    const project = projectRepo.create('Finding11 SameTier Auto Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding11 SameAuto A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding11 SameAuto B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding11-sameauto-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding11-sameauto-b', displayName: 'B' });
+    const tier = modelTiers.create({
+      name: 'Finding11 SameAuto Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding11-sameauto-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding11-sameauto-b', position: 1 },
+      ],
+    });
+    tierRef = buildTierRef(tier.id);
+    session = sessionRepo.create(project.id, 'Finding11 SameTier Auto', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef });
+    // Queue auto-send with no model override: the continuation keeps the
+    // same tier binding.
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up via auto-send',
+      pendingModel: null,
+      pendingProviderId: null,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps B's resolution and last-executed identity after A's late unwind", async () => {
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    // A's durable activity pinned A before the barrier was reached.
+    await vi.waitFor(() => expect(sessionRepo.getById(session.id).resolvedModel).toBe('finding11-sameauto-a'));
+    // Disable A's provider through the normal catalog path: the repair sweep
+    // clears A's stale snapshot while retaining the tier binding.
+    modelProviders.update(providerA.id, { enabled: false });
+    expect(sessionRepo.getById(session.id).model).toBe(tierRef);
+    releaseA();
+    await runPromise;
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierRef);
+    expect(updated.resolvedModel).toBe('finding11-sameauto-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding11-sameauto-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+  });
+
+  it('routes a subsequent model-less follow-up to B, never back to A', async () => {
+    const runPromise = runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    await vi.waitFor(() => expect(sessionRepo.getById(session.id).resolvedModel).toBe('finding11-sameauto-a'));
+    modelProviders.update(providerA.id, { enabled: false });
+    releaseA();
+    await runPromise;
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    mockQuery.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'finding11-same-ok', model: 'finding11-same', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'follow-up reply' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+    await continueSession(session.id, 'Another question', tempDir, {});
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('finding11-sameauto-b');
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+  });
+});
+
+// ── Finding 6: a text-only Gemini `429 RESOURCE_EXHAUSTED` startup failure
+// must fail over and cool the failed member ──
+//
+// geminiCliRunner.js builds CLI failures from stderr text with
+// `code: GEMINI_CLI_EXIT` and a nonzero exit code — no numeric HTTP status —
+// so the status-code check in the tight failover gate cannot see them. The
+// first member fails with exactly that CLI shape before any durable
+// activity; the run must advance to the next eligible member and cool the
+// failed one. (Members use anthropic-kind providers to stay on this file's
+// mocked SDK path; the regression is the CLI error SHAPE, which the
+// classifier treats provider-agnostically.)
+describe('gemini text-only rate-limit failure fails over at startup (finding 6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+
+  const geminiCliRateLimitFailure = () => Object.assign(
+    new Error('Error: 429 RESOURCE_EXHAUSTED'),
+    { code: 'GEMINI_CLI_EXIT', exitCode: 1 }
+  );
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'finding6-ok', model: 'finding6', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+    broadcastToSession.mockClear();
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'finding6-clirate-'));
+    const project = projectRepo.create('Finding6 Project', tempDir);
+    providerA = modelProviders.create({ name: 'Finding6 A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Finding6 B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'finding6-model-a', displayName: 'A' });
+    modelProviders.addModel(providerB.id, { modelId: 'finding6-model-b', displayName: 'B' });
+    tier = modelTiers.create({
+      name: 'Finding6 Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'finding6-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'finding6-model-b', position: 1 },
+      ],
+    });
+    session = sessionRepo.create(project.id, 'Finding6 Session', 'Initial prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('advances to the next eligible member and cools the failed member', async () => {
+    // eslint-disable-next-line require-yield -- simulates a CLI-shaped startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw geminiCliRateLimitFailure();
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(buildTierRef(tier.id));
+    expect(updated.resolvedModel).toBe('finding6-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
+    expect(updated.lastExecutedModel).toBe('finding6-model-b');
+    expect(updated.lastExecutedProviderId).toBe(providerB.id);
+    expect(updated.status).not.toBe('error');
+    expect(isUnhealthy(providerA.id, 'finding6-model-a')).toBe(true);
+  });
+
+  it('a subsequent new-session resolution skips the cooled member', async () => {
+    // eslint-disable-next-line require-yield -- simulates a CLI-shaped startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw geminiCliRateLimitFailure();
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(isUnhealthy(providerA.id, 'finding6-model-a')).toBe(true);
+
+    mockQuery.mockClear();
+    const session2 = sessionRepo.create(session.projectId, 'Finding6 Session 2', 'prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    await runSession(session2.id, 'Second prompt', tempDir, { model: null });
+
+    // Started directly on B — the cooled member was skipped, not re-attempted.
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const updated2 = sessionRepo.getById(session2.id);
+    expect(updated2.resolvedModel).toBe('finding6-model-b');
+    expect(updated2.resolvedProviderId).toBe(providerB.id);
+  });
+});

@@ -40,6 +40,7 @@ vi.mock('./gitService.js', () => ({
 vi.mock('./sessionProvider.js', () => ({
   resolveAgentTypeFromModel: vi.fn().mockReturnValue('claude-code'),
   resolveProviderMetadataFromModel: vi.fn().mockReturnValue(null),
+  resolveCommitAttributionOverrideForModel: vi.fn().mockReturnValue(null),
 }));
 
 import { sessions, sessionTemplates, sessionSummaries, projects } from '../database.js';

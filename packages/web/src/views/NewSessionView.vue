@@ -108,6 +108,13 @@
         class="error-message"
       >
         {{ error }}
+        <router-link
+          v-if="isTierExhausted"
+          to="/settings/tiers"
+          class="error-link"
+        >
+          Open Model Tiers
+        </router-link>
       </div>
 
       <!-- Git Options -->
@@ -274,6 +281,7 @@ import SlashCommandButton from '../components/SlashCommandButton.vue';
 import SlashCommandWizard from '../components/SlashCommandWizard.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
+import { formatSessionStartError, isTierExhaustedError } from '../utils/sessionStartError.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -339,6 +347,7 @@ const showAdvancedOptions = computed(() => !startImmediately.value || allTemplat
 
 const loadingGit = ref(false);
 const error = ref(null);
+const isTierExhausted = ref(false);
 
 // Handle textarea input with debounced sync to reactive state
 function handleInput(event) {
@@ -471,6 +480,7 @@ async function handleSubmit() {
 
   loading.value = true;
   error.value = null;
+  isTierExhausted.value = false;
 
   try {
     const payload = buildSessionPayload(formState, {
@@ -483,7 +493,8 @@ async function handleSubmit() {
     localStorage.removeItem(storageKey.value);
     router.push(`/sessions/${session.id}?overlay=open`);
   } catch (err) {
-    error.value = err.message;
+    error.value = formatSessionStartError(err);
+    isTierExhausted.value = isTierExhaustedError(err);
   } finally {
     loading.value = false;
   }
@@ -556,6 +567,12 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
+}
+
+.error-link {
+  margin-left: 0.5rem;
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 .advanced-options {

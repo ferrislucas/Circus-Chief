@@ -10,6 +10,7 @@ import {
   TemplatesApi,
   MiscApi,
   KanbanApi,
+  TiersApi,
 } from './resources/index.js';
 import { AUTH_REQUIRED_CODE, getAuthorizationHeader, notifyAuthRequired } from './auth.js';
 
@@ -87,6 +88,7 @@ export class ApiClient {
     const error = new Error(data.message || data.error || `HTTP ${status}`);
     error.status = status;
     if (data.code) error.code = data.code;
+    if (data.tierName) error.tierName = data.tierName;
     if (data.gitStatus) error.gitStatus = data.gitStatus;
     return error;
   }
@@ -207,6 +209,7 @@ ConversationsApi(ApiClient);
 TemplatesApi(ApiClient);
 MiscApi(ApiClient);
 KanbanApi(ApiClient);
+TiersApi(ApiClient);
 
 // Singleton instance
 export const api = new ApiClient();

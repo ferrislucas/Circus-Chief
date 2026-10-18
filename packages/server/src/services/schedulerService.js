@@ -5,6 +5,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+
 import { broadcastSessionStatus } from './streamEventHandler.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
 import { MIN_QUOTA_WAIT_MS, MAX_QUOTA_WAIT_MS } from './quotaResetHint.js';
@@ -234,7 +235,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, interactive: Boolean(session.pendingInteractive) }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, providerId: session.pendingProviderId, interactive: Boolean(session.pendingInteractive) }
     );
   }
 
@@ -355,7 +356,7 @@ class SchedulerService {
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, providerId: claimed.pendingProviderId, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     if (hasAssistantResponses) {
@@ -363,7 +364,7 @@ class SchedulerService {
         claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, providerId: claimed.pendingProviderId, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     return this.startFreshScheduledSession({

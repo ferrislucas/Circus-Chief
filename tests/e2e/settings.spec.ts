@@ -30,16 +30,17 @@ test.describe('Settings', () => {
       await expect(page.locator('a.tab[href="/settings/providers"]')).toHaveClass(/active/);
     });
 
-    test('settings page shows four tabs', async ({ page }) => {
+    test('settings page shows five tabs', async ({ page }) => {
       await navigateAndWait(page, `${BASE_URL}/settings`);
 
       const tabs = page.locator('.tab');
-      await expect(tabs).toHaveCount(4);
+      await expect(tabs).toHaveCount(5);
 
       await expect(tabs.nth(0)).toContainText('Model Providers');
-      await expect(tabs.nth(1)).toContainText('Summary Settings');
-      await expect(tabs.nth(2)).toContainText('Settings');
-      await expect(tabs.nth(3)).toContainText('Logs');
+      await expect(tabs.nth(1)).toContainText('Model Tiers');
+      await expect(tabs.nth(2)).toContainText('Summary Settings');
+      await expect(tabs.nth(3)).toContainText('Settings');
+      await expect(tabs.nth(4)).toContainText('Logs');
     });
 
     test('clicking Summary Settings tab navigates to summary view', async ({ page }) => {

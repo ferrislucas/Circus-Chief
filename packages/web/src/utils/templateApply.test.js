@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appendTemplatePromptValue, buildTemplateSettingsFields } from './templateApply.js';
+import { appendTemplatePromptValue, buildTemplateSettingsFields, resolveTemplateProviderId } from './templateApply.js';
 
 describe('appendTemplatePromptValue', () => {
   it('returns the prompt when the current value is empty', () => {
@@ -69,5 +69,36 @@ describe('buildTemplateSettingsFields', () => {
       nextTemplateId: 'next-1',
       effortLevel: 'low',
     })).toEqual({ mode: 'standard', effortLevel: 'low' });
+  });
+});
+
+describe('resolveTemplateProviderId', () => {
+  const providers = [
+    { id: 'prov-a', isBuiltIn: true, kind: 'anthropic', models: [{ modelId: 'claude-sonnet' }] },
+    { id: 'prov-b', isBuiltIn: true, kind: 'openai', models: [{ modelId: 'gpt-x' }] },
+  ];
+
+  it('honors an explicit providerId key', () => {
+    expect(resolveTemplateProviderId({ model: 'gpt-x', providerId: 'prov-b' }, providers)).toBe('prov-b');
+  });
+
+  it('honors an explicit null providerId instead of the current selection', () => {
+    expect(resolveTemplateProviderId({ model: 'gpt-x', providerId: null }, providers)).toBeNull();
+  });
+
+  it('forces null for tier refs even when the template carries a providerId', () => {
+    expect(resolveTemplateProviderId({ model: 'tier::abc', providerId: 'prov-a' }, providers)).toBeNull();
+  });
+
+  it('resolves the owning provider when the key is absent (never the current selection)', () => {
+    expect(resolveTemplateProviderId({ model: 'gpt-x' }, providers)).toBe('prov-b');
+  });
+
+  it('infers the built-in provider for a removed catalog row by model prefix', () => {
+    expect(resolveTemplateProviderId({ model: 'gpt-legacy' }, providers)).toBe('prov-b');
+  });
+
+  it('returns null when the model owner is unknown', () => {
+    expect(resolveTemplateProviderId({ model: 'mystery-model' }, providers)).toBeNull();
   });
 });

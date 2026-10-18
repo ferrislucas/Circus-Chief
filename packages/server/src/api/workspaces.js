@@ -29,6 +29,7 @@ import {
 } from '@circuschief/shared/contracts/workspaces';
 import { hasPendingPrompt } from '../services/promptStore.js';
 import { sendWorkspaceJson, sendWorkspaceCards, decorateWorkspaceCard } from './workspace-cards.js';
+import { normalizeFinalErrorMessage } from '../services/visibleFinalErrorMessage.js';
 
 const withPendingAgentInput = (session) => ({
   ...session,
@@ -113,7 +114,7 @@ function handleCreateError(res, session, error, label) {
   console.error(label, error);
   if (session?.id) {
     try {
-      sessions.update(session.id, { status: 'error', error: error.message });
+      sessions.update(session.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
     } catch (updateError) {
       console.error('Failed to mark session as errored:', updateError);
     }

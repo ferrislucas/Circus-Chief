@@ -17,6 +17,20 @@ vi.mock('../api/index.js', () => ({
 
 import { api } from '../api/index.js';
 
+// Capture websocket subscriptions so tests can simulate server broadcasts
+const wsHandlers = {};
+vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: () => ({
+    on: vi.fn((type, cb) => {
+      wsHandlers[type] = cb;
+    }),
+    off: vi.fn((type) => {
+      delete wsHandlers[type];
+    }),
+    onReconnect: vi.fn(() => () => {}),
+  }),
+}));
+
 // Mock ModelSelector component
 vi.mock('../components/ModelSelector.vue', () => ({
   default: {
@@ -948,5 +962,201 @@ describe('TemplateDetailView - Self-Chaining Support', () => {
       'template-1',
       expect.objectContaining({ nextTemplateId: null }),
     );
+  });
+});
+
+describe('TemplateDetailView - model selection conflict', () => {
+  let pinia;
+  let router;
+  let templatesStore;
+
+  const canonicalTemplate = {
+    id: 'template-1',
+    name: 'Test Template',
+    prompt: 'Test prompt',
+    projectId: 'proj-1',
+    nextTemplateId: null,
+    thinkingEnabled: false,
+    model: 'claude-opus-4-20250529',
+    providerId: null,
+    mode: 'yolo',
+    effortLevel: null,
+    showInQuickResponses: false,
+  };
+
+  beforeEach(async () => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/templates', component: { template: '<div></div>' } },
+        { path: '/projects/:projectId/templates/:templateId', component: TemplateDetailView },
+      ],
+    });
+
+    templatesStore = useTemplatesStore();
+    templatesStore.projectTemplates = [];
+    templatesStore.globalTemplates = [];
+
+    api.getTemplate.mockReset();
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate });
+
+    await router.push({ path: '/projects/proj-1/templates/template-1' });
+    await router.isReady();
+  });
+
+  async function mountAndEditModel() {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+
+    // Local unsaved edit: switch to Sonnet in the mocked ModelSelector
+    const modelSelect = wrapper.findComponent({ name: 'ModelSelector' }).find('select');
+    await modelSelect.setValue('claude-sonnet-5');
+    await nextTick();
+    return wrapper;
+  }
+
+  async function broadcastCanonicalUpdate(wrapper, canonical) {
+    api.getTemplate.mockResolvedValueOnce({ ...canonicalTemplate, ...canonical });
+    wsHandlers['template:updated']({ templateId: 'template-1' });
+    await flushPromises();
+    await nextTick();
+    return wrapper;
+  }
+
+  it('shows a conflict banner when canonical changes under a local edit', async () => {
+    const wrapper = await mountAndEditModel();
+    await broadcastCanonicalUpdate(wrapper, {});
+
+    const banner = wrapper.find('.conflict-banner');
+    expect(banner.exists()).toBe(true);
+    // Local edit is preserved, not overwritten
+    expect(wrapper.findComponent({ name: 'ModelSelector' }).props('modelValue')).toBe('claude-sonnet-5');
+  });
+
+  it('surfaces an external non-model change after first load instead of freezing it', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.find('#name').element.value).toBe('Test Template');
+
+    await broadcastCanonicalUpdate(wrapper, { name: 'Renamed Elsewhere' });
+
+    expect(wrapper.find('#name').element.value).toBe('Renamed Elsewhere');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+  });
+
+  it('keeps a locally edited non-model field and flags a conflict when upstream also moves it', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('#name').setValue('My Local Name');
+    await broadcastCanonicalUpdate(wrapper, { name: 'Renamed Elsewhere' });
+
+    expect(wrapper.find('#name').element.value).toBe('My Local Name');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
+
+  it('Use latest applies the canonical selection and clears the banner', async () => {
+    const wrapper = await mountAndEditModel();
+    await broadcastCanonicalUpdate(wrapper, { model: 'claude-sonnet-5', providerId: null });
+
+    // Canonical moved to the local value: no conflict. Force a real divergence instead.
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+  });
+
+  it('Use latest applies a diverged canonical selection and clears the banner', async () => {
+    const wrapper = await mountAndEditModel();
+    // Canonical model changed elsewhere (Opus -> Haiku is simulated with a
+    // distinct value); local Sonnet edit is preserved with a banner.
+    api.getTemplate.mockResolvedValueOnce({ ...canonicalTemplate, model: 'claude-haiku-x', providerId: 'prov-h' });
+    wsHandlers['template:updated']({ templateId: 'template-1' });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+
+    const buttons = wrapper.find('.conflict-banner').findAll('button');
+    await buttons[0].trigger('click');
+    await nextTick();
+
+    expect(wrapper.findComponent({ name: 'ModelSelector' }).props('modelValue')).toBe('claude-haiku-x');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+  });
+
+  it('Keep mine dismisses the banner and preserves the local edit', async () => {
+    const wrapper = await mountAndEditModel();
+    await broadcastCanonicalUpdate(wrapper, {});
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+
+    const buttons = wrapper.find('.conflict-banner').findAll('button');
+    await buttons[1].trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'ModelSelector' }).props('modelValue')).toBe('claude-sonnet-5');
+  });
+
+  it('Keep mine cannot dismiss a conflict for a tier that no longer exists', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const tiersStore = useTiersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-gone', providerId: null });
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    // The deleted tier is visible as a conflict even without a concurrent edit.
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+
+    // A concurrent canonical change raises a conflict; Keep mine must not
+    // silently dismiss it while the kept tier does not exist.
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-other', providerId: null });
+    wsHandlers['template:updated']({ templateId: 'template-1' });
+    await flushPromises();
+    await nextTick();
+
+    const buttons = wrapper.find('.conflict-banner').findAll('button');
+    await buttons[1].trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+  });
+
+  it('blocks submit while the selected tier does not exist', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const tiersStore = useTiersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+    vi.spyOn(templatesStore, 'updateTemplate').mockResolvedValue({ id: 'template-1' });
+
+    api.getTemplate.mockResolvedValue({ ...canonicalTemplate, model: 'tier::t-gone', providerId: null });
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(templatesStore.updateTemplate).not.toHaveBeenCalled();
   });
 });

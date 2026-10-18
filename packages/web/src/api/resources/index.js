@@ -9,3 +9,4 @@ export { ConversationsApi } from './ConversationsApi.js';
 export { TemplatesApi } from './TemplatesApi.js';
 export { MiscApi } from './MiscApi.js';
 export { KanbanApi } from './KanbanApi.js';
+export { TiersApi } from './TiersApi.js';

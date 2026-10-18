@@ -105,7 +105,7 @@ test.describe('Provider allowance indicators', () => {
     await page.goto('/');
     const session = await seedSession(project.id, {
       prompt: 'Return a brief allowance fixture response.',
-      model: 'gpt-5.4', providerId: provider.id, startImmediately: true,
+      model: 'gpt-5.6-sol', providerId: provider.id, startImmediately: true,
     });
     await waitForStatus(session.id, 'waiting');
 
@@ -170,26 +170,44 @@ test.describe('Provider allowance indicators', () => {
     const openai = await getProvider('openai-default');
     const anthropic = await getProvider('anthropic-default');
 
+    // Each seed below must reconcile through a live WebSocket dispatch: a
+    // seed whose creation frame arrives before the page subscribes leaves the
+    // dialog stale and the recency poll below would time out. Counting
+    // allowance REST fetches proves each seed's frames were dispatched to the
+    // page before moving on (same guard as the reconcile test below).
+    const allowanceFetches: string[] = [];
+    page.on('response', (response) => {
+      if (response.url().includes('/api/providers/allowances')) allowanceFetches.push(response.url());
+    });
+
     await page.goto('/');
+    const indicators = page.getByTestId('provider-allowance-indicators');
+    await expect(indicators).toBeVisible();
+    const fetchesAfterSettling = allowanceFetches.length;
+
     // Seeding a session counts as use (MAX(sessions.updated_at)). Runs stay
     // off (startImmediately: false): a running agent would complete turns
     // and bump updated_at asynchronously, making recency nondeterministic.
     await seedSession(project.id, { prompt: 'Recency probe on the first provider.', providerId: openai.id, startImmediately: false });
+    await expect.poll(() => allowanceFetches.length).toBeGreaterThan(fetchesAfterSettling);
 
-    const indicators = page.getByTestId('provider-allowance-indicators');
     await indicators.getByRole('button', { name: /Provider usage/ }).click();
     const dialog = page.getByRole('dialog');
     const headerNames = () => dialog.locator('article.provider-detail header strong').allTextContents();
     await expect.poll(async () => (await headerNames()).indexOf(openai.name)).toBeGreaterThanOrEqual(0);
+    const fetchesAfterFirst = allowanceFetches.length;
 
     await seedSession(project.id, { prompt: 'Recency probe on the second provider.', providerId: anthropic.id, startImmediately: false });
+    await expect.poll(() => allowanceFetches.length).toBeGreaterThan(fetchesAfterFirst);
     await expect.poll(async () => {
       const names = await headerNames();
       return names.indexOf(anthropic.name) >= 0 && names.indexOf(anthropic.name) < names.indexOf(openai.name);
     }).toBe(true);
+    const fetchesAfterSecond = allowanceFetches.length;
 
     // New work on the older provider moves it back to top without a reload.
     await seedSession(project.id, { prompt: 'Recency probe returns to the first provider.', providerId: openai.id, startImmediately: false });
+    await expect.poll(() => allowanceFetches.length).toBeGreaterThan(fetchesAfterSecond);
     await expect.poll(async () => {
       const names = await headerNames();
       return names.indexOf(openai.name) >= 0 && names.indexOf(openai.name) < names.indexOf(anthropic.name);
