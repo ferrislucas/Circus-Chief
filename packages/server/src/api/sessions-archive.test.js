@@ -275,6 +275,30 @@ describe('Sessions Archive API', () => {
       expect(removeWorktree).not.toHaveBeenCalled();
     });
 
+    it('both flags: hook fires before worktree deletion with the live worktree as cwd', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+      removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ deleteWorktree: true, cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).toHaveBeenCalledWith(
+        './cleanup.sh',
+        '/path/to/wt',
+        expect.objectContaining({
+          sessionId: session.id,
+          projectId: project.id,
+        })
+      );
+      expect(removeWorktree).toHaveBeenCalledWith('/tmp/test', '/path/to/wt', true);
+      expect(executeHookAsync.mock.invocationCallOrder[0]).toBeLessThan(
+        removeWorktree.mock.invocationCallOrder[0]
+      );
+    });
+
     it('deleteWorktree: true + cleanup: true runs both removal and the hook', async () => {
       sessions.update(session.id, { gitWorktree: '/path/to/wt' });
       projects.update(project.id, { onSessionDeleted: './cleanup.sh' });

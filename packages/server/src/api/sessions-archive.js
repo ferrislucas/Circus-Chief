@@ -20,6 +20,18 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
 
   let updated = sessions.update(req.params.id, { archived: true });
 
+  // Execute project cleanup command if cleanup requested and project has one configured
+  // Only run for worktree sessions - branch-mode sessions have nothing to clean up
+  // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
+  // Runs before worktree deletion so the hook sees the live worktree as its cwd (FR-6).
+  if (cleanup && req.project?.onSessionDeleted && req.session_.gitWorktree && !req.session_.parentSessionId) {
+    executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
+      sessionId: req.session_.id,
+      projectId: req.project.id,
+      sessionName: req.session_.name,
+    });
+  }
+
   // Delete the git worktree from disk when requested. Root sessions only —
   // child sessions share the parent's resources. Failure warns and continues
   // (same pattern as the DELETE path), keeping gitWorktree so the record
@@ -38,17 +50,6 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
   // share the root's card, so only archiving the root touches lane state.
   if (!req.session_.parentSessionId) {
     releaseLaneSlotForArchivedSession(req.params.id);
-  }
-
-  // Execute project cleanup command if cleanup requested and project has one configured
-  // Only run for worktree sessions - branch-mode sessions have nothing to clean up
-  // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
-  if (cleanup && req.project?.onSessionDeleted && req.session_.gitWorktree && !req.session_.parentSessionId) {
-    executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
-      sessionId: req.session_.id,
-      projectId: req.project.id,
-      sessionName: req.session_.name,
-    });
   }
 
   // Broadcast update to project subscribers
