@@ -2706,7 +2706,7 @@ describe('Sessions Store', () => {
 
         await store.archiveSession('session-1');
 
-        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false, deleteWorktree: false });
       });
 
       it('forwards cleanup: true option to api.archiveSession', async () => {
@@ -2717,7 +2717,18 @@ describe('Sessions Store', () => {
 
         await store.archiveSession('session-1', { cleanup: true });
 
-        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: true });
+        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: true, deleteWorktree: false });
+      });
+
+      it('forwards deleteWorktree: true option to api.archiveSession', async () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', status: 'completed', archived: false }];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: true, gitWorktree: null });
+
+        await store.archiveSession('session-1', { deleteWorktree: true });
+
+        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false, deleteWorktree: true });
       });
     });
 
