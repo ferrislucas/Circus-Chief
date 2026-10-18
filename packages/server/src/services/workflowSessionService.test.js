@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../websocket.js', () => ({ broadcastToProject: vi.fn() }));
-import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, projects, sessions } from '../database.js';
+import { databaseManager, kanbanBoards, kanbanCards, kanbanLanes, messages, projects, sessions } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import {
   beginWorkflowTurn, createLaneRunForEntry, finalizeOwnWorkCompletion,
@@ -885,6 +885,170 @@ describe('workflowSessionService', () => {
 
     it('treats a missing flag as enabled (legacy rows)', () => {
       expect(isLaneDispatchable({ ...structuredLane(), automationEnabled: undefined })).toBe(true);
+    });
+  });
+
+  describe('empty drafts do not block lane-run completion (FRD empty-draft-lane-run-blocker)', () => {
+    function runWithRootAndDraft() {
+      const worker = sessions.create(project.id, 'Worker', 'lane work', { parentSessionId: root.id });
+      const run = createLaneRunForEntry({ projectId: project.id, workspaceId: root.id, cardId: card.id, lane: structuredLane() });
+      attachRootSession(run.id, worker.id);
+      // Empty-draft mirror of the incident: created while the root's own work
+      // is still open (so it auto-joins the run) and never started. status
+      // 'waiting' suppresses the initial user message row at creation, so the
+      // draft holds zero conversation messages, NULL last_activity_at, no
+      // pending prompt or schedule, and execution_state 'idle'.
+      const draft = sessions.create(project.id, 'New Session', '', { parentSessionId: worker.id, status: 'waiting' });
+      expect(sessions.getById(draft.id).laneRunId).toBe(run.id);
+      return { run, worker, draft };
+    }
+
+    it('lets the run succeed and move the card while the empty draft stays open and attached', () => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      const token = beginWorkflowTurn(worker.id);
+
+      const reconciled = finalizeOwnWorkCompletion(worker.id, token);
+
+      expect(reconciled.status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      // Excluded, not closed and not detached: the draft keeps its open
+      // obligation and its run membership.
+      expect(sessions.getById(draft.id)).toEqual(expect.objectContaining({
+        laneRunId: run.id, ownWorkState: 'open',
+      }));
+      const read = getRun(run.id);
+      expect(read.openCount).toBe(0);
+      expect(read.blockingSessionIds).not.toContain(draft.id);
+    });
+
+    it('a draft with a pending prompt (typed-but-unsent) still blocks the run', () => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      sessions.update(draft.id, { pendingPrompt: 'typed but unsent' });
+      const token = beginWorkflowTurn(worker.id);
+
+      expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('open');
+      const read = getRun(run.id);
+      expect(read).toEqual(expect.objectContaining({ openCount: 1, blockerKind: 'open_work' }));
+      expect(read.blockingSessionIds).toContain(draft.id);
+    });
+
+    it('a draft started before the root closes blocks until it too closes successfully', () => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      messages.create(draft.id, 'user', 'actually, do this too');
+      const token = beginWorkflowTurn(worker.id);
+
+      expect(finalizeOwnWorkCompletion(worker.id, token).status).toBe('open');
+      expect(getRun(run.id)).toEqual(expect.objectContaining({ openCount: 1, blockerKind: 'open_work' }));
+
+      const draftToken = beginWorkflowTurn(draft.id);
+      expect(finalizeOwnWorkCompletion(draft.id, draftToken).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+    });
+
+    it.each([
+      ['message', 'one message'],
+      ['activity', 'activity without messages'],
+      ['pending', 'a pending prompt'],
+      ['scheduled', 'a schedule'],
+      ['running', 'a running execution'],
+      ['retrying', 'a retrying execution'],
+      ['paused', 'a paused execution'],
+    ])('a draft with %s still blocks the run (FR-2 live-state matrix)', (kind) => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      const db = databaseManager.get();
+      if (kind === 'message') messages.create(draft.id, 'user', 'hello');
+      else if (kind === 'activity') db.prepare('UPDATE sessions SET last_activity_at=? WHERE id=?').run(Date.now(), draft.id);
+      else if (kind === 'pending') sessions.update(draft.id, { pendingPrompt: 'typed but unsent' });
+      else if (kind === 'scheduled') sessions.update(draft.id, { scheduledAt: Date.now() + 60_000 });
+      else db.prepare('UPDATE sessions SET execution_state=? WHERE id=?').run(kind, draft.id);
+
+      expect(finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id)).status).toBe('open');
+      const read = getRun(run.id);
+      expect(read.openCount).toBe(1);
+      expect(read.blockingSessionIds).toContain(draft.id);
+      expect(read.excludedEmptyDraftIds).not.toContain(draft.id);
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('records excluded drafts in the success audit (FR-4)', () => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      const draftB = sessions.create(project.id, 'New Session', '', { parentSessionId: worker.id, status: 'waiting' });
+      expect(sessions.getById(draftB.id).laneRunId).toBe(run.id);
+
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+
+      expect(getRun(run.id).status).toBe('succeeded');
+      const events = databaseManager.get().prepare(
+        "SELECT details_json FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='run_succeeded'"
+      ).all(run.id);
+      expect(events).toHaveLength(1);
+      expect(JSON.parse(events[0].details_json)).toEqual({
+        excludedEmptyDrafts: [draft.id, draftB.id].sort(),
+      });
+    });
+
+    it('boot recovery repairs a run wedged by an empty draft without session surgery (FR-5)', () => {
+      // Incident shape: the root already closed successfully while the draft
+      // still (temporarily) blocked, then the draft returned to empty-draft
+      // state — e.g. an unsent composer draft discarded — leaving an open run
+      // whose root is terminal and whose only open member is an empty draft.
+      const { run, worker, draft } = runWithRootAndDraft();
+      sessions.update(draft.id, { pendingPrompt: 'typed but unsent' });
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+      expect(getRun(run.id).status).toBe('open');
+      databaseManager.get().prepare('UPDATE sessions SET pending_prompt=NULL WHERE id=?').run(draft.id);
+
+      const recovery = reconcileKanbanOwnership({ dryRun: false });
+
+      expect(recovery.changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'reconciled_stuck_open_run', runId: run.id }),
+      ]));
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
+      const events = databaseManager.get().prepare(
+        "SELECT details_json FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='run_succeeded'"
+      ).all(run.id);
+      expect(events).toHaveLength(1);
+      expect(JSON.parse(events[0].details_json)).toEqual({ excludedEmptyDrafts: [draft.id] });
+    });
+
+    it.each([
+      ['cancelled', 'cancelled'],
+      ['closed_failed', 'failed'],
+    ])('a %s draft %s the run without moving the card — cancellation/failure is never exempt (FR-6)', (outcome, runStatus) => {
+      const { run, worker, draft } = runWithRootAndDraft();
+
+      expect(closeOwnWork(draft.id, outcome, 'stray draft cleaned up').status).toBe(runStatus);
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+
+      // Closing the root afterwards cannot resurrect the terminal run (no live
+      // turn exists on a terminal run, so finalize without a turn token).
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id) ?? undefined);
+      expect(getRun(run.id).status).toBe(runStatus);
+      expect(kanbanCards.getById(card.id).laneId).toBe(source.id);
+    });
+
+    it('a draft started only after the run succeeded finalizes as a safe no-op (FR-3)', () => {
+      const { run, worker, draft } = runWithRootAndDraft();
+      finalizeOwnWorkCompletion(worker.id, beginWorkflowTurn(worker.id));
+      expect(getRun(run.id).status).toBe('succeeded');
+      const succeededAt = databaseManager.get().prepare('SELECT succeeded_at FROM kanban_lane_runs WHERE id=?').get(run.id).succeeded_at;
+      const transitions = () => databaseManager.get().prepare(
+        "SELECT COUNT(*) count FROM kanban_lane_run_audit_events WHERE lane_run_id=? AND event_type='transition_applied'"
+      ).get(run.id).count;
+      expect(transitions()).toBe(1);
+
+      // Late start: the excluded draft begins real work after success.
+      messages.create(draft.id, 'user', 'late follow-up');
+      let finalized;
+      expect(() => { finalized = finalizeOwnWorkCompletion(draft.id); }).not.toThrow();
+
+      // No resurrection, no duplicate transition, no error.
+      expect(finalized.status).toBe('succeeded');
+      expect(getRun(run.id).status).toBe('succeeded');
+      expect(databaseManager.get().prepare('SELECT succeeded_at FROM kanban_lane_runs WHERE id=?').get(run.id).succeeded_at).toBe(succeededAt);
+      expect(transitions()).toBe(1);
+      expect(kanbanCards.getById(card.id).laneId).toBe(target.id);
     });
   });
 });
