@@ -4,7 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
-import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
+import { checkCrossKindSwitch, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop, releaseLaneSlotForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
@@ -350,6 +350,21 @@ function buildExistingMessageQueryParams({
  */
 function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller }) {
   const { systemPrompt = null, model = null } = options;
+  // Fail closed on cross-kind model overrides (FR9): the branch-continue
+  // path never re-derives the kind, so a kind change here would strand
+  // the row (adapter-kind != model-kind). Reject with the existing
+  // CROSS_KIND_MODEL_SWITCH semantics BEFORE claiming execution or writing
+  // anything — no model/agentType/providerId/pendingModel update, no
+  // adapter creation, no status side effects left behind.
+  //
+  // Only enforce for positively-known models: an unregistered id carries
+  // no kind information (resolution merely guesses 'claude-code'), and the
+  // established branch-continue contract lets such overrides proceed on
+  // the existing adapter.
+  const crossKindError = model && resolveProviderFromModel(model) && checkCrossKindSwitch(session, model);
+  if (crossKindError) {
+    throw Object.assign(new Error(crossKindError.message), { code: crossKindError.error, statusCode: 400 });
+  }
   claimSessionExecution(sessionId, controller);
   try {
     // Make sure this conversation is active

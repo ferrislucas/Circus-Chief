@@ -1,4 +1,4 @@
-import { messages, sessions } from '../database.js';
+import { conversations, messages, sessions } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
 
 // Human-readable labels used in the cross-kind switch error message.
@@ -8,6 +8,32 @@ export const AGENT_TYPE_LABELS = Object.freeze({
   gemini: 'Gemini',
   muse: 'Muse',
 });
+
+/**
+ * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4).
+ * `gemini` is deliberately excluded: any kind change involving it keeps the
+ * old `CROSS_KIND_MODEL_SWITCH` rejection.
+ */
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse']);
+
+/**
+ * Whether a model switch out of `sessionAgentType` is an allowed in-place
+ * cross-provider switch. Same-kind changes are trivially allowed; a kind
+ * change is allowed iff BOTH sides are in `IN_SCOPE_SWITCH_KINDS`.
+ *
+ * Unknown/null models fall back to `claude-code` resolution (never throws);
+ * callers validate model ids separately before consulting this helper.
+ *
+ * @param {string} sessionAgentType - The session's current agent type.
+ * @param {string|null} requestedModel - The requested model id (may be null).
+ * @returns {boolean} True when the switch may proceed on interactive paths.
+ */
+export function isCrossKindSwitchAllowed(sessionAgentType, requestedModel) {
+  const from = sessionAgentType || 'claude-code';
+  const to = resolveAgentTypeFromModel(requestedModel);
+  if (to === from) return true;
+  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+}
 
 /**
  * @param {string} agentType
@@ -30,9 +56,13 @@ export function agentLabel(agentType) {
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
  */
 export function checkCrossKindSwitch(session, requestedModel) {
+  // No requested model override means no switch: a turn that carries no
+  // explicit model continues same-kind on the existing adapter, even when
+  // the stored model id has gone stale (unknown ids fall back to
+  // 'claude-code' resolution, which must never read as a kind change).
+  if (!requestedModel) return null;
   const sessionAgentType = session.agentType || 'claude-code';
-  const effectiveModel = requestedModel || session.model;
-  const requestedAgentType = resolveAgentTypeFromModel(effectiveModel);
+  const requestedAgentType = resolveAgentTypeFromModel(requestedModel);
   if (requestedAgentType === sessionAgentType) return null;
   return {
     error: 'CROSS_KIND_MODEL_SWITCH',
@@ -71,6 +101,74 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   if (!newModel) return {};
   if (!sessionHasNoAssistantMessages(sessionId)) return {};
 
+  return deriveKindUpdate(session, newModel, opts.providerId);
+}
+
+/**
+ * Derive the agentType (+ auto providerId) update for an ALLOWED in-place
+ * cross-kind switch on a started session. Unlike `deriveAgentTypeUpdate`,
+ * this skips the draft check — the caller already verified
+ * `isCrossKindSwitchAllowed`. Same providerId contract as the draft path:
+ * an explicitly-supplied id wins; otherwise the owning provider is derived
+ * from the model.
+ *
+ * @param {Object} session - The current session row.
+ * @param {string} newModel - The new model being applied.
+ * @param {string|null|undefined} suppliedProviderId - Explicit providerId, or undefined when absent.
+ * @returns {Object} Partial update to merge into the update payload.
+ */
+export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId) {
+  if (!newModel) return {};
+  return deriveKindUpdate(session, newModel, suppliedProviderId);
+}
+
+/**
+ * Clearance for a stale `pendingModel` override when an allowed cross-kind
+ * switch applies a new agent kind. A `pendingModel` that resolves to the new
+ * kind stays coherent and is kept; one that resolves to any other kind would
+ * strand the row (or silently switch it back) at the next scheduled fire, so
+ * it is dropped. Non-string values (null/absent) need no clearance.
+ *
+ * @param {string|null} pendingModel - Effective override (supplied ?? stored).
+ * @param {string} newAgentType - The agent kind the switch is applying.
+ * @returns {Object} `{ pendingModel: null }` on disagreement, else `{}`.
+ */
+export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
+  if (typeof pendingModel !== 'string' || pendingModel === '') return {};
+  if (!newAgentType) return {};
+  if (resolveAgentTypeFromModel(pendingModel) === newAgentType) return {};
+  return { pendingModel: null };
+}
+
+/**
+ * Discard the native resume chain when an update applies an actual in-place
+ * kind flip on a started session (FRD §2.2, FR4). The follow-up turn carries
+ * `model == session.model`, so the turn-time detector cannot see the switch
+ * afterward — without this, a stale cross-kind resume pointer would either
+ * leak into the new provider (claude-code ↔ muse) or linger silently
+ * (→ codex). Only acts on started sessions (drafts have no chain) and only
+ * when the update actually flips `agentType`; same-kind updates keep the
+ * chain (FR6), and gemini flips never reach here (400 with no mutation).
+ *
+ * @param {Object} session - The session row before the update.
+ * @param {string} sessionId
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ */
+export function clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate) {
+  const newAgentType = agentTypeUpdate.agentType;
+  if (!newAgentType || newAgentType === (session.agentType || 'claude-code')) return;
+  if (sessionHasNoAssistantMessages(sessionId)) return;
+  for (const conversation of conversations.getBySessionId(sessionId)) {
+    if (conversation.claudeSessionId) {
+      conversations.update(conversation.id, { claudeSessionId: null });
+    }
+  }
+}
+
+/**
+ * Shared agentType/providerId re-derivation core.
+ */
+function deriveKindUpdate(session, newModel, suppliedProviderId) {
   const derivedAgentType = resolveAgentTypeFromModel(newModel);
   const update = {};
 
@@ -79,7 +177,7 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   }
 
   // Auto-set providerId from model when the caller didn't pass one explicitly.
-  if (opts.providerId === undefined) {
+  if (suppliedProviderId === undefined) {
     const derivedProvider = resolveProviderFromModel(newModel);
     if (derivedProvider && derivedProvider.id !== session.providerId) {
       update.providerId = derivedProvider.id;

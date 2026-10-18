@@ -12,10 +12,16 @@ import { validateScheduledAt } from './scheduledAtValidation.js';
 import { withActiveLaneRunOwnership } from '../services/workflowSessionService.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
 import {
+  agentLabel,
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
+  deriveCrossKindAgentTypeUpdate,
+  isCrossKindSwitchAllowed,
+  pendingModelClearanceForKindSwitch,
+  clearResumeChainOnKindSwitch,
 } from '../services/sessionAgentGuard.js';
+import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
 const router = Router();
 
@@ -232,6 +238,65 @@ function resetPrStateForSession(sessionId, projectId) {
 }
 
 /**
+ * Reject a PATCH that supplies `model` and `pendingModel` resolving to
+ * different agent kinds: no single `agentType` can agree with both persisted
+ * fields, and the follow-up turn would run adapter-kind ≠ model-kind.
+ * Skipped unless both fields are non-empty strings (anything else cannot
+ * resolve to an authoritative kind).
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkDivergentModelKinds(updateData) {
+  const { model, pendingModel } = updateData;
+  if (typeof model !== 'string' || model === '' || typeof pendingModel !== 'string' || pendingModel === '') {
+    return null;
+  }
+  const modelKind = resolveAgentTypeFromModel(model);
+  const pendingKind = resolveAgentTypeFromModel(pendingModel);
+  if (modelKind === pendingKind) return null;
+  return {
+    error: 'DIVERGENT_MODEL_KINDS',
+    message: `Cannot set model and pendingModel to different agent kinds (${agentLabel(modelKind)} → ${agentLabel(pendingKind)})`,
+  };
+}
+
+/**
+ * Reject a pendingModel-only change that crosses agent kinds on a started
+ * session (has prior assistant turns). Persisting it would strand
+ * model/agentType on different kinds — the next plain turn runs the adapter
+ * for session.agentType with env rebuilt from session.model (FR8). Skipped
+ * unless pendingModel is the only model field supplied as a non-empty
+ * string (anything else cannot strand the row), and skipped on drafts (the
+ * draft re-derivation path below owns those). Same-kind pendingModel-only
+ * changes pass through (checkCrossKindSwitch returns null for them).
+ * @param {Object} session
+ * @param {string} sessionId
+ * @param {Object} updateData
+ * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
+ */
+function checkPendingModelOnlyKindSwitch(session, sessionId, updateData) {
+  if (sessionHasNoAssistantMessages(sessionId)) return null;
+  // Only a non-empty string `model` counts as "model supplied": an explicit
+  // null/'' clear carries no kind, so a cross-kind `pendingModel` alongside
+  // it is still a pendingModel-only kind switch and must be rejected.
+  if (typeof updateData.model === 'string' && updateData.model !== '') return null;
+  const { pendingModel } = updateData;
+  if (typeof pendingModel !== 'string' || pendingModel === '') return null;
+  return checkCrossKindSwitch(session, pendingModel);
+}
+
+/**
+ * First model-kind invariant gate for a pending update: the both-fields
+ * divergent-pair rejection, then the pendingModel-only cross-kind rejection
+ * (Option A — 4xx with no mutation; the UI always sends `model` together
+ * with `pendingModel`, so the latter only affects direct API callers).
+ */
+function checkModelKindInvariant(session, sessionId, updateData) {
+  return checkDivergentModelKinds(updateData)
+    ?? checkPendingModelOnlyKindSwitch(session, sessionId, updateData);
+}
+
+/**
  * Apply the cross-kind agent/model drift guard to a pending update.
  * Returns the error payload (for started sessions) or the agentType update (for drafts).
  * Does NOT mutate updateData — caller merges the returned agentTypeUpdate.
@@ -242,13 +307,56 @@ function resetPrStateForSession(sessionId, projectId) {
  * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
  */
 function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
+  const driftError = checkModelKindInvariant(session, sessionId, updateData);
+  if (driftError) return { driftError, agentTypeUpdate: {} };
   const newModel = updateData.pendingModel ?? updateData.model ?? null;
   if (!newModel) return { driftError: null, agentTypeUpdate: {} };
   if (sessionHasNoAssistantMessages(sessionId)) {
     const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, newModel, { providerId: suppliedProviderId });
-    return { driftError: null, agentTypeUpdate };
+    return { driftError: null, agentTypeUpdate: withStalePendingModelClearance(session, updateData, agentTypeUpdate) };
   }
-  return { driftError: checkCrossKindSwitch(session, newModel), agentTypeUpdate: {} };
+  // Started session (FR2/FR3): every supplied model field must either stay
+  // in-kind or be an allowed in-scope kind switch; gemini stays rejected.
+  for (const fieldModel of [updateData.model, updateData.pendingModel]) {
+    if (fieldModel === undefined) continue;
+    const fieldError = checkCrossKindSwitch(session, fieldModel);
+    if (fieldError && !isCrossKindSwitchAllowed(session.agentType, fieldModel)) {
+      return { driftError: fieldError, agentTypeUpdate: {} };
+    }
+  }
+  if (!checkCrossKindSwitch(session, newModel)) {
+    return { driftError: null, agentTypeUpdate: {} };
+  }
+  // Allowed in-place switch: persist the re-derived kind (+ auto providerId
+  // when the caller didn't supply one explicitly).
+  return {
+    driftError: null,
+    agentTypeUpdate: withStalePendingModelClearance(
+      session, updateData, deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId),
+    ),
+  };
+}
+
+/**
+ * Merge a stale-`pendingModel` clearance into an applied kind-change update.
+ * Only acts when the update actually flips `agentType`: the effective
+ * override (explicitly supplied, else the stored row value) is dropped when
+ * it resolves to a different kind than the new one, so a later scheduled
+ * fire cannot strand the row or silently switch it back. A same-new-kind
+ * override stays coherent and is kept; same-kind switches (no `agentType`
+ * in the update) are untouched.
+ * @param {Object} session - The session row before the update.
+ * @param {Object} updateData - The pending PATCH fields.
+ * @param {Object} agentTypeUpdate - The kind-change update being applied.
+ * @returns {Object} The update with clearance merged in (possibly unchanged).
+ */
+function withStalePendingModelClearance(session, updateData, agentTypeUpdate) {
+  if (!agentTypeUpdate.agentType) return agentTypeUpdate;
+  const effectivePendingModel = updateData.pendingModel ?? session.pendingModel ?? null;
+  return {
+    ...agentTypeUpdate,
+    ...pendingModelClearanceForKindSwitch(effectivePendingModel, agentTypeUpdate.agentType),
+  };
 }
 
 /**
@@ -326,6 +434,7 @@ router.patch('/:id', requireSession, (req, res) => {
       code: 'LANE_RUN_OWNERSHIP_LOST',
     });
   }
+  clearResumeChainOnKindSwitch(req.session_, req.params.id, agentTypeUpdate);
   handlePrUrlSideEffects(req.session_, req.params.id, updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
   res.json(updated);

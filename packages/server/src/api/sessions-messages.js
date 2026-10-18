@@ -5,7 +5,7 @@ import { getSessionExecutionConflict } from '../services/sessionExecutionOwnersh
 import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
-import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
+import { checkCrossKindSwitch, isCrossKindSwitchAllowed } from '../services/sessionAgentGuard.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 import { validateModelId } from './model-validation.js';
 import { clearedPendingSchedule } from '../services/pendingSchedule.js';
@@ -42,8 +42,11 @@ function validateMessageRequest(session, content, model) {
     return { status: 400, body: { error: modelResult.error } };
   }
 
+  // FR1/FR3: allowed in-scope kind switches proceed to the turn setup,
+  // which re-derives the kind and clears the native resume chain. Gemini
+  // switches (and any other out-of-scope kind change) stay rejected here.
   const crossKindError = checkCrossKindSwitch(session, model);
-  if (crossKindError) {
+  if (crossKindError && !isCrossKindSwitchAllowed(session.agentType, model)) {
     return { status: 400, body: crossKindError };
   }
 
