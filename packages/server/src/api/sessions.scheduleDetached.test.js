@@ -12,6 +12,7 @@ import { SchedulerService } from '../services/schedulerService.js';
 import {
   attachRootSession,
   createLaneRunForEntry,
+  getRun,
   supersedeRunForCard,
   supersedeLaneRunAuthorityOnly,
   activeLaneRunOwnsSession,
@@ -19,6 +20,7 @@ import {
   claimWorkflowSessionStart,
   withActiveLaneRunOwnership,
 } from '../services/workflowSessionService.js';
+import { reconcileKanbanOwnership } from '../services/kanbanRecoveryService.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -287,6 +289,103 @@ describe('Sessions API - POST /:id/schedule for detached workers', () => {
 
     expect(beginWorkflowTurn(worker.id)).toBeNull();
     expect(withActiveLaneRunOwnership(worker.id, () => sessions.update(worker.id, { status: 'running' }))).toBeNull();
+  });
+
+  // ── RED-8 (#1): detached interactive schedule survives startup reconciliation ──
+
+  it('RED-8: detached interactive schedule survives reconcileKanbanOwnership', async () => {
+    const { card, worker } = attachLaneWorker();
+    startProviderTurn(worker);
+    supersedeRunForCard(card.id, 'test_supersession');
+
+    const scheduledAt = Date.now() + 3600000;
+    const prompt = 'Poll the existing job after restart; do not start a duplicate.';
+    await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt, scheduledAt })
+      .expect(200);
+
+    const before = sessions.getById(worker.id);
+    expect(before.pendingInteractive).toBe(true);
+
+    reconcileKanbanOwnership({ dryRun: false });
+
+    const after = sessions.getById(worker.id);
+    expect(after.scheduledAt).toBe(scheduledAt);
+    expect(after.pendingPrompt).toBe(prompt);
+    expect(after.pendingInteractive).toBe(true);
+  });
+
+  it('RED-8b: reconciliation still clears detached non-interactive schedules', async () => {
+    const { card, worker } = attachLaneWorker();
+    startProviderTurn(worker);
+    supersedeRunForCard(card.id, 'test_supersession');
+
+    // Leftover lane-directed row (never writable via the endpoint today).
+    sessions.update(worker.id, {
+      status: 'scheduled',
+      scheduledAt: Date.now() + 3600000,
+      pendingPrompt: 'Leftover lane work',
+      pendingInteractive: false,
+    });
+
+    reconcileKanbanOwnership({ dryRun: false });
+
+    const reaped = sessions.getById(worker.id);
+    expect(reaped.pendingPrompt).toBeNull();
+    expect(reaped.scheduledAt).toBeNull();
+  });
+
+  // ── RED-9 (#4): hostile prompt through the endpoint cannot drive the board ──
+
+  it('RED-9: revive-flavored prompt through the endpoint launches only as interactive work', async () => {
+    const { board, card, run, worker } = attachLaneWorker();
+    startProviderTurn(worker);
+    supersedeRunForCard(card.id, 'test_supersession');
+
+    // The endpoint cannot distinguish "revive the lane" from "poll my job":
+    // a lane-hostile prompt posted through the real path must still succeed
+    // as a lane-inert continuation.
+    const prompt = 'Revive the superseded worker and resume the lane run';
+    const response = await request(app)
+      .post(`/api/sessions/${worker.id}/schedule`)
+      .send({ prompt, scheduledAt: Date.now() + 3600000 })
+      .expect(200);
+    expect(response.body.pendingInteractive).toBe(true);
+
+    // Lane fences: the detached session can never begin lane work.
+    expect(beginWorkflowTurn(worker.id)).toBeNull();
+
+    // Snapshot board state before turn completion + scheduler launch.
+    const cardBefore = JSON.stringify(kanbanCards.getById(card.id));
+    const runBefore = JSON.stringify(getRun(run.id));
+    const sessionCountBefore = sessions.getCountByProjectId(project.id);
+    const cardCountBefore = kanbanCards.getByBoardId(board.id).length;
+
+    // Turn ends; the schedule is re-applied and becomes due.
+    await handleTurnCompletion(worker.id, '/tmp/test-detached', completionStubs());
+    activeSessions.delete(worker.id);
+    sessions.update(worker.id, { scheduledAt: Date.now() - 1000 });
+    conversations.create(worker.id, 'Detached continuation conversation');
+
+    // The continuation is launchable, but only as interactive user work — and
+    // it is the hostile prompt itself that launches, not a sanitized substitute.
+    expect(sessions.getById(worker.id).pendingPrompt).toBe(prompt);
+    expect(sessions.getById(worker.id).pendingInteractive).toBe(true);
+    expect(claimWorkflowSessionStart(worker.id)).toBe(true);
+
+    const scheduler = new SchedulerService();
+    const runSession = vi.fn().mockResolvedValue({ started: true, sessionId: worker.id });
+    scheduler.initialize({ isSessionActive: () => false, runSession });
+    const launched = await scheduler.startScheduledSession(sessions.getById(worker.id));
+    expect(launched).toMatchObject({ claimed: true, started: true });
+
+    // Board-inert: no run claim, no lane transition, no card move.
+    expect(beginWorkflowTurn(worker.id)).toBeNull();
+    expect(JSON.stringify(kanbanCards.getById(card.id))).toBe(cardBefore);
+    expect(JSON.stringify(getRun(run.id))).toBe(runBefore);
+    expect(sessions.getCountByProjectId(project.id)).toBe(sessionCountBefore);
+    expect(kanbanCards.getByBoardId(board.id).length).toBe(cardCountBefore);
   });
 
   it('RED-7c: turn completion refuses to restore scheduled status for leftover non-interactive rows', async () => {

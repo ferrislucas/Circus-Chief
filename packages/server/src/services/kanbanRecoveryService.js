@@ -316,9 +316,15 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
       WHERE ((status='claimed' AND claim_expires_at < ?) OR (status='pending' AND claim_token IS NOT NULL AND claimed_at < ?)${recoveredClaim})`)
       .run(now, now - 5 * 60 * 1000, now - 5 * 60 * 1000, ...preservedEntryEventIds).changes;
     if (released) changes.push({ type: 'reclaimed_entry_claims', count: released });
+    // Detached independent continuations keep their superseded lane_run_id by
+    // design and carry user authority (pending_interactive): a restart must
+    // not delete them (FR-2). Launch-time claimWorkflowSessionStart still
+    // reaps detached non-interactive rows as stale, so the zombie fence
+    // stays intact for lane-directed leftovers.
     const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_interactive=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?
       WHERE lane_run_id IN (SELECT id FROM kanban_lane_runs WHERE status IN ('superseded', 'failed', 'cancelled'))
+        AND (pending_interactive IS NULL OR pending_interactive = 0)
         AND (scheduled_at IS NOT NULL OR execution_state IN ('running', 'starting', 'retrying', 'paused'))`).run(now).changes;
     if (cancelled) changes.push({ type: 'cancelled_unowned_workers', count: cancelled });
     // Queued cards stay queued across restart: derived state needs no
