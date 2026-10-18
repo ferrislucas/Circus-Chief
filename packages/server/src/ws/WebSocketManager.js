@@ -2,7 +2,13 @@ import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from '../services/commandOutputMetrics.js';
 import { createUpgradeGate } from './upgradeGate.js';
-import { ProviderPriorityTracker } from './providerPriorityTracker.js';
+import {
+  hasSessionPriorityShape,
+  isSessionLifecycleEvent,
+  hasPriorityChanged,
+  hasRecencyAdvanced,
+  sessionRecencyOf,
+} from './sessionPriority.js';
 
 const OUTPUT_SOCKET_HIGH_WATER_BYTES = 256 * 1024;
 
@@ -33,7 +39,7 @@ export class WebSocketManager {
 
   /** @type {Map<string, Array<Object>>} */
   #usageUpdateBuffer = new Map();
-  #priorityTracker = new ProviderPriorityTracker();
+  #sessionPriority = new Map();
 
   /** @type {import('http').Server|null} */
   #upgradeServer = null;
@@ -325,19 +331,42 @@ export class WebSocketManager {
   }
 
   #broadcastProviderPriorityInvalidation(type, payload) {
-    const decision = this.#priorityTracker.evaluate(type, payload);
-    if (decision === 'malformed') {
-      console.warn('[WebSocketManager]', JSON.stringify({
-        outcome: 'priority-invalidation-skipped',
-        reason: 'malformed-session-payload',
-      }));
-      return;
-    }
-    if (decision !== 'invalidate') return;
+    if (!isSessionLifecycleEvent(type)) return;
+    if (!this.#shouldInvalidateProviderPriority(type, payload)) return;
     const message = createMessage(WS_MESSAGE_TYPES.PROVIDER_ALLOWANCE_PRIORITY_INVALIDATED, {});
     for (const client of this.#clients) {
       if (client.readyState === 1) client.send(message);
     }
+  }
+
+  #shouldInvalidateProviderPriority(type, payload) {
+    const session = payload?.session;
+    const sessionId = session?.id ?? payload?.sessionId;
+    if (type !== WS_MESSAGE_TYPES.SESSION_UPDATED) {
+      this.#recordSessionPriority(type, sessionId, session);
+      return true;
+    }
+    // Fail closed: a shape that cannot change priority must not trigger a
+    // global refetch. The debounce on the client is a backstop, not the
+    // primary defense against malformed emitters.
+    if (!hasSessionPriorityShape(session, sessionId)) {
+      console.warn('[WebSocketManager]', JSON.stringify({
+        outcome: 'priority-invalidation-skipped',
+        reason: 'malformed-session-payload',
+      }));
+      return false;
+    }
+    const next = { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) };
+    const previous = this.#sessionPriority.get(sessionId);
+    this.#sessionPriority.set(sessionId, next);
+    return !previous || hasPriorityChanged(previous, next) || hasRecencyAdvanced(previous, next);
+  }
+
+  #recordSessionPriority(type, sessionId, session) {
+    if (type === WS_MESSAGE_TYPES.SESSION_CREATED && hasSessionPriorityShape(session, sessionId)) {
+      this.#sessionPriority.set(sessionId, { status: session.status, providerId: session.providerId, updatedAt: sessionRecencyOf(session) });
+    }
+    if (type === WS_MESSAGE_TYPES.SESSION_DELETED && sessionId) this.#sessionPriority.delete(sessionId);
   }
 
   /**
@@ -388,10 +417,9 @@ export class WebSocketManager {
     this.#projectSubscriptions.clear();
     this.#commandRunOutputSubscriptions.clear();
     this.#usageUpdateBuffer.clear();
-    this.#priorityTracker.clear();
+    this.#sessionPriority.clear();
   }
 }
 
 // Singleton instance
 export const webSocketManager = new WebSocketManager();
-
