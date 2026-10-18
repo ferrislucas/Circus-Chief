@@ -519,7 +519,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; providerId?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
+  data: { prompt: string; name?: string; mode?: string; model?: string; providerId?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean; rescheduleOnTokenLimit?: boolean }
 ) {
   const scheduledAt =
     data.scheduledAt instanceof Date
@@ -1537,10 +1537,11 @@ export async function toggleSessionStar(sessionId: string) {
 /**
  * Archive a session
  */
-export async function archiveSession(sessionId: string) {
+export async function archiveSession(sessionId: string, body?: Record<string, any>) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/archive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!response.ok) throw new Error('Failed to archive session');
   return response.json();

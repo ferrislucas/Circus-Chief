@@ -10,6 +10,8 @@ import {
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection, buildProviderTestConfig } from '../services/providerTestService.js';
 import { assertValidReorder } from '../db/providerModelOperations.js';
+import { publishEmptiedTierDegradations } from '../services/tierDegradationNotifier.js';
+import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
 import { getProviderAllowanceService, notifyAllowanceListChangedAfterMutation } from '../services/providerAllowanceServiceInstance.js';
 
 // Error message constants
@@ -63,6 +65,7 @@ router.post('/', async (req, res) => {
 
   try {
     const provider = modelProviders.create(result.data);
+    publishCatalogInvalidation('providers');
     await notifyAllowanceListChangedAfterMutation();
     res.status(201).json(redactAuthToken(provider));
   } catch (error) {
@@ -96,7 +99,9 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: result.error.issues[0].message });
     }
 
-    const updated = modelProviders.update(req.params.id, result.data);
+    const { provider: updated, degradation } = modelProviders.updateWithDegradation(req.params.id, result.data);
+    publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     await notifyAllowanceListChangedAfterMutation();
     res.json(redactAuthToken(updated));
   } catch (error) {
@@ -121,7 +126,9 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
-    modelProviders.delete(req.params.id);
+    const degradation = modelProviders.deleteWithDegradation(req.params.id);
+    publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     await notifyAllowanceListChangedAfterMutation();
     res.status(204).send();
   } catch (error) {
@@ -233,6 +240,7 @@ router.post('/:id/models', (req, res) => {
     }
 
     const model = modelProviders.addModel(req.params.id, result.data);
+    publishCatalogInvalidation('providers');
     res.status(201).json(model);
   } catch (error) {
     if (error.message.includes('already exists for this provider')) {
@@ -259,7 +267,9 @@ router.put('/:id/models/order', (req, res) => {
       return res.status(400).json({ error: validationError.message });
     }
 
-    res.json(modelProviders.reorderModels(req.params.id, result.data.order));
+    const reordered = modelProviders.reorderModels(req.params.id, result.data.order);
+    publishCatalogInvalidation('providers');
+    res.json(reordered);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -287,7 +297,9 @@ router.patch('/:id/models/:modelId', (req, res) => {
       return res.status(400).json({ error: result.error.issues[0].message });
     }
 
-    const updated = modelProviders.updateModel(req.params.modelId, result.data);
+    const { model: updated, degradation } = modelProviders.updateModelWithDegradation(req.params.modelId, result.data);
+    publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.json(updated);
   } catch (error) {
     if (error.message === 'Cannot change the model id of a built-in provider model') {
@@ -315,7 +327,9 @@ router.delete('/:providerId/models/:modelId', (req, res) => {
     }
 
     // Soft-remove: works identically for built-in and custom providers.
-    modelProviders.removeModel(req.params.modelId);
+    const { degradation } = modelProviders.removeModelWithDegradation(req.params.modelId);
+    publishEmptiedTierDegradations(degradation);
+    publishCatalogInvalidation('providers');
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });

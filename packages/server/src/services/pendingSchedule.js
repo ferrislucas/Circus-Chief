@@ -9,5 +9,6 @@ export const clearedPendingSchedule = Object.freeze({
   pendingPrompt: null,
   pendingConversationId: null,
   pendingModel: null,
+  pendingProviderId: null,
   pendingInteractive: null,
 });

@@ -1,7 +1,7 @@
 import { sessions, projectDefaults } from '../database.js';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import {
   generateInitialName,
   prepareSessionConfig,
@@ -11,9 +11,25 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings } from './projects-helpers.js';
-import { validateModelId } from './model-validation.js';
+import { validateDefaultModelAndProvider, validateModelAndProvider } from './model-validation.js';
 import { withTimeout, TimeoutError } from '../services/promiseUtils.js';
 import { classifyGitError } from '../services/gitService.js';
+
+/**
+ * Validate the resolved model+provider pair. Ownership is enforced only for
+ * an explicitly chosen model+provider pair. A defaulted model was never
+ * chosen against the provider, so a providerId-only request keeps its
+ * provider (session metadata, e.g. MRU recency) instead of being rejected
+ * against — or silently dropped for — the default model.
+ */
+function validateModelSelection(config, reqBody) {
+  const modelExplicit = Object.hasOwn(reqBody, 'model') && reqBody.model !== '' && reqBody.model !== undefined;
+  const providerExplicit = Object.hasOwn(reqBody, 'providerId') && reqBody.providerId !== '' && reqBody.providerId !== undefined;
+  if (modelExplicit) {
+    return validateModelAndProvider(config.model, isTierRef(config.model) ? null : config.providerId);
+  }
+  return validateDefaultModelAndProvider(config.model, config.providerId, { providerExplicit });
+}
 
 /**
  * Run post-preparation validation on session config (parent session,
@@ -38,19 +54,27 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
     return { error: nextTemplateError, status: 400 };
   }
 
-  const finalModelResult = validateModelId(config.model);
+  const finalModelResult = validateModelSelection(config, reqBody);
   if (finalModelResult.error) {
     return { error: finalModelResult.error, status: 400 };
   }
 
+  // A tier binding has no single owning provider — the concrete provider is
+  // resolved per-run from the active tier member. An explicitly supplied
+  // providerId was rejected above; a provider inherited from project/system
+  // defaults is not part of the tier selection and must not be persisted.
+  const configForGit = {
+    ...config,
+    model: finalModelResult.model,
+    providerId: finalModelResult.providerId,
+  };
+
   // Validate git settings for git repos
-  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
+  const { config: updatedConfig, error: gitError } = await validateGitSettings(configForGit, project);
   if (gitError) {
     return { error: gitError, status: 400 };
   }
-  Object.assign(config, updatedConfig);
-
-  return { nextTemplateId };
+  return { nextTemplateId, config: updatedConfig };
 }
 
 /**
@@ -61,7 +85,7 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   // Validate the explicitly requested model only — never the resolved default —
   // so project/system defaults are never blocked.
   if (Object.hasOwn(reqBody, 'model') && reqBody.model !== '') {
-    const modelResult = validateModelId(reqBody.model);
+    const modelResult = validateModelAndProvider(reqBody.model, reqBody.providerId);
     if (modelResult.error) {
       return { error: modelResult.error, status: 400 };
     }
@@ -84,9 +108,7 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   if (result.error) {
     return { error: result.error, status: result.status };
   }
-
-  config.nextTemplateId = result.nextTemplateId;
-  return { config, nextTemplateId: result.nextTemplateId };
+  return { config: { ...result.config, nextTemplateId: result.nextTemplateId }, nextTemplateId: result.nextTemplateId };
 }
 
 /**
@@ -154,6 +176,11 @@ function buildStartupErrorBody(error, isTimeout, startupTimeoutMs, structuredErr
       ? `Session startup timed out after ${startupTimeoutMs}ms`
       : `Git setup failed: ${error.message}`,
     ...(structuredError ? { gitError: structuredError } : {}),
+    // Structured failure codes (e.g. MODEL_TIER_EXHAUSTED from tier failover)
+    // ride along so clients can render actionable errors instead of a bare
+    // message. ApiClient forwards `code` onto the thrown error.
+    ...(error?.code ? { code: error.code } : {}),
+    ...(error?.tierName ? { tierName: error.tierName } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useNewSessionForm, buildSessionPayload } from './useNewSessionForm.js';
+import { useNewSessionForm, buildSessionPayload, applyTemplateToForm } from './useNewSessionForm.js';
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -17,6 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 vi.mock('@circuschief/shared', () => ({
   generateWorktreeBranch: vi.fn((prefix, prompt) => `branch-${prompt.slice(0, 10)}`),
   DEFAULT_RESCHEDULE_DELAY_MINUTES: 15,
+  isTierRef: (v) => typeof v === 'string' && v.startsWith('tier::'),
 }));
 
 describe('useNewSessionForm', () => {
@@ -41,6 +42,22 @@ describe('useNewSessionForm', () => {
       expect(form.schedulingData.value.maxRescheduleCount).toBeNull();
       expect(form.schedulingData.value.maxTotalTokens).toBeNull();
       expect(form.schedulingData.value.rescheduleAtTokenCount).toBeNull();
+    });
+  });
+
+  describe('applyProjectDefaults pair hygiene', () => {
+    it('nulls the provider hint when defaults bind a tier ref', () => {
+      const form = useNewSessionForm(storageKey);
+      form.applyProjectDefaults({ model: 'tier::t-high', providerId: 'stale-provider' });
+      expect(form.model.value).toBe('tier::t-high');
+      expect(form.providerId.value).toBeNull();
+    });
+
+    it('keeps a concrete provider hint for concrete models', () => {
+      const form = useNewSessionForm(storageKey);
+      form.applyProjectDefaults({ model: 'gpt-5', providerId: 'openai-custom' });
+      expect(form.model.value).toBe('gpt-5');
+      expect(form.providerId.value).toBe('openai-custom');
     });
   });
 
@@ -82,6 +99,55 @@ describe('useNewSessionForm', () => {
       expect(form.schedulingData.value.maxTotalTokens).toBeNull();
       expect(form.schedulingData.value.rescheduleAtTokenCount).toBeNull();
     });
+  });
+});
+
+describe('applyTemplateToForm', () => {
+  const storageKey = { value: 'test-key' };
+  const textareaRef = { value: null };
+
+  it('sets providerId alongside a concrete template model', () => {
+    const form = useNewSessionForm(storageKey);
+    form.model.value = 'old-model';
+    form.providerId.value = 'old-provider';
+
+    applyTemplateToForm({ prompt: 'hi', model: 'new-model', providerId: 'prov-b' }, form, textareaRef);
+
+    expect(form.model.value).toBe('new-model');
+    expect(form.providerId.value).toBe('prov-b');
+  });
+
+  it('clears a stale providerId when the template has no providerId key', () => {
+    const form = useNewSessionForm(storageKey);
+    form.model.value = 'old-model';
+    form.providerId.value = 'old-provider';
+
+    applyTemplateToForm({ prompt: 'hi', model: 'new-model' }, form, textareaRef);
+
+    expect(form.model.value).toBe('new-model');
+    expect(form.providerId.value).toBeNull();
+  });
+
+  it('forces providerId to null for tier refs even when the template carries one', () => {
+    const form = useNewSessionForm(storageKey);
+    form.model.value = 'old-model';
+    form.providerId.value = 'old-provider';
+
+    applyTemplateToForm({ prompt: 'hi', model: 'tier::abc', providerId: 'prov-b' }, form, textareaRef);
+
+    expect(form.model.value).toBe('tier::abc');
+    expect(form.providerId.value).toBeNull();
+  });
+
+  it('leaves model and provider untouched when the template has no model', () => {
+    const form = useNewSessionForm(storageKey);
+    form.model.value = 'old-model';
+    form.providerId.value = 'old-provider';
+
+    applyTemplateToForm({ prompt: 'hi' }, form, textareaRef);
+
+    expect(form.model.value).toBe('old-model');
+    expect(form.providerId.value).toBe('old-provider');
   });
 });
 

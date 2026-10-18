@@ -2,7 +2,7 @@ import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
-import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { createVisibleFinalErrorMessage, normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import {
@@ -18,6 +18,8 @@ import { applyPendingWakeup, clearPendingWakeup } from './scheduleWakeupBridge.j
 import { withActiveLaneRunOwnership } from './workflowSessionService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isUserStopAbort } from './sessionAbort.js';
+import { resolveQuotaResetHint, RETRY_BUFFER_MS } from './quotaResetHint.js';
+import { getProviderAllowanceService } from './providerAllowanceServiceInstance.js';
 
 /**
  * Broadcast the session- and project-scoped updates for a status transition to
@@ -320,6 +322,34 @@ function computeRetryMode(sessionId) {
   return { retryExistingMessage: false, conversationId: null };
 }
 
+/** Default allowance-snapshot reader: the shared service's stored snapshot. */
+function defaultGetAllowanceSnapshot(providerId) {
+  return getProviderAllowanceService().getSnapshot(providerId);
+}
+
+/**
+ * Resolve a quota-derived wait for an errored session. Fail-open by design:
+ * any missing input (no provider, no snapshot, no hint) or any resolver
+ * failure yields undefined so the caller takes the legacy fixed-delay path.
+ * @param {object} session
+ * @param {{ quotaHintResolver: Function, getAllowanceSnapshot: Function }} deps
+ * @returns {{ resetsAt: number, scheduledAt: number } | undefined}
+ */
+function resolveQuotaWait(session, { quotaHintResolver, getAllowanceSnapshot }) {
+  try {
+    const providerId = session?.providerId;
+    if (!providerId) return undefined;
+    const snapshot = getAllowanceSnapshot(providerId);
+    if (!snapshot) return undefined;
+    const hint = quotaHintResolver(snapshot, Date.now());
+    if (!hint || !Number.isFinite(hint?.resetsAt)) return undefined;
+    return { resetsAt: hint.resetsAt, scheduledAt: hint.resetsAt + RETRY_BUFFER_MS };
+  } catch (error) {
+    console.warn(`[handleSessionError] Quota-hint resolution failed, using fixed-delay retry: ${error?.message ?? error}`);
+    return undefined;
+  }
+}
+
 /**
  * Try to reschedule the session due to an error.
  * Returns true if rescheduled, false otherwise.
@@ -327,9 +357,11 @@ function computeRetryMode(sessionId) {
  * @param {Error} error
  * @param {Function} shouldRescheduleOnError
  * @param {Object} schedulerService
+ * @param {Function} [quotaHintResolver] - Injected hint resolver (defaults to the real implementation)
+ * @param {Function} [getAllowanceSnapshot] - Injected snapshot reader (defaults to the shared allowance service)
  * @returns {Promise<boolean>}
  */
-async function tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive = false }) {
+async function tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive = false, quotaHintResolver = resolveQuotaResetHint, getAllowanceSnapshot = defaultGetAllowanceSnapshot }) {
   const session = sessions.getById(sessionId);
   if (!session || !shouldRescheduleOnError(session, error, sessionId)) {
     return false;
@@ -338,10 +370,15 @@ async function tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError,
   // Determine retry mode: re-use existing user message or send "Continue"
   const { retryExistingMessage, conversationId } = computeRetryMode(sessionId);
 
+  // Fresh quota hint → wait for the provider reset; otherwise the legacy
+  // fixed-delay path (the key is omitted entirely, so the call is identical
+  // to today's when there is no hint).
+  const quotaWait = resolveQuotaWait(session, { quotaHintResolver, getAllowanceSnapshot });
+
   const rescheduled = await schedulerService.rescheduleSession(
     sessionId,
     error.message,
-    { retryExistingMessage, conversationId, interactive }
+    { retryExistingMessage, conversationId, interactive, ...(quotaWait ? { quotaWait } : {}) }
   );
   if (rescheduled) {
     console.log(`[SessionManager] Session ${sessionId} rescheduled due to error (retryExistingMessage=${retryExistingMessage})`);
@@ -388,9 +425,10 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
  * @param {{ broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
  */
 async function finalizeSessionError(sessionId, error, options) {
-  sessions.update(sessionId, { status: 'error', error: error.message });
+  const sanitizedError = normalizeFinalErrorMessage(error);
+  sessions.update(sessionId, { status: 'error', error: sanitizedError });
   createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: sanitizedError });
   if (options.broadcastConversationState) broadcastFinalConversationState(sessionId);
   summaryService.extractPrUrlIfNeeded(sessionId);
   summaryService.onSessionComplete(sessionId);
@@ -404,10 +442,10 @@ async function finalizeSessionError(sessionId, error, options) {
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean, interactive?: boolean }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function, errorAlreadyRecorded?: boolean, interactive?: boolean, quotaHintResolver?: Function, getAllowanceSnapshot?: Function }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
-  const { controller, shouldRescheduleOnError, schedulerService, interactive = false } = options;
+  const { controller, shouldRescheduleOnError, schedulerService, interactive = false, quotaHintResolver = resolveQuotaResetHint, getAllowanceSnapshot = defaultGetAllowanceSnapshot } = options;
   const errorLabel = options.errorLabel || 'Session error';
   console.error(`${errorLabel}:`, error);
   console.error('Error stack:', error.stack);
@@ -436,7 +474,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
   }
 
   // Check if we should reschedule instead of marking as error
-  const rescheduled = await tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive });
+  const rescheduled = await tryRescheduleOnError(sessionId, error, { shouldRescheduleOnError, schedulerService, interactive, quotaHintResolver, getAllowanceSnapshot });
   if (rescheduled) {
     return true;
   }

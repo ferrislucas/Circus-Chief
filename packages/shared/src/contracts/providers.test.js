@@ -4,6 +4,7 @@ import {
   CreateProviderRequest,
   UpdateProviderRequest,
   TestConnectionRequest,
+  CreateProviderModelRequest,
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   parseCommitAttributionOverride,
   normalizeCommitAttributionOverride,
@@ -11,8 +12,26 @@ import {
   ProviderAllowanceListResponse,
   ProviderAllowanceUpdatedPayload,
 } from './providers.js';
+import { RESERVED_TIER_REF_MODEL_ID_MESSAGE } from './modelTiers.js';
 
 describe('Provider Contracts', () => {
+  describe('Provider model IDs', () => {
+    it('rejects the reserved Model Tier reference prefix for create and partial-update payloads', () => {
+      const model = {
+        modelId: 'tier::high',
+        displayName: 'Ambiguous model',
+      };
+
+      for (const payload of [model, { modelId: model.modelId }]) {
+        const result = payload === model
+          ? CreateProviderModelRequest.safeParse(payload)
+          : CreateProviderModelRequest.partial().safeParse(payload);
+        expect(result.success).toBe(false);
+        expect(result.error.issues[0].message).toBe(RESERVED_TIER_REF_MODEL_ID_MESSAGE);
+      }
+    });
+  });
+
   describe('ProviderAllowanceSnapshot', () => {
     it('accepts a redacted unknown snapshot and rejects unexpected fields', () => {
       const snapshot = {

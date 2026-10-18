@@ -5,8 +5,49 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
 import { claimWorkflowSessionStart, withActiveLaneRunOwnership, activeLaneRunOwnsSession, closeOwnWork } from './workflowSessionService.js';
 import { didSessionExecutionStart, rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
+
 import { broadcastSessionStatus } from './streamEventHandler.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
+import { MIN_QUOTA_WAIT_MS, MAX_QUOTA_WAIT_MS } from './quotaResetHint.js';
+
+/**
+ * Resolve a quota-derived wait into a clamped schedule.
+ * @param {{ resetsAt?: number, scheduledAt?: unknown } | undefined} quotaWait
+ * @param {number} now - Epoch ms
+ * @returns {{ scheduledAt: number, capped: boolean, resetsAt: unknown } | null}
+ *   Null when no usable hint was provided (legacy path applies).
+ */
+function _resolveQuotaSchedule(quotaWait, now) {
+  const scheduledAt = quotaWait && typeof quotaWait === 'object' ? quotaWait.scheduledAt : NaN;
+  if (typeof scheduledAt !== 'number' || !Number.isFinite(scheduledAt)) return null;
+  const capped = scheduledAt > now + MAX_QUOTA_WAIT_MS;
+  return {
+    scheduledAt: Math.min(Math.max(scheduledAt, now + MIN_QUOTA_WAIT_MS), now + MAX_QUOTA_WAIT_MS),
+    capped,
+    resetsAt: quotaWait.resetsAt,
+  };
+}
+
+/**
+ * Error text for a quota-wait reschedule. A quota-wait is a hold, not an
+ * attempt, so the text never reuses the reschedule attempt counter (a first
+ * wait would otherwise render the confusing "Rescheduled (0x)"). A
+ * beyond-ceiling cap additionally names the known reset so the display
+ * shows a distant wait instead of silent failure.
+ */
+function quotaRetryAtText(quotaSchedule) {
+  return new Date(quotaSchedule.scheduledAt).toISOString();
+}
+
+function quotaCapNoteText(quotaSchedule) {
+  return quotaSchedule.capped && Number.isFinite(quotaSchedule.resetsAt)
+    ? `; capped, quota resets ${new Date(quotaSchedule.resetsAt).toISOString()}`
+    : '';
+}
+
+function quotaWaitErrorText(reason, quotaSchedule) {
+  return `Waiting on quota reset (${reason}, retry at ${quotaRetryAtText(quotaSchedule)}${quotaCapNoteText(quotaSchedule)})`;
+}
 
 function broadcastRescheduledSession(sessionId, updated) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
@@ -29,6 +70,10 @@ class SchedulerService {
     this.pollInterval = 30000; // 30 seconds
     this.intervalId = null;
     this.sessionManager = null; // Will be set during initialization
+    // Consecutive quota-waits per session (sessionId -> count). Quota-waits
+    // never consume rescheduleCount, so the legacy count gate cannot bound
+    // them — this streak is the bound. Reset on any legacy counted retry.
+    this._consecutiveQuotaWaits = new Map();
   }
 
   /**
@@ -190,7 +235,7 @@ class SchedulerService {
       session.id,
       effectivePrompt,
       workingDirectory,
-      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, interactive: Boolean(session.pendingInteractive) }
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel, providerId: session.pendingProviderId, interactive: Boolean(session.pendingInteractive) }
     );
   }
 
@@ -311,7 +356,7 @@ class SchedulerService {
         claimed.id,
         claimed.pendingConversationId,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+        { systemPrompt: effectiveSystemPrompt, model: claimed.pendingModel, providerId: claimed.pendingProviderId, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     if (hasAssistantResponses) {
@@ -319,7 +364,7 @@ class SchedulerService {
         claimed.id,
         effectivePrompt,
         workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, interactive: Boolean(claimed.pendingInteractive) }
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: claimed.pendingModel, providerId: claimed.pendingProviderId, interactive: Boolean(claimed.pendingInteractive) }
       );
     }
     return this.startFreshScheduledSession({
@@ -404,52 +449,94 @@ class SchedulerService {
   }
 
   /**
+   * Record a refused reschedule (limits reached) on the session.
+   * @param {string} sessionId - Session ID that was refused
+   * @param {string} reason - Reason for rescheduling
+   * @returns {boolean} Always false
+   */
+  _refuseReschedulePastLimits(sessionId, reason) {
+    console.log(`[SchedulerService] Session ${sessionId} has reached reschedule limits`);
+    sessions.update(sessionId, {
+      status: 'error',
+      error: `Reschedule limits reached. ${reason}`,
+    });
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'error' });
+    return false;
+  }
+
+  /**
+   * Record a consecutive quota-wait for the streak check in rescheduleSession.
+   * Invariant: quota-waits never consume `rescheduleCount`, but consecutive
+   * quota-waits are bounded by `maxRescheduleCount` so a session always
+   * terminates. A `null` cap (explicit retry-forever) leaves quota-waits
+   * uncapped, matching the operator's choice. The streak resets on any
+   * legacy counted retry and on refusal.
+   * @param {object} session - Session row (only `id` and `maxRescheduleCount` are read)
+   * @returns {boolean} True when the streak passed the cap and the caller must refuse.
+   */
+  _recordQuotaWait(session) {
+    const streak = (this._consecutiveQuotaWaits.get(session.id) || 0) + 1;
+    this._consecutiveQuotaWaits.set(session.id, streak);
+    return session.maxRescheduleCount !== null && streak > session.maxRescheduleCount;
+  }
+
+  /**
    * Reschedule a session with a delay
    * @param {string} sessionId - Session ID to reschedule
    * @param {string} reason - Reason for rescheduling
-   * @param {{ retryExistingMessage?: boolean, conversationId?: string|null }} [options]
+   * @param {{ retryExistingMessage?: boolean, conversationId?: string|null, interactive?: boolean, quotaWait?: { resetsAt: number, scheduledAt: number } }} [options]
    *   - retryExistingMessage: if true, retry the existing user message instead of sending "Continue"
    *   - conversationId: the active conversation to retry (required when retryExistingMessage is true)
+   *   - quotaWait: quota-derived wait (`scheduledAt = resetsAt + buffer`, computed
+   *     at the call site). When present and finite it is clamped to
+   *     `[now + MIN_QUOTA_WAIT_MS, now + MAX_QUOTA_WAIT_MS]` and does not
+   *     consume a reschedule attempt. Absent/malformed → legacy fixed-delay path.
    * @returns {boolean} True if rescheduled, false if limits reached
    */
-  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null, interactive = false } = {}) {
+  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null, interactive = false, quotaWait = undefined } = {}) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.error(`[SchedulerService] Session not found: ${sessionId}`);
       return false;
     }
 
-    // Check reschedule limits
-    if (this.hasReachedLimits(session)) {
-      console.log(`[SchedulerService] Session ${sessionId} has reached reschedule limits`);
-      sessions.update(sessionId, {
-        status: 'error',
-        error: `Reschedule limits reached. ${reason}`,
-      });
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'error' });
-      return false;
+    const now = Date.now();
+    const quotaSchedule = _resolveQuotaSchedule(quotaWait, now);
+
+    if (quotaSchedule) {
+      // Quota-waits are holds, not attempts: a fresh hint bypasses the
+      // reschedule-count gate (hasReachedLimits is untouched so its contract
+      // and tests are unchanged) while the token budget is still enforced.
+      // The consecutive-quota-wait streak below is the termination backstop
+      // for this path: without it a session with maxTotalTokens: null and
+      // endlessly refreshed hints would hop every MAX_QUOTA_WAIT_MS forever.
+      if (this.hasReachedLaunchBudget(session)) {
+        return this._refuseReschedulePastLimits(sessionId, reason);
+      }
+      if (this._recordQuotaWait(session)) {
+        this._consecutiveQuotaWaits.delete(sessionId);
+        return this._refuseReschedulePastLimits(sessionId, reason);
+      }
+    } else {
+      this._consecutiveQuotaWaits.delete(sessionId);
+      if (this.hasReachedLimits(session)) {
+        // Check reschedule limits
+        return this._refuseReschedulePastLimits(sessionId, reason);
+      }
     }
 
-    // Calculate new scheduled time
-    const newScheduledAt = Date.now() + session.rescheduleDelayMinutes * 60 * 1000;
-    const delayMinutes = session.rescheduleDelayMinutes;
-    const newRescheduleCount = session.rescheduleCount + 1;
-
-    console.log(
-      `[SchedulerService] Rescheduling session ${sessionId} for ${delayMinutes} minutes from now (attempt ${newRescheduleCount})`
-    );
-
+    const plan = this._resolveReschedulePlan(session, reason, quotaSchedule, now);
     const { pendingPrompt, pendingConversationId } = this._resolvePendingPrompt(sessionId, retryExistingMessage, conversationId);
 
     // Update session to scheduled status with new time and pendingPrompt
     const update = () => sessions.update(sessionId, {
       status: 'scheduled',
-      scheduledAt: newScheduledAt,
-      rescheduleCount: newRescheduleCount,
+      scheduledAt: plan.scheduledAt,
+      rescheduleCount: plan.rescheduleCount,
       pendingPrompt,
       pendingConversationId,
       pendingInteractive: interactive || Boolean(session.pendingInteractive),
-      error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
+      error: plan.error,
     });
     const updated = session.laneRunId && !interactive && !session.pendingInteractive
       ? withActiveLaneRunOwnership(sessionId, update) : update();
@@ -458,6 +545,35 @@ class SchedulerService {
     broadcastRescheduledSession(sessionId, updated);
 
     return true;
+  }
+
+  /**
+   * Compute the schedule write for a reschedule: a quota-derived plan keeps
+   * the attempt count and records the quota wait, otherwise the legacy
+   * fixed-delay plan applies (increment + byte-identical legacy text).
+   * @param {object} session - Session row
+   * @param {string} reason - Reason for rescheduling
+   * @param {{ scheduledAt: number, capped: boolean, resetsAt: unknown } | null} quotaSchedule
+   * @param {number} now - Epoch ms
+   * @returns {{ scheduledAt: number, rescheduleCount: number, error: string }}
+   */
+  _resolveReschedulePlan(session, reason, quotaSchedule, now) {
+    if (quotaSchedule) {
+      console.log(
+        `[SchedulerService] Rescheduling session ${session.id} for quota reset at ${new Date(quotaSchedule.scheduledAt).toISOString()} (quota-wait, count unchanged at ${session.rescheduleCount})`
+      );
+      return {
+        scheduledAt: quotaSchedule.scheduledAt,
+        rescheduleCount: session.rescheduleCount,
+        error: quotaWaitErrorText(reason, quotaSchedule),
+      };
+    }
+    const scheduledAt = now + session.rescheduleDelayMinutes * 60 * 1000;
+    const rescheduleCount = session.rescheduleCount + 1;
+    console.log(
+      `[SchedulerService] Rescheduling session ${session.id} for ${session.rescheduleDelayMinutes} minutes from now (attempt ${rescheduleCount})`
+    );
+    return { scheduledAt, rescheduleCount, error: `Rescheduled (${rescheduleCount}x): ${reason}` };
   }
 
   /**

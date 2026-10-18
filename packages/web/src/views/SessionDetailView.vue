@@ -38,10 +38,13 @@
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
+        @unarchive="handleUnarchive"
         @delete="handleDelete"
         @star="handleStar"
         @add-to-board="handleAddToBoard"
       />
+
+      <TierFailoverHistory :session-id="currentSessionId" />
 
       <SessionTabsPanel
         :session-id="currentSessionId"
@@ -123,6 +126,7 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :has-worktree="!!(sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
         :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
@@ -159,6 +163,7 @@ import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
+import TierFailoverHistory from '../components/TierFailoverHistory.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
@@ -530,36 +535,34 @@ async function handleDelete() {
 }
 
 async function handleArchive() {
-  const isArchived = sessionsStore.currentSession?.archived;
+  showArchiveModal.value = true;
+}
 
-  if (isArchived) {
-    if (!confirm('Restore this session to active?')) {
-      return;
+async function handleUnarchive() {
+  if (!confirm('Restore this session to active?')) {
+    return;
+  }
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.unarchiveSession(currentSessionId.value);
+    uiStore.success('Session unarchived');
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
     }
-    try {
-      const projectId = sessionsStore.currentSession?.projectId;
-      await sessionsStore.unarchiveSession(currentSessionId.value);
-      uiStore.success('Session unarchived');
-      if (projectId) {
-        router.push(`/projects/${projectId}/sessions`);
-      } else {
-        router.push('/');
-      }
-    } catch (err) {
-      uiStore.error(err.message);
-    }
-  } else {
-    showArchiveModal.value = true;
+  } catch (err) {
+    uiStore.error(err.message);
   }
 }
 
-async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
+async function confirmArchive({ runCleanup, removeFromBoard, deleteWorktree } = {}) {
   archiving.value = true;
   // Capture before archiving: navigation below tears down this view.
   const projectId = sessionsStore.currentSession?.projectId;
   const workflowCard = archiveWorkflowCard.value;
   try {
-    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
+    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup, deleteWorktree });
     uiStore.success('Session archived');
 
     if (removeFromBoard && workflowCard && projectId) {

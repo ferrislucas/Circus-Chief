@@ -71,7 +71,7 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false });
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false, deleteWorktree: false });
     });
 
     it('emits confirm with runCleanup false when Archive clicked with checkbox unchecked', async () => {
@@ -85,7 +85,70 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: false, removeFromBoard: false });
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: false, removeFromBoard: false, deleteWorktree: false });
+    });
+  });
+
+  describe('Delete worktree checkbox', () => {
+    it('shows "Delete git worktree" checkbox when hasWorktree is true (even without a cleanup script)', () => {
+      mountModal({ hasWorktree: true, hasCleanupScript: false });
+      const labels = Array.from(document.querySelectorAll('.checkbox-label'));
+      expect(labels.some(l => l.textContent.includes('Delete git worktree'))).toBe(true);
+    });
+
+    it('hides "Delete git worktree" checkbox when hasWorktree is false', () => {
+      mountModal({ hasWorktree: false, hasCleanupScript: false });
+      const labels = Array.from(document.querySelectorAll('.checkbox-label'));
+      expect(labels.some(l => l.textContent.includes('Delete git worktree'))).toBe(false);
+    });
+
+    it('renders both checkboxes when hasWorktree and hasCleanupScript are true', () => {
+      mountModal({ hasWorktree: true, hasCleanupScript: true });
+      const labels = Array.from(document.querySelectorAll('.checkbox-label'));
+      expect(labels.some(l => l.textContent.includes('Delete git worktree'))).toBe(true);
+      expect(labels.some(l => l.textContent.includes('Run git worktree cleanup'))).toBe(true);
+    });
+
+    it('emits deleteWorktree true by default (checkbox pre-checked)', async () => {
+      const onConfirm = vi.fn();
+      mountModal({ hasWorktree: true, onConfirm });
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
+      archiveBtn.click();
+      await nextTick();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false, deleteWorktree: true });
+    });
+
+    it('emits deleteWorktree false when the checkbox is unchecked', async () => {
+      const onConfirm = vi.fn();
+      mountModal({ hasWorktree: true, onConfirm });
+      const checkbox = document.querySelector('input[aria-label="Delete git worktree"]');
+      checkbox.click();
+      await nextTick();
+      expect(checkbox.checked).toBe(false);
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
+      archiveBtn.click();
+      await nextTick();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false, deleteWorktree: false });
+    });
+
+    it('resets deleteWorktree to true (checked) when the modal re-opens', async () => {
+      const wrapper = mountModal({ isOpen: true, hasWorktree: true });
+      const checkbox = document.querySelector('input[aria-label="Delete git worktree"]');
+      checkbox.click();
+      await nextTick();
+      expect(checkbox.checked).toBe(false);
+
+      await wrapper.setProps({ isOpen: false });
+      await nextTick();
+      await wrapper.setProps({ isOpen: true });
+      await nextTick();
+
+      const checkboxAfter = document.querySelector('input[aria-label="Delete git worktree"]');
+      expect(checkboxAfter.checked).toBe(true);
     });
   });
 
@@ -111,7 +174,7 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: true });
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: true, deleteWorktree: false });
     });
 
     it('emits removeFromBoard false when the checkbox is unchecked', async () => {
@@ -127,7 +190,7 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false });
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false, deleteWorktree: false });
     });
 
     it('resets removeFromBoard to true (checked) when the modal re-opens', async () => {

@@ -70,4 +70,15 @@ describe('migration registration', () => {
 
     expect(pendingInteractiveIndex).toBeGreaterThan(pendingAgentInputIndex);
   });
+
+  // Issue #27: model-tiers-provider-pair-columns was registered twice (once
+  // before and once after the Kanban cutover). The cutover recreation copies
+  // on_enter_provider_id and the sessions recreation preserves
+  // pending_provider_id, so the second registration was a no-op — each
+  // migration must appear exactly once.
+  it('registers each migration exactly once', () => {
+    const names = allMigrations.map(({ name }) => name);
+
+    expect(new Set(names).size).toBe(names.length);
+  });
 });

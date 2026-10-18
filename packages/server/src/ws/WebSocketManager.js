@@ -3,10 +3,10 @@ import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shar
 import { commandOutputMetrics, COMMAND_OUTPUT_METRICS } from '../services/commandOutputMetrics.js';
 import { createUpgradeGate } from './upgradeGate.js';
 import {
-  hasPriorityChanged,
-  hasRecencyAdvanced,
   hasSessionPriorityShape,
   isSessionLifecycleEvent,
+  hasPriorityChanged,
+  hasRecencyAdvanced,
   sessionRecencyOf,
 } from './sessionPriority.js';
 

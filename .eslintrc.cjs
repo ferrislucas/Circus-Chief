@@ -62,6 +62,11 @@ module.exports = {
         // (deferred card-move) lifecycle in a single boundary, which needs
         // slightly more room than the default 300-line limit.
         'packages/server/src/services/sessionExecution.js',
+        // WebSocketManager must keep the connection, subscription, broadcast,
+        // and provider-priority-invalidation lifecycle in a single boundary
+        // over shared private subscription state, which needs slightly more
+        // room than the default 300-line limit.
+        'packages/server/src/ws/WebSocketManager.js',
       ],
       rules: {
         'max-lines': ['error', { max: 350, skipBlankLines: true, skipComments: true }],

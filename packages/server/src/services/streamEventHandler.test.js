@@ -2443,6 +2443,112 @@ describe('streamEventHandler', () => {
       );
       consoleSpy.mockRestore();
     });
+
+    describe('quota-aware rescheduling', () => {
+      const RESETS_AT = 1_700_000_000_000 + 12 * 60_000;
+      const RETRY_BUFFER_MS = 3 * 60_000;
+
+      function quotaSession() {
+        return { id: 'sess-1', autoRescheduleEnabled: true, providerId: 'anthropic-default' };
+      }
+
+      function quotaErrorOptions(overrides = {}) {
+        return {
+          controller: { signal: { aborted: false } },
+          shouldRescheduleOnError: vi.fn().mockReturnValue(true),
+          schedulerService: { rescheduleSession: vi.fn().mockResolvedValue(true) },
+          ...overrides,
+        };
+      }
+
+      it('passes quotaWait when the injected resolver returns a hint', async () => {
+        sessions.getById.mockReturnValue(quotaSession());
+        const snapshot = { providerId: 'anthropic-default', allowances: [], staleAt: null };
+        const getAllowanceSnapshot = vi.fn().mockReturnValue(snapshot);
+        const quotaHintResolver = vi.fn().mockReturnValue({ resetsAt: RESETS_AT });
+        const options = quotaErrorOptions({ getAllowanceSnapshot, quotaHintResolver });
+
+        await handleSessionError('sess-1', new Error('quota exhausted'), options);
+
+        expect(getAllowanceSnapshot).toHaveBeenCalledWith('anthropic-default');
+        expect(quotaHintResolver).toHaveBeenCalledWith(snapshot, expect.any(Number));
+        expect(options.schedulerService.rescheduleSession).toHaveBeenCalledWith(
+          'sess-1',
+          'quota exhausted',
+          expect.objectContaining({
+            quotaWait: { resetsAt: RESETS_AT, scheduledAt: RESETS_AT + RETRY_BUFFER_MS },
+          })
+        );
+      });
+
+      it('takes the legacy path when no snapshot exists (Gemini-shaped)', async () => {
+        sessions.getById.mockReturnValue(quotaSession());
+        const quotaHintResolver = vi.fn();
+        const options = quotaErrorOptions({
+          getAllowanceSnapshot: vi.fn().mockReturnValue(null),
+          quotaHintResolver,
+        });
+
+        await handleSessionError('sess-1', new Error('quota exhausted'), options);
+
+        expect(quotaHintResolver).not.toHaveBeenCalled();
+        expect(options.schedulerService.rescheduleSession).toHaveBeenCalledWith(
+          'sess-1',
+          'quota exhausted',
+          expect.not.objectContaining({ quotaWait: expect.anything() })
+        );
+        expect(options.schedulerService.rescheduleSession.mock.calls[0][2]).not.toHaveProperty('quotaWait');
+      });
+
+      it('does not query allowances when the session has no providerId', async () => {
+        sessions.getById.mockReturnValue({ id: 'sess-1', autoRescheduleEnabled: true });
+        const getAllowanceSnapshot = vi.fn();
+        const options = quotaErrorOptions({ getAllowanceSnapshot, quotaHintResolver: vi.fn() });
+
+        await handleSessionError('sess-1', new Error('quota exhausted'), options);
+
+        expect(getAllowanceSnapshot).not.toHaveBeenCalled();
+        expect(options.schedulerService.rescheduleSession).toHaveBeenCalled();
+        expect(options.schedulerService.rescheduleSession.mock.calls[0][2]).not.toHaveProperty('quotaWait');
+      });
+
+      it('falls back to the legacy call when the resolver throws', async () => {
+        sessions.getById.mockReturnValue(quotaSession());
+        const options = quotaErrorOptions({
+          getAllowanceSnapshot: vi.fn().mockReturnValue({ allowances: [] }),
+          quotaHintResolver: vi.fn(() => { throw new Error('hint boom'); }),
+        });
+
+        await handleSessionError('sess-1', new Error('quota exhausted'), options);
+
+        expect(options.schedulerService.rescheduleSession).toHaveBeenCalledWith(
+          'sess-1',
+          'quota exhausted',
+          expect.not.objectContaining({ quotaWait: expect.anything() })
+        );
+        expect(options.schedulerService.rescheduleSession.mock.calls[0][2]).not.toHaveProperty('quotaWait');
+      });
+
+      it('takes the legacy path for a stale snapshot through the real resolver', async () => {
+        sessions.getById.mockReturnValue(quotaSession());
+        const now = Date.now();
+        const staleSnapshot = {
+          providerId: 'anthropic-default',
+          staleAt: now - 1000,
+          allowances: [{ key: 'five_hour', remainingPercent: 0, resetsAt: now + 600_000 }],
+        };
+        // No quotaHintResolver injected: the default real implementation
+        // must resolve the stale snapshot to no hint (fail-open to legacy).
+        const options = quotaErrorOptions({
+          getAllowanceSnapshot: vi.fn().mockReturnValue(staleSnapshot),
+        });
+
+        await handleSessionError('sess-1', new Error('quota exhausted'), options);
+
+        expect(options.schedulerService.rescheduleSession).toHaveBeenCalled();
+        expect(options.schedulerService.rescheduleSession.mock.calls[0][2]).not.toHaveProperty('quotaWait');
+      });
+    });
   });
 
   // ── Module-level Maps ─────────────────────────────────────────────────

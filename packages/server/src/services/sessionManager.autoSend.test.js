@@ -3,8 +3,9 @@ import { handleAutoSendIfNeeded } from './sessionManager.js';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { sessions, conversations } from '../database.js';
+import { sessions, conversations, modelProviders } from '../database.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // Mock the schedulerService
 vi.mock('./schedulerService.js', () => ({
@@ -238,5 +239,109 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
 
     // Broadcast should have been called
     expect(broadcastToSession).toHaveBeenCalled();
+  });
+
+  // Finding #4 (PR review): auto-send must honor the queued
+  // (pendingModel, pendingProviderId) pair exactly like manual send and
+  // scheduling do — not drop the provider half and dispatch by model id.
+  describe('finding #4 — queued provider identity survives auto-send', () => {
+    const SHARED_MODEL = 'finding4-shared-model';
+
+    let providerA;
+    let providerB;
+
+    beforeEach(() => {
+      vi.mocked(query).mockClear();
+      providerA = modelProviders.create({ name: 'Finding4 AutoSend A', kind: 'anthropic', baseUrl: 'https://finding4-a.example.com', authToken: 'token-a' });
+      modelProviders.addModel(providerA.id, { modelId: SHARED_MODEL, displayName: 'Shared A' });
+      providerB = modelProviders.create({ name: 'Finding4 AutoSend B', kind: 'anthropic', baseUrl: 'https://finding4-b.example.com', authToken: 'token-b' });
+      modelProviders.addModel(providerB.id, { modelId: SHARED_MODEL, displayName: 'Shared B' });
+    });
+
+    function dispatchedBaseUrls() {
+      return vi.mocked(query).mock.calls.map((call) => call[0]?.options?.env?.ANTHROPIC_BASE_URL);
+    }
+
+    it('dispatches the exact queued model/provider pair and clears both queue fields', async () => {
+      sessions.update(session.id, {
+        autoSendPendingPrompt: true,
+        pendingPrompt: 'queued follow-up',
+        pendingModel: SHARED_MODEL,
+        pendingProviderId: providerB.id,
+      });
+
+      await handleAutoSendIfNeeded(session.id);
+
+      // The continuation dispatched provider B — not a model-id lookup default.
+      expect(dispatchedBaseUrls()).toContain('https://finding4-b.example.com');
+      expect(dispatchedBaseUrls()).not.toContain('https://finding4-a.example.com');
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.model).toBe(SHARED_MODEL);
+      expect(updatedSession.providerId).toBe(providerB.id);
+      // The consumed queued identity is cleared and cannot leak into a later turn.
+      expect(updatedSession.pendingModel).toBeNull();
+      expect(updatedSession.pendingProviderId).toBeNull();
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        expect.any(String),
+        expect.objectContaining({
+          session: expect.objectContaining({
+            pendingModel: null,
+            pendingProviderId: null,
+          }),
+        }),
+      );
+    });
+
+    it('sends a legacy queue without a provider exactly as before', async () => {
+      sessions.update(session.id, {
+        autoSendPendingPrompt: true,
+        pendingPrompt: 'legacy follow-up',
+        pendingModel: SHARED_MODEL,
+        pendingProviderId: null,
+      });
+
+      await handleAutoSendIfNeeded(session.id);
+
+      expect(vi.mocked(query)).toHaveBeenCalled();
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.model).toBe(SHARED_MODEL);
+      expect(updatedSession.pendingModel).toBeNull();
+      expect(updatedSession.pendingProviderId).toBeNull();
+    });
+
+    it('sends the current binding when no queued selection exists', async () => {
+      sessions.update(session.id, {
+        autoSendPendingPrompt: true,
+        pendingPrompt: 'plain follow-up',
+        pendingModel: null,
+        pendingProviderId: null,
+      });
+
+      await handleAutoSendIfNeeded(session.id);
+
+      expect(vi.mocked(query)).toHaveBeenCalled();
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.pendingModel).toBeNull();
+      expect(updatedSession.pendingProviderId).toBeNull();
+    });
+
+    it('clears the queued provider even when the status prevents dispatch', async () => {
+      sessions.update(session.id, {
+        autoSendPendingPrompt: true,
+        pendingPrompt: 'never sent',
+        pendingModel: SHARED_MODEL,
+        pendingProviderId: providerB.id,
+        status: 'running',
+      });
+
+      const result = await handleAutoSendIfNeeded(session.id);
+
+      expect(result).toBe(true);
+      expect(vi.mocked(query)).not.toHaveBeenCalled();
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.pendingModel).toBeNull();
+      expect(updatedSession.pendingProviderId).toBeNull();
+    });
   });
 });

@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
+import { api } from '../composables/useApi.js';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 
 // Mock the API and components
@@ -152,7 +153,9 @@ describe('ProjectEditView with Session Defaults', () => {
 
       await flushAll(wrapper);
 
-      expect(defaultsStore.fetchDefaults).toHaveBeenCalledWith('proj-1');
+      // The defaults editor loads canonical state through the monotonic
+      // sync directly instead of the store fetch helper.
+      expect(api.getProjectSessionDefaults).toHaveBeenCalledWith('proj-1');
     });
   });
 

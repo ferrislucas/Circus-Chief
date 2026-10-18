@@ -87,6 +87,11 @@ const routes = [
         component: () => import('./views/ProvidersView.vue'),
       },
       {
+        path: 'tiers',
+        name: 'ModelTiers',
+        component: () => import('./views/ModelTiersView.vue'),
+      },
+      {
         path: 'summary',
         name: 'SummarySettings',
         component: () => import('./views/SummarySettingsView.vue'),

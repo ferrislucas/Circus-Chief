@@ -262,13 +262,15 @@ export const sessionActions = {
     } catch (err) { this.error = err.message; throw err; }
   },
 
-  async archiveSession(id, { cleanup = false } = {}) {
+  async archiveSession(id, { cleanup = false, deleteWorktree = false } = {}) {
     this.error = null;
     try {
-      const updated = await api.archiveSession(id, { cleanup });
+      const updated = await api.archiveSession(id, { cleanup, deleteWorktree });
       this.sessions = this.sessions.filter((s) => s.id !== id);
       this.archivedSessions.unshift(updated);
-      if (this.currentSession?.id === id) this.currentSession = { ...this.currentSession, archived: true };
+      // Merge the full server response (not just `archived`) so a cleared
+      // gitWorktree after worktree deletion is reflected immediately.
+      if (this.currentSession?.id === id) this.currentSession = { ...this.currentSession, ...updated };
       return updated;
     } catch (err) { this.error = err.message; throw err; }
   },
@@ -330,6 +332,7 @@ export const sessionActions = {
         || (this.currentSession?.id === sessionId ? this.currentSession : null);
       if (session && session.status === 'waiting') {
         updateData.pendingModel = model;
+        if (providerId !== undefined) updateData.pendingProviderId = providerId;
       }
 
       const updated = await api.updateSession(sessionId, updateData);

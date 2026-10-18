@@ -34,6 +34,7 @@ vi.mock('./sessionProvider.js', () => ({
     kind: 'openai', authToken: 'test-key', commitAttributionOverride: null,
     supportsIdempotentDispatch: true,
   }),
+  resolveCommitAttributionOverrideForModel: vi.fn().mockReturnValue(null),
 }));
 
 // Passthrough by default so pause-abandon tests keep real worktree behavior.

@@ -104,9 +104,19 @@
           <label for="model">Model</label>
           <ModelSelector
             v-model="formData.model"
+            :provider-id="formData.providerId"
             preserve-current-value
             :allow-empty="true"
             empty-label="Inherit from root session"
+            @update:provider-id="formData.providerId = $event"
+          />
+          <SelectionConflictBanner
+            :visible="selectionGuard.showBanner"
+            :problem="selectionGuard.problem"
+            conflict-text="This template changed elsewhere while you were editing. Your edits are preserved."
+            button-class="btn btn-outline-secondary"
+            @use-canonical="useCanonicalModelSelection"
+            @keep-mine="selectionGuard.keepMine"
           />
         </div>
 
@@ -180,7 +190,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="isSaving"
+            :disabled="isSaving || selectionGuard.invalid"
           >
             {{ isSaving ? 'Saving...' : 'Save' }}
           </button>
@@ -235,6 +245,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
@@ -243,6 +254,11 @@ import ModelSelector from '../components/ModelSelector.vue';
 import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
+import { useCanonicalSync } from '../composables/useCanonicalSync.js';
+import { useTemplateCanonicalForm } from '../composables/useTemplateCanonicalForm.js';
+import { normalizeModelProviderPair } from '../components/modelSelectorTiers.js';
+import { useSelectionGuard } from '../composables/useSelectionGuard.js';
+import SelectionConflictBanner from '../components/SelectionConflictBanner.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -263,6 +279,7 @@ const formData = ref({
   thinkingEnabled: null,
   gitBranch: '',
   model: null,
+  providerId: null,
   mode: null,
   effortLevel: null,
   showInQuickResponses: false,
@@ -273,26 +290,37 @@ const templateId = computed(() => route.params.templateId);
 
 const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
 
-const loadTemplate = async () => {
+// Shared conflict contract (see useSelectionGuard): a selection naming a
+// deleted or disabled tier/provider/model keeps the banner up and blocks
+// submit until the user picks a current value or clears the selection.
+// Canonical template-form sync (snapshots, convergence, conflict flag)
+// lives in useTemplateCanonicalForm to keep this view under the file-size
+// lint budget — same behavior, operated on `formData` in place.
+const templateForm = useTemplateCanonicalForm(formData);
+const { applyCanonicalTemplate, useCanonicalModelSelection } = templateForm;
+
+const selectionGuard = useSelectionGuard(
+  () => ({ model: formData.value.model, providerId: formData.value.providerId }),
+  () => templateForm.conflict.value,
+  () => templateForm.clearConflict()
+);
+
+// One monotonic coordinator for initial load, websocket invalidation, and
+// reconnect — every intake preserves local edits, only the newest applies.
+// The websocket message names the template; the canonical record is always
+// refetched, never trusted inline.
+const { refresh: refreshTemplate } = useCanonicalSync({
+  fetchCanonical: () => api.getTemplate(templateId.value),
+  applyCanonical: (template, options) => applyCanonicalTemplate(template, { preserveEdits: true, ...options }),
+  messageType: WS_MESSAGE_TYPES.TEMPLATE_UPDATED,
+  selectPush: (message) => (message?.templateId === templateId.value ? {} : undefined),
+});
+
+const loadTemplate = async ({ preserveEdits = false } = {}) => {
   isLoading.value = true;
   error.value = null;
   try {
-    const template = await api.getTemplate(templateId.value);
-
-    if (template) {
-      formData.value = {
-        name: template.name,
-        prompt: template.prompt,
-        isGlobal: !template.projectId,
-        nextTemplateId: template.nextTemplateId ?? null,
-        thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
-        gitBranch: template.gitBranch || '',
-        model: template.model,                      // Preserve null (inherit) or model ID
-        mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
-        effortLevel: template.effortLevel ?? null,
-        showInQuickResponses: template.showInQuickResponses,
-      };
-    }
+    await refreshTemplate({ preserveEdits });
   } catch (err) {
     error.value = `Failed to load template: ${err.message}`;
     uiStore.error(err.message);
@@ -303,15 +331,22 @@ const loadTemplate = async () => {
 
 const onSubmit = async () => {
   error.value = null;
+  if (selectionGuard.invalid) {
+    error.value = selectionGuard.problem?.message || 'The model selection is no longer available.';
+    return;
+  }
   isSaving.value = true;
   try {
+    // A tier-bound template never persists a concrete provider hint.
+    const pair = normalizeModelProviderPair(formData.value.model, formData.value.providerId);
     const data = {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId ?? null,
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model,                      // null = inherit
+      model: pair.model,                               // null = inherit
+      providerId: pair.providerId,
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,

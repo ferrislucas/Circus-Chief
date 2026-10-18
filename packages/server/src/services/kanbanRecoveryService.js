@@ -321,7 +321,7 @@ export function reconcileKanbanOwnership({ dryRun = true } = {}) {
     // not delete them (FR-2). Launch-time claimWorkflowSessionStart still
     // reaps detached non-interactive rows as stale, so the zombie fence
     // stays intact for lane-directed leftovers.
-    const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_interactive=NULL,
+    const cancelled = db.prepare(`UPDATE sessions SET scheduled_at=NULL, pending_prompt=NULL, pending_model=NULL, pending_provider_id=NULL, pending_interactive=NULL,
       auto_send_pending_prompt=0, execution_state='idle', workflow_reason='reconciliation_unowned_worker', workflow_updated_at=?
       WHERE lane_run_id IN (SELECT id FROM kanban_lane_runs WHERE status IN ('superseded', 'failed', 'cancelled'))
         AND (pending_interactive IS NULL OR pending_interactive = 0)

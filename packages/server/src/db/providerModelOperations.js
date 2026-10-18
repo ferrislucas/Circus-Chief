@@ -1,4 +1,5 @@
 import { databaseManager } from './DatabaseManager.js';
+import { isTierRef, RESERVED_TIER_REF_MODEL_ID_MESSAGE } from '@circuschief/shared';
 
 /**
  * Pure, `db`-first operations backing `ProviderRepository`'s model-management
@@ -17,6 +18,16 @@ const MODEL_UPDATE_COLUMN_BUILDERS = Object.freeze({
   enabled: (value) => ['enabled = ?', value ? 1 : 0],
   sortOrder: (value) => ['sort_order = ?', value],
 });
+
+/**
+ * `tier::<id>` is a serialized Model Tier reference, not a concrete model
+ * identifier. Keep this repository guard in addition to the API contract so
+ * internal callers and imports cannot create values the runtime will later
+ * resolve as a tier.
+ */
+function assertConcreteModelId(modelId) {
+  if (isTierRef(modelId)) throw new Error(RESERVED_TIER_REF_MODEL_ID_MESSAGE);
+}
 
 export function buildModelUpdateColumns(data = {}) {
   return Object.entries(MODEL_UPDATE_COLUMN_BUILDERS).reduce(
@@ -59,11 +70,67 @@ export function getModels(db, providerId, { includeRemoved = false } = {}) {
   const removedClause = includeRemoved ? '' : 'AND removed_at IS NULL';
   const rows = db
     .prepare(
-      `SELECT * FROM provider_models WHERE provider_id = ? ${removedClause}
+      `SELECT * FROM provider_models WHERE provider_id = ? AND substr(model_id, 1, 6) <> 'tier::' ${removedClause}
        ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC, rowid ASC`
     )
     .all(providerId);
   return rows.map(mapProviderModel);
+}
+
+/**
+ * Batch-load many providers with their models in a constant two queries.
+ * Same filtering as {@link getModels} without `includeRemoved`; missing ids
+ * are absent from the map. `mapProvider` translates a provider row (owned by
+ * the repository, which also owns auth-token decryption).
+ */
+export function getProvidersByIds(db, ids, mapProvider) {
+  const unique = [...new Set((ids || []).filter((id) => typeof id === 'string' && id.length > 0))];
+  const byId = new Map();
+  if (unique.length === 0) return byId;
+  const placeholders = unique.map(() => '?').join(',');
+  const providerRows = db
+    .prepare(`SELECT * FROM providers WHERE id IN (${placeholders})`)
+    .all(...unique);
+  for (const row of providerRows) {
+    byId.set(row.id, { ...mapProvider(row), models: [] });
+  }
+  if (byId.size === 0) return byId;
+  const modelRows = db
+    .prepare(
+      `SELECT * FROM provider_models
+       WHERE provider_id IN (${placeholders}) AND removed_at IS NULL AND substr(model_id, 1, 6) <> 'tier::'
+       ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC, rowid ASC`
+    )
+    .all(...unique);
+  for (const row of modelRows) {
+    const provider = byId.get(row.provider_id);
+    if (provider) provider.models.push(mapProviderModel(row));
+  }
+  return byId;
+}
+
+/**
+ * Pure in-memory member evaluation over a pre-fetched provider catalog.
+ * Lives here (instead of tierResolutionService) so create-time lookups that
+ * cannot import the service layer (module-cycle boundary — see
+ * session-helpers.js) share the exact same "first enabled member" semantics
+ * as the authoritative, cooldown-aware resolution path.
+ */
+export function evaluateTierMembers(members, providersById) {
+  return members
+    .filter((m) => {
+      const provider = providersById.get(m.providerId);
+      if (!provider || provider.enabled === false) return false;
+      // Executability is decided by `enabled` alone. There is no
+      // `unavailable` column on provider_models and no server writer for
+      // such a flag — it exists only as a web display-layer marking
+      // (ModelSelector's preserved-but-disabled models) and must never
+      // gate server-side resolution.
+      return provider.models.some(
+        (model) => model.modelId === m.modelId && model.enabled !== false
+      );
+    })
+    .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
 }
 
 export function nextSortOrder(db, providerId) {
@@ -85,7 +152,7 @@ export function getModelById(db, id) {
  * @param {string} modelId - The model string (e.g. 'claude-opus-4-7'), not a row id.
  */
 export function getHistoricalModel(db, providerId, modelId) {
-  if (!providerId || !modelId) return null;
+  if (!providerId || !modelId || isTierRef(modelId)) return null;
   const row = db
     .prepare(
       `SELECT * FROM provider_models WHERE provider_id = ? AND model_id = ?
@@ -107,6 +174,7 @@ export function getHistoricalModel(db, providerId, modelId) {
  */
 export function addModel(db, providerId, data) {
   const { modelId, displayName, description = null, tier = 'custom', enabled = true } = data;
+  assertConcreteModelId(modelId);
 
   const active = db
     .prepare('SELECT id FROM provider_models WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL')
@@ -149,6 +217,7 @@ export function addModel(db, providerId, data) {
  *   and its owning provider (both already fetched by the caller).
  */
 export function updateModel(db, id, data, { current, provider }) {
+  if (data.modelId !== undefined) assertConcreteModelId(data.modelId);
   if (provider?.isBuiltIn && data.modelId !== undefined && data.modelId !== current.modelId) {
     throw new Error('Cannot change the model id of a built-in provider model');
   }

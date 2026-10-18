@@ -256,6 +256,14 @@ async function handleSubmit() {
   error.value = null;
 
   try {
+    // A deleted or disabled model selection can never be submitted — the
+    // child banner explains how to resolve it.
+    if (sessionDefaultsRef.value?.modelSelectionInvalid) {
+      error.value = 'The default model selection is no longer available. Choose a current model before saving.';
+      saving.value = false;
+      return;
+    }
+
     // Capture child form state before updateProject toggles loading and
     // temporarily unmounts the form via the view-level loading state.
     const defaultsData = sessionDefaultsRef.value?.collectNonDefaultValues();
