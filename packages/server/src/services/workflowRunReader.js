@@ -1,13 +1,21 @@
 import { databaseManager } from '../db/DatabaseManager.js';
 import { USER_STOP_REASON } from './workflowPauseReasons.js';
+import { isEmptyDraftSession } from './workflowSessionState.js';
 
-function laneRunCounts(rows) {
-  const open = rows.filter((session) => session.own_work_state === 'open');
+function laneRunCounts(rows, db) {
+  // Empty drafts hold no real open obligation (FRD empty-draft-lane-run-
+  // blocker): they stay visible as members but never count as blockers. An
+  // empty draft is idle and unscheduled by definition, so scheduled/retrying/
+  // paused slices are unaffected — only the open slice is filtered.
+  const excludedEmptyDraftIds = rows.filter((session) => isEmptyDraftSession(session, db))
+    .map((session) => session.id).sort();
+  const excluded = new Set(excludedEmptyDraftIds);
+  const open = rows.filter((session) => session.own_work_state === 'open' && !excluded.has(session.id));
   const scheduled = open.filter((session) => session.scheduled_at).sort((a, b) => a.scheduled_at - b.scheduled_at);
   const retrying = open.filter((session) => session.execution_state === 'retrying');
   const paused = open.filter((session) => session.execution_state === 'paused');
   return {
-    open, scheduled, retrying, paused,
+    open, scheduled, retrying, paused, excludedEmptyDraftIds,
     failedCount: rows.filter((session) => session.own_work_state === 'closed_failed').length,
     cancelledCount: rows.filter((session) => session.own_work_state === 'cancelled').length,
     failedSessionId: rows.find((session) => session.own_work_state === 'closed_failed')?.id || null,
@@ -40,7 +48,7 @@ export function getRun(runId, projectId = null) {
     ? db.prepare('SELECT * FROM kanban_lane_runs WHERE id=? AND project_id=?').get(runId, projectId)
     : db.prepare('SELECT * FROM kanban_lane_runs WHERE id=?').get(runId);
   if (!run) return null; const rows = db.prepare('SELECT * FROM sessions WHERE lane_run_id=?').all(runId);
-  const { open, scheduled, retrying, paused, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows);
+  const { open, scheduled, retrying, paused, excludedEmptyDraftIds, failedCount, cancelledCount, failedSessionId } = laneRunCounts(rows, db);
   const names = db.prepare(`SELECT (SELECT name FROM kanban_lanes WHERE id=?) AS source_name,
     (SELECT name FROM kanban_lanes WHERE id=?) AS target_name,
     (SELECT name FROM kanban_lanes WHERE id=?) AS chosen_exit_name`)
@@ -57,5 +65,5 @@ export function getRun(runId, projectId = null) {
     retryingCount: retrying.length, pausedCount: paused.length, nextScheduledAt: scheduled[0]?.scheduled_at || null,
     failedCount, failedSessionId, cancelledCount,
     blockingSessionIds: open.map((session) => session.id), blockingSessionId: blocker.session?.id || null,
-    blockingReason: blocker.reason, blockerKind: blocker.blockerKind };
+    blockingReason: blocker.reason, blockerKind: blocker.blockerKind, excludedEmptyDraftIds };
 }

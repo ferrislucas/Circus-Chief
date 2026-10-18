@@ -11,7 +11,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // services/ module, so this cannot create an import cycle (contrast with
 // kanbanService.js/kanbanTriggers.js — see attemptLaneRunTransition below).
 import { getRun } from './workflowRunReader.js';
-import { recomputeSubtreeOutcomes } from './workflowSessionState.js';
+import { isEmptyDraftSession, recomputeSubtreeOutcomes } from './workflowSessionState.js';
 import { broadcastCardTransition, broadcastQueuedEntryEvent, moveCardForTransition } from './workflowLaneTransition.js';
 import { SESSION_EXECUTION_STATES } from '@circuschief/shared';
 import { sanitizeString } from './errorSanitizer.js';
@@ -19,7 +19,7 @@ import { USER_STOP_REASON } from './workflowPauseReasons.js';
 import { publishDiscardedPendingDestination } from './kanbanRoutingObservability.js';
 
 export { getRun } from './workflowRunReader.js';
-export { computeSubtreeOutcome, recomputeSubtreeOutcomes } from './workflowSessionState.js';
+export { computeSubtreeOutcome, recomputeSubtreeOutcomes, isEmptyDraftSession } from './workflowSessionState.js';
 
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
@@ -696,10 +696,18 @@ export function attemptLaneRunTransition(runId, { deferBroadcast = false } = {})
     const card = db.prepare('SELECT * FROM kanban_cards WHERE id=?').get(run.card_id);
     if (!card || card.active_lane_run_id !== runId || card.lane_id !== run.source_lane_id) return { result: getRun(runId) };
     const time = now();
+    // Collect the empty-draft exclusion set before the flip so the success
+    // audit records exactly which members were exempted (FR-4). Sorted for a
+    // deterministic audit operation_key; the WHERE status='open' winner UPDATE
+    // below remains the single concurrency guard.
+    const excludedEmptyDrafts = db.prepare(`SELECT id, own_work_state, last_activity_at,
+      pending_prompt, scheduled_at, execution_state FROM sessions WHERE lane_run_id=?`)
+      .all(runId).filter((member) => isEmptyDraftSession(member, db)).map((member) => member.id).sort();
     const winner = db.prepare(`UPDATE kanban_lane_runs SET status='succeeded', succeeded_at=?, transition_applied_at=?, updated_at=? WHERE id=? AND status='open'`)
       .run(time, time, time, runId);
     if (winner.changes === 0) return { result: getRun(runId) };
 
+    audit(db, runId, 'run_succeeded', { details: { excludedEmptyDrafts } });
     const movedCard = moveCardForTransition(run, card);
     const targetLaneId = movedCard?.laneId || null;
     const successor = createCompletionSuccessor(run, card, movedCard);
