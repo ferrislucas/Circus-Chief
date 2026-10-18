@@ -63,6 +63,22 @@ describe('QueuedBadge', () => {
     );
   });
 
+  it('shows the paused reason for the paused-lane card API shape', () => {
+    const wrapper = mount(QueuedBadge, {
+      props: { entryState: 'queued', entryStatus: 'queued' },
+    });
+
+    expect(wrapper.get('[data-testid="queued-badge"]').attributes('title')).toContain('paused');
+  });
+
+  it('shows the concurrency reason for the limited-lane shape without a paused marker', () => {
+    const wrapper = mount(QueuedBadge, {
+      props: { entryState: 'queued', queuePosition: 1 },
+    });
+
+    expect(wrapper.get('[data-testid="queued-badge"]').attributes('title')).toContain('slot');
+  });
+
   it('uses the shared queued status styling', () => {
     const wrapper = mount(QueuedBadge, {
       props: { entryState: 'queued', queuePosition: 1 },

@@ -40,7 +40,7 @@ const resolvedCause = computed(() => {
   if (props.cause === 'paused' || props.cause === 'concurrency') return props.cause;
   // The disabled-lane marker alone means the lane is paused; the limited-lane
   // marker means the entry waits for a slot.
-  if (props.entryStatus === 'queued' && props.entryState !== 'queued') return 'paused';
+  if (props.entryStatus === 'queued') return 'paused';
   return 'concurrency';
 });
 
