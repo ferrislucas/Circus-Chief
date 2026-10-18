@@ -20,6 +20,7 @@ import {
   API_URL,
   TEST_PREFIX,
 } from './helpers';
+import { createTierViaApi, deleteTierViaApi } from './tier-test-helpers';
 
 /**
  * Critical session-execution failover journeys — Phase 2 of
@@ -898,27 +899,6 @@ async function waitForResolvedModel(sessionId: string, timeout = 5000): Promise<
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return last;
-}
-
-async function createTierViaApi(data: {
-  name: string;
-  description?: string | null;
-  autoFailoverEnabled?: boolean;
-  members?: Array<{ providerId: string; modelId: string; position: number }>;
-}) {
-  const response = await fetch(`${API_URL}/api/tiers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to create tier (${response.status}): ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function deleteTierViaApi(id: string) {
-  await fetch(`${API_URL}/api/tiers/${id}`, { method: 'DELETE' }).catch(() => {});
 }
 
 /**

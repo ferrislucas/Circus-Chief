@@ -282,6 +282,45 @@ await page.route(`**/api/sessions/${session.id}`, (route) =>
 
 **When to use this:** Only for testing how the frontend handles API failures (error toasts, retry logic, fallback states).
 
+### Strategy 4: Scripted CLI Spawn Capture (For Provider-Error Failover Journeys)
+
+VCR cassettes replay successful streams — they cannot express a start-time
+provider error (quota / outage / auth), so tier-failover suites use a
+different seam: the server intercepts CLI spawns and serves scripted outcomes
+per `(providerId, modelId)` pair. See `tests/e2e/model-tiers-failover.spec.ts`
+and `packages/server/src/services/e2eSpawnCapture.js`.
+
+This seam requires the E2E server to be started with extra environment:
+
+| Variable | Purpose |
+|----------|---------|
+| `E2E_AGENT_SPAWN_CAPTURE_FILE` | JSONL file the server appends one record per spawned attempt to (lets assertions observe routing, e.g. duplicate model IDs across providers) |
+| `E2E_AGENT_SPAWN_SCRIPT_FILE` | JSON file the test writes before seeding a session: `{ "queues": { "<providerId>::<modelId>": ["quota_error", "success", ...] }, "default": "success" }`. Queues are consumed FIFO. Outcome types: `success`, `quota_error`, `rate_limit`, `service_unavailable`, `overloaded`, `auth_error`, `bad_request`, `cancelled`, `delayed_success`, `output_then_error` |
+| `E2E_TIER_COOLDOWN_MS` | Short real cooldown window for cooldown-expiry tests (only one test needs it; the production default is 5 minutes) |
+
+The server advertises the seam via `GET /api/server-info` → `e2eSpawnCaptureEnabled`.
+Tests gate on it in `beforeEach` with `test.skip` when the env is absent —
+**a normal `./scripts/pw.sh test` run therefore SKIPS the entire
+`model-tiers-failover.spec.ts` file**, and its pass count says nothing about
+those journeys. To run them:
+
+```bash
+E2E_AGENT_SPAWN_CAPTURE_FILE=/tmp/cc-capture.jsonl \
+E2E_AGENT_SPAWN_SCRIPT_FILE=/tmp/cc-script.json \
+E2E_TIER_COOLDOWN_MS=1500 \
+./scripts/pw.sh test tests/e2e/model-tiers-failover.spec.ts
+```
+
+(`pw.sh` forwards the ambient environment to the server it starts, so exports
+or inline assignments both work. Do not enable these vars for the full suite:
+capture mode replaces VCR replay for every agent spawn.)
+
+Failover behavior that is assertable without agent execution — the
+`autoFailoverEnabled` flag default/persistence, tier-bound draft pinning
+(binding stored, no advance, no `TIER_FAILOVER` signal), and tier-ref
+validation — lives in `tests/e2e/model-tiers-failover-default.spec.ts`, which
+has no gates and always executes in the standard pipeline.
+
 ## Helper Reference
 
 ### Navigation & Waiting

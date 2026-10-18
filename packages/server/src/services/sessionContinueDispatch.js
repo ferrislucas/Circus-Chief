@@ -1,4 +1,5 @@
 import { sessions } from '../database.js';
+import { isTierRef } from '@circuschief/shared';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import {
   buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
@@ -16,6 +17,17 @@ import {
   emitContinueFailoverDispatched, resolvesToFailedMember, settleUnsettledContinueError,
 } from './sessionContinueFailover.js';
 import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
+
+/**
+ * Whether an explicit (model, providerId) request matches the session's own
+ * binding — a keep-current echo, not a move off the binding. Tier-ref echoes
+ * match regardless of provider hint (mirrors normalizeRequestedSelection in
+ * api/sessions-messages.js); concrete requests must match the exact pair.
+ */
+function isSameBindingSelection(session, model, providerId) {
+  return model === session.model
+    && (isTierRef(model) || providerId == null || providerId === session.providerId);
+}
 
 /**
  * Resolve model/provider and build session environment for a continue
@@ -82,11 +94,16 @@ export function buildContinueModelAndEnv(session, sessionId, model, { providerId
     updatedSession = sessions.getById(sessionId);
   }
 
-  // An explicit request that moves OFF the session's own tier binding (a
-  // concrete-model pick or a different tier ref). A same-tier echo
-  // (requestedModel === session.model) is keep-current, not a move. The
-  // failover machinery uses this to run the attempt tier-free (review #1).
-  const explicitOffBindingMove = model != null && model !== session.model;
+  // An explicit request that moves OFF the session's own (model, providerId)
+  // binding (a concrete-model pick, a different tier ref, or a provider-only
+  // switch keeping the same model string — the duplicate-model-id scenario in
+  // FRD E1/E4). Same-binding echoes stay keep-current: the exact pair, or any
+  // tier-ref echo (mirrors normalizeRequestedSelection in
+  // api/sessions-messages.js, where a provider hint never turns a tier echo
+  // into a move). The failover machinery uses this to run the attempt
+  // tier-free (review #1), so a same-turn retry can never silently replace an
+  // explicit provider choice with a tier successor (PR Review.md Fix #4).
+  const explicitOffBindingMove = model != null && !isSameBindingSelection(session, model, providerId);
 
   return { effectiveModel, providerIdHint, sessionEnv, commitAttributionOverride, modelChanged, session: updatedSession, dispatchedPair, explicitOffBindingMove };
 }
