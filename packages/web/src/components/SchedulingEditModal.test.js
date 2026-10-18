@@ -88,6 +88,11 @@ describe('SchedulingEditModal.vue', () => {
         session: scheduledSession,
         ...props,
       },
+      // Attach the host to document.body: the modal renders through
+      // Teleport, and whether the Teleport stub intercepts the built-in
+      // varies by environment (in-place render) — with the host attached,
+      // body queries observe the modal in both cases.
+      attachTo: document.body,
       global: {
         stubs: {
           Teleport: { template: '<div><slot /></div>' },
@@ -236,12 +241,6 @@ describe('SchedulingEditModal.vue', () => {
       wrapper.findComponent({ name: 'TemplateSelector' }).vm.$emit('update:template-id', 'template-2');
       await nextTick();
 
-      // eslint-disable-next-line no-console
-      console.log('CI-DIAG body-len:', document.body.innerHTML.length,
-        'has-modal:', document.body.innerHTML.includes('modal-backdrop'),
-        'wrapper-html-len:', wrapper.html().length,
-        'same-document:', wrapper.element.ownerDocument === document,
-        'host-in-body:', document.body.contains(wrapper.element));
       document.body.querySelector('.modal-footer .btn-primary').click();
       await flushPromises();
       expect(mockUpdateSessionFields).toHaveBeenCalledWith(
@@ -269,8 +268,8 @@ describe('SchedulingEditModal.vue', () => {
       await flushPromises();
       await nextTick();
 
-      // The modal teleports to document.body (the Teleport stub above does
-      // not intercept the built-in), so assert against body DOM.
+      // The modal renders through Teleport with the host attached to
+      // document.body, so assert against body DOM.
       const updateBtn = document.body.querySelector('.modal-footer .btn-primary');
       expect(updateBtn).not.toBeNull();
       expect(updateBtn.disabled).toBe(true);
