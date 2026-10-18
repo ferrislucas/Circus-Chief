@@ -1297,42 +1297,37 @@ describe('mid-conversation cooldown attribution (continuation path)', () => {
     mockQuery.mockClear();
   }
 
-  it('records tier health for the pinned member when a continuation fails with an eligible error', async () => {
+  it('retries once on the next member when a continuation fails with an eligible error, cooling the failed member', async () => {
     await startOnMemberA();
     failOnceWithEligibleError();
 
-    await expect(
-      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
-    ).rejects.toThrow(/529 Service overloaded/);
+    // Same-turn retry (§5.2): the follow-up succeeds on member B.
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
 
-    // Pinned: exactly ONE member was invoked — the continuation never
-    // advanced to member B (no in-place failover).
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
     expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+    expect(mockQuery.mock.calls[1][0].options.model).toBe('mc-model-b');
 
-    // Health: the exact originating member entered cooldown; no other member
-    // was touched.
+    // Health: the exact originating member entered cooldown; the member
+    // that served the retry was not touched.
     expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
     expect(isUnhealthy(providerB.id, 'mc-model-b')).toBe(false);
 
-    // Binding intact: still tier-bound with the same concrete snapshot —
-    // a health update must not mutate the binding.
+    // Binding advanced: still tier-bound, now snapshotted to member B.
     const updated = sessionRepo.getById(session.id);
     expect(updated.model).toBe(tierRef);
-    expect(updated.resolvedModel).toBe('mc-model-a');
-    expect(updated.resolvedProviderId).toBe(providerA.id);
+    expect(updated.resolvedModel).toBe('mc-model-b');
+    expect(updated.resolvedProviderId).toBe(providerB.id);
 
-    // Logs/telemetry must distinguish a health update from a failover
-    // attempt: no tier:failover notice may fire for a pinned continuation.
-    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(false);
+    // The automatic switch is announced exactly like a start-path failover.
+    expect(broadcastToSession.mock.calls.some((call) => call[1] === 'tier:failover')).toBe(true);
   });
 
   it('makes the next new session skip a member cooled down mid-conversation', async () => {
     await startOnMemberA();
     failOnceWithEligibleError();
-    await expect(
-      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
-    ).rejects.toThrow(/529/);
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
+    expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
 
     mockQuery.mockClear();
     // A brand-new session on the same tier must skip the cooled member A.
@@ -1355,36 +1350,37 @@ describe('mid-conversation cooldown attribution (continuation path)', () => {
       yield { type: 'result', subtype: 'error', error: 'Rate limit exceeded' };
     });
 
-    // A streamed result:error terminates without throwing on the continuation
-    // path — the member must cool down all the same.
+    // A streamed result:error rethrows pre-settlement on an authorized
+    // continuation (§5.2) — the turn still succeeds via the same-turn retry,
+    // and the failed member cools down all the same.
     await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
 
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(mockQuery.mock.calls[1][0].options.model).toBe('mc-model-b');
     expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
   });
 
   it('records health for a legacy snapshot-less row via the live-resolved member', async () => {
     // Legacy row: tier-bound but never resolved, so the continuation resolves
-    // live (and backfills the snapshot). The backfilled member is the member
-    // that served the attempt — health must be attributed to it.
+    // live (and backfills the snapshot). The backfilled member serves the
+    // failed attempt; the same-turn retry advances to member B and the
+    // failed member cools down all the same.
     sessionRepo.update(session.id, { resolvedModel: null, resolvedProviderId: null });
     failOnceWithEligibleError();
 
-    await expect(
-      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
-    ).rejects.toThrow(/529/);
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
 
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
     expect(mockQuery.mock.calls[0][0].options.model).toBe('mc-model-a');
+    expect(mockQuery.mock.calls[1][0].options.model).toBe('mc-model-b');
     expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
+    expect(sessionRepo.getById(session.id).resolvedModel).toBe('mc-model-b');
   });
 
   it('returns the cooled member to service once its cooldown expires', async () => {
     await startOnMemberA();
     failOnceWithEligibleError();
-    await expect(
-      continueSession(session.id, 'Follow-up turn', tempDir, { model: null })
-    ).rejects.toThrow(/529/);
+    await continueSession(session.id, 'Follow-up turn', tempDir, { model: null });
     expect(isUnhealthy(providerA.id, 'mc-model-a')).toBe(true);
 
     // Existing cooldown-expiry behavior: once past the default cooldown

@@ -57,11 +57,21 @@ export class ModelTierRepository extends BaseRepository {
     super('model_tiers', ModelTierRepository.#mapTier);
   }
 
+  /**
+   * Coerce the INTEGER flag column to boolean. The migration backfills legacy
+   * rows to 1, but the `?? 1` backstop keeps rows readable even if the column
+   * default was bypassed (e.g. a hand-written fixture row).
+   */
+  static #mapAutoFailoverEnabled(value) {
+    return (value ?? 1) !== 0;
+  }
+
   static #mapTier(row) {
     return {
       id: row.id,
       name: row.name,
       description: row.description ?? null,
+      autoFailoverEnabled: ModelTierRepository.#mapAutoFailoverEnabled(row.auto_failover_enabled),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -100,6 +110,7 @@ export class ModelTierRepository extends BaseRepository {
     const rows = this.db.prepare(
       `SELECT
         t.id AS tier_id, t.name AS tier_name, t.description AS tier_description,
+        t.auto_failover_enabled AS tier_auto_failover_enabled,
         t.created_at AS tier_created_at, t.updated_at AS tier_updated_at,
         m.id AS member_id, m.tier_id AS member_tier_id, m.provider_id AS member_provider_id,
         m.model_id AS member_model_id, m.position AS member_position,
@@ -117,6 +128,7 @@ export class ModelTierRepository extends BaseRepository {
           id: row.tier_id,
           name: row.tier_name,
           description: row.tier_description ?? null,
+          autoFailoverEnabled: ModelTierRepository.#mapAutoFailoverEnabled(row.tier_auto_failover_enabled),
           createdAt: row.tier_created_at,
           updatedAt: row.tier_updated_at,
           members: [],
@@ -150,10 +162,10 @@ export class ModelTierRepository extends BaseRepository {
 
   /**
    * Create a new tier with optional members.
-   * @param {{ name: string, description?: string|null, members?: Array<{ providerId: string, modelId: string, position: number }> }} data
+   * @param {{ name: string, description?: string|null, members?: Array<{ providerId: string, modelId: string, position: number }>, autoFailoverEnabled?: boolean }} data
    * @returns {Object} Created tier with members
    */
-  create({ name, description = null, members = [] }) {
+  create({ name, description = null, members = [], autoFailoverEnabled = true }) {
     const id = databaseManager.generateId();
     const now = Date.now();
     const cleanName = normalizeTierName(name);
@@ -166,10 +178,10 @@ export class ModelTierRepository extends BaseRepository {
     databaseManager.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO model_tiers (id, name, description, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)`
+          `INSERT INTO model_tiers (id, name, description, auto_failover_enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
-        .run(id, cleanName, description ?? null, now, now);
+        .run(id, cleanName, description ?? null, autoFailoverEnabled ? 1 : 0, now, now);
 
       this.#insertMembers(id, members, now);
     });
@@ -180,10 +192,10 @@ export class ModelTierRepository extends BaseRepository {
   /**
    * Update a tier. When `members` is provided, replaces the full member set.
    * @param {string} id
-   * @param {{ name?: string, description?: string|null, members?: Array }} data
+   * @param {{ name?: string, description?: string|null, members?: Array, autoFailoverEnabled?: boolean }} data
    * @returns {Object|null} Updated tier with members
    */
-  update(id, { name, description, members }) {
+  update(id, { name, description, members, autoFailoverEnabled }) {
     const tier = super.getById(id);
     if (!tier) return null;
 
@@ -206,6 +218,10 @@ export class ModelTierRepository extends BaseRepository {
         this.#validateDescription(description);
         updates.push('description = ?');
         values.push(description ?? null);
+      }
+      if (autoFailoverEnabled !== undefined) {
+        updates.push('auto_failover_enabled = ?');
+        values.push(autoFailoverEnabled ? 1 : 0);
       }
 
       if (updates.length > 0) {

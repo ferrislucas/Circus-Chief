@@ -683,6 +683,109 @@ describe('tierResolutionService', () => {
     });
   });
 
+  describe('mid-session tier advance (§5.1)', () => {
+    function buildAdvanceTier() {
+      const tier = modelTiers.create({
+        name: 'Advance Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      return { tier, tierRef: buildTierRef(tier.id) };
+    }
+
+    it('advances a cooled snapshot to the next healthy member and persists the new snapshot', () => {
+      const { tierRef } = buildAdvanceTier();
+      const session = { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id };
+      markUnhealthy(providerA.id, 'model-a');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-b',
+          providerIdHint: providerB.id,
+          persist: { resolvedModel: 'model-b', resolvedProviderId: providerB.id },
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'model-a');
+      }
+    });
+
+    it('stays pinned when the tier disabled automatic failover', () => {
+      const { tier, tierRef } = buildAdvanceTier();
+      modelTiers.update(tier.id, { autoFailoverEnabled: false });
+      const session = { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id };
+      markUnhealthy(providerA.id, 'model-a');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: {},
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'model-a');
+      }
+    });
+
+    it('reuses the snapshot when every member is in cooldown', () => {
+      const { tierRef } = buildAdvanceTier();
+      const session = { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id };
+      markUnhealthy(providerA.id, 'model-a');
+      markUnhealthy(providerB.id, 'model-b');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: {},
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'model-a');
+        clearUnhealthy(providerB.id, 'model-b');
+      }
+    });
+
+    it('advances an own-tier re-selection when the snapshot is cooled', () => {
+      const { tierRef } = buildAdvanceTier();
+      const session = { model: tierRef, resolvedModel: 'model-a', resolvedProviderId: providerA.id };
+      markUnhealthy(providerA.id, 'model-a');
+      try {
+        expect(resolveTierRefForContinue(session, tierRef)).toEqual({
+          effectiveModel: 'model-b',
+          providerIdHint: providerB.id,
+          persist: { resolvedModel: 'model-b', resolvedProviderId: providerB.id },
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'model-a');
+      }
+    });
+
+    it('advances by exact provider/model pair when two providers share a model id', () => {
+      modelProviders.addModel(providerA.id, { modelId: 'dupe-model', displayName: 'Dupe' });
+      modelProviders.addModel(providerB.id, { modelId: 'dupe-model', displayName: 'Dupe' });
+      const tier = modelTiers.create({
+        name: 'Dupe Advance Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'dupe-model', position: 0 },
+          { providerId: providerB.id, modelId: 'dupe-model', position: 1 },
+        ],
+      });
+      const session = {
+        model: buildTierRef(tier.id),
+        resolvedModel: 'dupe-model',
+        resolvedProviderId: providerA.id,
+      };
+      markUnhealthy(providerA.id, 'dupe-model');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'dupe-model',
+          providerIdHint: providerB.id,
+          persist: { resolvedModel: 'dupe-model', resolvedProviderId: providerB.id },
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'dupe-model');
+      }
+    });
+  });
+
   describe('createTierCooldown (deterministic expiry)', () => {
     it('expires entries with injected time and isolates instances', () => {
       let now = 1_000;

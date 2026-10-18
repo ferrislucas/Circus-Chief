@@ -253,7 +253,10 @@ function logSkippedReschedule(setting) {
  *    advance to another member, no matter what else the context contains.
  *  - the error matches a failover-eligible pattern (service error or quota
  *    error — see {@link matchesStartFailoverEligibleError})
- *  - the session has produced no observable agent activity yet (start-only boundary)
+ *  - the session has produced no observable agent activity yet (start-only
+ *    boundary), unless the context sets `allowFailoverAfterActivity` (the
+ *    mid-session same-turn retry, which replays history with a boundary
+ *    marker instead of replaying the prompt)
  *  - there is another healthy member to advance to
  *
  * @param {object} session - Session object
@@ -274,7 +277,16 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
   // matchesTokenLimitError to avoid spurious cross-provider failover on
   // non-quota errors such as JSON parse errors containing "token".
   const isEligible = matchesStartFailoverEligibleError(error);
-  if (!isEligible || !sessionId || !sessionHasNoObservableAgentActivity(sessionId)) {
+  if (!isEligible || !sessionId) {
+    return false;
+  }
+  // Mid-session same-turn retry (§5.2) advances even when the failed turn
+  // already produced durable activity (G3) — the retry replays history with
+  // an explicit boundary marker instead of replaying the prompt. Only
+  // continuation contexts set this flag; the start loop keeps the start-only
+  // no-activity boundary.
+  if (tierContext?.allowFailoverAfterActivity !== true
+    && !sessionHasNoObservableAgentActivity(sessionId)) {
     return false;
   }
 

@@ -215,6 +215,19 @@ describe('Model Tier Contracts', () => {
       expect(result.success).toBe(false);
     });
 
+    it('accepts an optional autoFailoverEnabled boolean', () => {
+      const on = CreateTierRequest.safeParse({ name: 'Flag on', members: [], autoFailoverEnabled: true });
+      expect(on.success).toBe(true);
+      const off = CreateTierRequest.safeParse({ name: 'Flag off', members: [], autoFailoverEnabled: false });
+      expect(off.success).toBe(true);
+      expect(off.data.autoFailoverEnabled).toBe(false);
+    });
+
+    it('rejects a non-boolean autoFailoverEnabled', () => {
+      const result = CreateTierRequest.safeParse({ name: 'Flag bad', members: [], autoFailoverEnabled: 'yes' });
+      expect(result.success).toBe(false);
+    });
+
     it('rejects gapped, duplicate, and out-of-order positions', () => {
       for (const members of [
         [
@@ -267,6 +280,12 @@ describe('Model Tier Contracts', () => {
       expect(result.success).toBe(false);
     });
 
+    it('accepts an optional autoFailoverEnabled boolean', () => {
+      const result = UpdateTierRequest.safeParse({ autoFailoverEnabled: false });
+      expect(result.success).toBe(true);
+      expect(result.data.autoFailoverEnabled).toBe(false);
+    });
+
     it('rejects an empty name', () => {
       const result = UpdateTierRequest.safeParse({ name: '' });
       expect(result.success).toBe(false);
@@ -281,6 +300,7 @@ describe('Model Tier Contracts', () => {
         id: UUID,
         name: 'Fast tier',
         description: null,
+        autoFailoverEnabled: true,
         members: [
           {
             id: UUID2,
@@ -299,6 +319,18 @@ describe('Model Tier Contracts', () => {
         updatedAt: now,
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects a tier response missing autoFailoverEnabled', () => {
+      const result = TierResponse.safeParse({
+        id: UUID,
+        name: 'Fast tier',
+        description: null,
+        members: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(result.success).toBe(false);
     });
 
     it('rejects a missing member field', () => {
@@ -337,6 +369,7 @@ describe('Model Tier Contracts', () => {
           id: UUID,
           name: 'Fast tier',
           description: 'desc',
+          autoFailoverEnabled: true,
           members: [],
           createdAt: now,
           updatedAt: now,

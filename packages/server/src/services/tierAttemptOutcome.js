@@ -110,7 +110,7 @@ function classifyTierMemberFailure(error, { sessionId, member, nextMember, tierR
  * @param {Error} error
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, nextMember: Object }} ctx
  */
-function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember }) {
+export function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember }) {
   const reason = sanitizeTierFailureReason(error);
   console.log(
     `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember.modelId}`

@@ -549,12 +549,22 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     ]);
     expect(JSON.stringify(records)).not.toContain('tier::');
 
-    // A client that never refreshed still holds the old tier ref. That payload
-    // is a NEW binding to a nonexistent tier — rejected at write time (400),
-    // never persisted, and it does not break the session.
+    // Both follow-up turns must fully settle before the stale check — a
+    // still-streaming turn answers 409 instead of settling the payload.
+    await waitForStatus(session.id, 'waiting', 15000);
+
+    // A client that never refreshed still holds the old tier ref. The first
+    // echo is tolerated once (normalized to the degraded concrete binding —
+    // see the stale deleted-tier echo tolerance unit suite); a repeat echo
+    // is a genuine bad selection and is rejected at write time (400). Either
+    // way the session is never bricked and the binding is never persisted.
     const staleRefFollowUp = await sendFollowUp(session.id, tierRef);
-    expect(staleRefFollowUp.ok).toBe(false);
-    expect(staleRefFollowUp.status).toBe(400);
+    expect(staleRefFollowUp.ok).toBe(true);
+    await waitForStatus(session.id, 'waiting', 15000);
+
+    const staleRefRepeat = await sendFollowUp(session.id, tierRef);
+    expect(staleRefRepeat.ok).toBe(false);
+    expect(staleRefRepeat.status).toBe(400);
     const afterStale = await getSession(session.id);
     expect(afterStale.model).toBe('stale-model-a');
 
@@ -563,6 +573,149 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     const finalSession = await getSession(session.id);
     expect(finalSession.model).toBe('stale-model-a');
     expect(finalSession.resolvedModel).toBeNull();
+  });
+
+  test('mid-session quota failure retries once on the next member with history intact (FRD §5)', async ({ page }) => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}MidSession Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'mid-model-a', displayName: 'Mid Model A' });
+    const providerB = await createProvider({
+      name: `${TEST_PREFIX}MidSession Provider B`,
+      kind: 'openai',
+      baseUrl: 'https://midsession-b.example.test/v1',
+      authToken: 'test-token',
+    });
+    await addProviderModel(providerB.id, { modelId: 'mid-model-b', displayName: 'Mid Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Mid-Session Tier`,
+      members: [
+        { providerId: providerA.id, modelId: 'mid-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'mid-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+    expect(tier.autoFailoverEnabled).toBe(true);
+
+    // Start succeeds on A (snapshot A); the follow-up fails quota on A and
+    // must retry once on B in the same turn.
+    writeScript({
+      queues: {
+        [`${providerA.id}::mid-model-a`]: ['success', 'quota_error'],
+        [`${providerB.id}::mid-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Mid-Session Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier mid-session e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(session.id)).resolvedModel).toBe('mid-model-a');
+    await waitForCaptureRecords(1);
+
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, session.id);
+    const failoverPromise = waitForWSMessage(ws, 'tier:failover', 15000);
+
+    const followRes = await sendFollowUp(session.id, null, 'Second question after start');
+    expect(followRes.ok).toBe(true);
+
+    const failoverEvent = await failoverPromise;
+    expect(failoverEvent.tierRef).toBe(`tier::${tier.id}`);
+    expect(failoverEvent.fromModel).toBe('mid-model-a');
+    expect(failoverEvent.toModel).toBe('mid-model-b');
+
+    await waitForStatus(session.id, 'waiting', 15000);
+    const finalSession = await waitForResolvedModel(session.id);
+    expect(finalSession.model).toBe(`tier::${tier.id}`);
+    expect(finalSession.resolvedModel).toBe('mid-model-b');
+    expect(finalSession.resolvedProviderId).toBe(providerB.id);
+
+    // Start on A, failed follow-up on A, same-turn retry on B — exactly one
+    // retry, never a re-run of the whole turn.
+    const records = await waitForCaptureRecords(3);
+    expect(records.map((r: any) => r.modelId)).toEqual(['mid-model-a', 'mid-model-a', 'mid-model-b']);
+    expect(JSON.stringify(records)).not.toContain('tier::');
+
+    // History intact: both user turns and assistant output persisted.
+    const messages = await getSessionMessages(session.id);
+    expect(messages.filter((m: any) => m.role === 'user')).toHaveLength(2);
+    expect(messages.some((m: any) => m.role === 'assistant')).toBe(true);
+
+    const logs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+
+    // Inline timeline marker (G4), no header badge.
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+    const marker = page.getByTestId('tier-failover-marker');
+    await expect(marker.first()).toBeVisible({ timeout: 10000 });
+    await expect(marker.first()).toContainText('Switched from mid-model-a to mid-model-b');
+    await expect(page.getByTestId('tier-failover-badge')).toHaveCount(0);
+
+    ws.close();
+  });
+
+  test('flag-off tier stays pinned on mid-session quota failure (FR0)', async ({ page }) => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}FlagOff Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'flagoff-a', displayName: 'Flagoff A' });
+    const providerB = await createProvider({
+      name: `${TEST_PREFIX}FlagOff Provider B`,
+      kind: 'openai',
+      baseUrl: 'https://flagoff-b.example.test/v1',
+      authToken: 'test-token',
+    });
+    await addProviderModel(providerB.id, { modelId: 'flagoff-b', displayName: 'Flagoff B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Flag-Off Tier`,
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'flagoff-a', position: 0 },
+        { providerId: providerB.id, modelId: 'flagoff-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+    expect(tier.autoFailoverEnabled).toBe(false);
+
+    writeScript({
+      queues: {
+        [`${providerA.id}::flagoff-a`]: ['success', 'quota_error'],
+        [`${providerB.id}::flagoff-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Flag-Off Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier flag-off e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(session.id)).resolvedModel).toBe('flagoff-a');
+    await waitForCaptureRecords(1);
+
+    const followRes = await sendFollowUp(session.id, null, 'Second question on pinned tier');
+    expect(followRes.ok).toBe(true);
+
+    // Pinned failure: terminal error on A, no retry, no advance.
+    const failed = await waitForStatus(session.id, 'error', 15000);
+    expect(failed.status).toBe('error');
+    const pinned = await getSession(session.id);
+    expect(pinned.resolvedModel).toBe('flagoff-a');
+
+    const records = await waitForCaptureRecords(2);
+    expect(records.map((r: any) => r.modelId)).toEqual(['flagoff-a', 'flagoff-a']);
+
+    // No automatic switch was announced or logged, and no marker renders.
+    const logs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(logs).toHaveLength(0);
+
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+    await expect(page.getByTestId('tier-failover-marker')).toHaveCount(0);
   });
 });
 
@@ -622,6 +775,7 @@ async function waitForResolvedModel(sessionId: string, timeout = 5000): Promise<
 async function createTierViaApi(data: {
   name: string;
   description?: string | null;
+  autoFailoverEnabled?: boolean;
   members?: Array<{ providerId: string; modelId: string; position: number }>;
 }) {
   const response = await fetch(`${API_URL}/api/tiers`, {
@@ -644,8 +798,8 @@ async function deleteTierViaApi(id: string) {
  * payload shapes the endpoint sees in practice. Returns the raw Response so
  * tests can assert on the status instead of throwing on non-2xx.
  */
-async function sendFollowUp(sessionId: string, model: string | null) {
-  const body: Record<string, unknown> = { content: 'Follow-up after tier deletion' };
+async function sendFollowUp(sessionId: string, model: string | null, content = 'Follow-up after tier deletion') {
+  const body: Record<string, unknown> = { content };
   if (model) body.model = model;
   return fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
     method: 'POST',

@@ -343,6 +343,9 @@ export const allMigrations = validateMigrations([
   // --- Reserve the Model Tier reference prefix from concrete provider ids ---
   mt.get('provider-models-reserve-tier-reference-prefix'),
 
+  // --- Per-tier automatic failover flag (mid-session tier failover FRD §6) ---
+  mt.get('model-tiers-auto-failover-flag'),
+
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),

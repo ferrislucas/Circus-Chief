@@ -243,4 +243,44 @@ describe('ModelTiersView', () => {
       wrapper.unmount();
     }
   });
+
+  it('renders an automatic-failover toggle per tier, checked by default', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Flagged tier', description: null, autoFailoverEnabled: true,
+      members: [],
+    }];
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    const toggle = wrapper.get('[data-testid="auto-failover-toggle"]');
+    expect(toggle.element.checked).toBe(true);
+  });
+
+  it('treats a missing flag as enabled', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-legacy', name: 'Legacy tier', description: null,
+      members: [],
+    }];
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    expect(wrapper.get('[data-testid="auto-failover-toggle"]').element.checked).toBe(true);
+  });
+
+  it('persists automatic-failover toggle changes via updateTier', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Flagged tier', description: null, autoFailoverEnabled: true,
+      members: [],
+    }];
+    const updateTier = vi.spyOn(tiersStore, 'updateTier').mockResolvedValue(undefined);
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.get('[data-testid="auto-failover-toggle"]').setValue(false);
+
+    expect(updateTier).toHaveBeenCalledWith('tier-1', { autoFailoverEnabled: false });
+  });
 });

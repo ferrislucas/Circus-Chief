@@ -249,6 +249,14 @@ export const modelTiersMigrations = [
     },
   },
   {
+    name: 'model-tiers-auto-failover-flag',
+    up(db) {
+      // Per-tier automatic failover opt-out (FRD §6). Legacy rows backfill to
+      // enabled via the column default, preserving today's behavior.
+      addColumnIfMissing(db, 'model_tiers', 'auto_failover_enabled', 'INTEGER NOT NULL DEFAULT 1');
+    },
+  },
+  {
     name: 'provider-models-reserve-tier-reference-prefix',
     up(db) {
       if (!hasColumns(db, 'provider_models', ['model_id', 'removed_at', 'enabled'])) return;

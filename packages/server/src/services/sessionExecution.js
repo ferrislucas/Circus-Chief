@@ -202,7 +202,7 @@ function withWorkflowTurnToken(queryParams, workflowTurn) {
  * @param {Error} opts.error
  * @returns {Promise<'rethrow'|'rescheduled'|'failed'>}
  */
-async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive, notifyUserStopSettled }) {
+export async function handleTurnFailure({ sessionId, workflowTurn, tierContext, callbacks, controller, broadcastConversationStateOnError, errorLabel, error, interactive, notifyUserStopSettled }) {
   const { handleTemplateTriggerIfNeeded } = callbacks;
   // Finding 12: user cancellation settles BEFORE failover classification,
   // member-health reporting, or error rescheduling. A Stop-aborted attempt
