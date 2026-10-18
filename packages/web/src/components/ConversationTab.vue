@@ -146,7 +146,7 @@ import AgentPromptCard from './AgentPromptCard.vue';
 import { useSessionPromptsStore } from '../stores/sessionPrompts.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
-import { agentTypeForProviders, isKindResolvable, persistModelSelectionWithConfirm } from './crossKindSwitch.js';
+import { useModelSelectionPersist } from '../composables/useModelSelectionPersist.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -197,12 +197,17 @@ const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
-let suppressNextModelPersist = false;
-// Caller-owned persist epoch: each dispatched picker change stamps its
-// sequence; a slow 4xx from an earlier change is stale and must not revert
-// a newer confirmed choice. Owned here (not in crossKindSwitch.js) so the
-// counter never leaks across component instances.
-let modelPersistSeq = 0;
+
+// Picker → session model persistence (confirm/revert flow lives here so the
+// component stays under the max-lines budget).
+const { pauseModelPersist, resumeModelPersist } = useModelSelectionPersist({
+  getSessionId: () => props.sessionId,
+  selectedModel,
+  selectedProviderId,
+  sessionsStore,
+  providersStore,
+  uiStore,
+});
 
 // Draft saving composable
 const {
@@ -530,7 +535,7 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
-      suppressNextModelPersist = true;
+      pauseModelPersist();
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
@@ -538,53 +543,12 @@ watch(
         getProjectDefaultProviderId() ||
         null;
       nextTick(() => {
-        suppressNextModelPersist = false;
+        resumeModelPersist();
       });
     }
   },
   { immediate: true }
 );
-
-function revertModelSelection(model, providerId) {
-  suppressNextModelPersist = true;
-  selectedModel.value = model;
-  selectedProviderId.value = providerId;
-}
-
-// Persist model selection to session
-watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
-  if (suppressNextModelPersist) {
-    suppressNextModelPersist = false;
-    return;
-  }
-  if (oldModel === null || !newModel) return;
-  if (newModel === oldModel && newProviderId === oldProviderId) return;
-
-  // In-scope kind changes on started sessions need confirmation (FRD §4);
-  // gemini switches skip it since the backend still rejects them itself.
-  // When either end's kind is unresolvable (catalog unloaded, provider
-  // deleted, unknown model id), both agent types silently default to
-  // Claude Code — confirm generically (FRD §4/G4) instead of persisting
-  // silently while the server still performs the kind switch.
-  const currentSession = sessionsStore.currentSession;
-  const providers = providersStore.providers;
-  modelPersistSeq += 1;
-  const mySeq = modelPersistSeq;
-  await persistModelSelectionWithConfirm({
-    oldModel, oldProviderId, newModel, newProviderId,
-    fromAgentType: agentTypeForProviders(providers, oldProviderId, oldModel),
-    toAgentType: agentTypeForProviders(providers, newProviderId, newModel),
-    isStarted: Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession),
-    modelsDiffer: oldModel !== newModel,
-    kindUnresolvable: !isKindResolvable(providers, oldProviderId, oldModel)
-      || !isKindResolvable(providers, newProviderId, newModel),
-    confirmFn: (copy) => window.confirm(copy),
-    persistFn: (model, providerId) => sessionsStore.updateSessionModel(props.sessionId, model, providerId),
-    onError: (err) => uiStore.error(err.message),
-    revertFn: revertModelSelection,
-    isCurrent: () => mySeq === modelPersistSeq,
-  });
-});
 
 // Form submission handler
 function getSubmittedInputValue(textareaRef) {
@@ -714,7 +678,7 @@ async function applyTemplateModel(model, providerId) {
   // skips when the model was never initialized. Suppress the watcher so we
   // don't issue a duplicate PATCH for the same change.
   if (model !== selectedModel.value || providerId !== selectedProviderId.value) {
-    suppressNextModelPersist = true;
+    pauseModelPersist();
     selectedModel.value = model;
     selectedProviderId.value = providerId;
   }
