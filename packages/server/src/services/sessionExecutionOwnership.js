@@ -81,6 +81,19 @@ export function createExecutionConflictError(sessionId, phase) {
 }
 
 /**
+ * Whether an error is an admission conflict from {@link claimSessionExecution}
+ * (a live turn already owns the session). Claim conflicts are admission
+ * rejections, not turn failures: a rejected competing start must not set the
+ * live session to error, close its workflow, or clean up its controller.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isSessionExecutionConflictError(error) {
+  return Boolean(error)
+    && (error.code === SESSION_EXECUTION_ACTIVE_CODE || error.code === SESSION_STOPPING_CODE);
+}
+
+/**
  * Atomically claim execution ownership. Throws a 409-coded conflict when a
  * live turn (running or still shutting down) already owns the session.
  * @param {string} sessionId

@@ -218,7 +218,7 @@ describe('sessionManager custom provider integration', () => {
       expect(mockQuery.mock.calls[1][0].options.model).toBe('custom-opus-v2');
     });
 
-    it('does not mutate providerId when model changes to one owned by a different provider (regression: buildModelAndProvider)', async () => {
+    it('clears a stale providerId pin when switching to a model owned by a different provider', async () => {
       // Create a second provider with a different sonnet model
       const secondProvider = modelProviders.create({
         name: 'Second Provider',
@@ -231,14 +231,47 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       sessions.update(session.id, { providerId: customProvider.id });
 
-      // Continue with a model owned by secondProvider — providerId must not change
+      // Continue with a model owned by secondProvider and no provider hint:
+      // keeping the customProvider pin would record a binding the session is
+      // not actually running on, so the stale pin is cleared — while dispatch
+      // still uses the model's real owner.
       mockQuery.mockImplementation(() => createMockQueryResponse('second-sonnet-model'));
       await continueSession(session.id, 'follow-up', '/tmp/test', { model: 'second-sonnet-model' });
 
       const updatedSession = sessions.getById(session.id);
-      expect(updatedSession.providerId).toBe(customProvider.id);
+      expect(updatedSession.providerId).toBeNull();
+      const queryParams = mockQuery.mock.calls[0][0];
+      expect(queryParams.options.model).toBe('second-sonnet-model');
+      expect(queryParams.options.env.ANTHROPIC_API_KEY).toBe('second-auth-token');
 
       // Cleanup
+      modelProviders.delete(secondProvider.id);
+    });
+
+    it('accepts an exact model + owning providerId pair and persists it', async () => {
+      const secondProvider = modelProviders.create({
+        name: 'Second Provider',
+        baseUrl: 'https://api.second-provider.com',
+        authToken: 'second-auth-token',
+      });
+      modelProviders.addModel(secondProvider.id, { modelId: 'second-sonnet-model', displayName: 'Second Sonnet', tier: 'sonnet' });
+
+      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
+      sessions.update(session.id, { providerId: customProvider.id });
+
+      mockQuery.mockImplementation(() => createMockQueryResponse('second-sonnet-model'));
+      await continueSession(session.id, 'follow-up', '/tmp/test', {
+        model: 'second-sonnet-model',
+        providerId: secondProvider.id,
+      });
+
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.providerId).toBe(secondProvider.id);
+      const queryParams = mockQuery.mock.calls[0][0];
+      expect(queryParams.options.env.ANTHROPIC_API_KEY).toBe('second-auth-token');
+
+      // Cleanup (unpin first: sessions.provider_id carries a provider FK)
+      sessions.update(session.id, { providerId: null });
       modelProviders.delete(secondProvider.id);
     });
   });

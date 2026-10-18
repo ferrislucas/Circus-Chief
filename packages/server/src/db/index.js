@@ -26,6 +26,7 @@ export { AgentCallLogRepository } from './AgentCallLogRepository.js';
 export { KanbanBoardRepository } from './KanbanBoardRepository.js';
 export { KanbanLaneRepository } from './KanbanLaneRepository.js';
 export { KanbanCardRepository } from './KanbanCardRepository.js';
+export { ModelTierRepository } from './ModelTierRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -46,6 +47,7 @@ import { AgentCallLogRepository } from './AgentCallLogRepository.js';
 import { KanbanBoardRepository } from './KanbanBoardRepository.js';
 import { KanbanLaneRepository } from './KanbanLaneRepository.js';
 import { KanbanCardRepository } from './KanbanCardRepository.js';
+import { ModelTierRepository } from './ModelTierRepository.js';
 
 export const projects = new ProjectRepository();
 export const projectDefaults = new ProjectDefaultsRepository();
@@ -65,6 +67,7 @@ export const agentCallLogs = new AgentCallLogRepository();
 export const kanbanBoards = new KanbanBoardRepository();
 export const kanbanLanes = new KanbanLaneRepository();
 export const kanbanCards = new KanbanCardRepository();
+export const modelTiers = new ModelTierRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

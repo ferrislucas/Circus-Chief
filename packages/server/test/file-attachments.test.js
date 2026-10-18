@@ -224,7 +224,7 @@ describe('File Attachments API', () => {
         expect.any(String), // sessionId
         'Analyze this', // prompt
         testTempDir, // workingDirectory (dynamic)
-        {
+        expect.objectContaining({
           systemPrompt: null,
           fileAttachments: expect.arrayContaining([
             expect.objectContaining({
@@ -233,7 +233,8 @@ describe('File Attachments API', () => {
             }),
           ]),
           model: null,
-        }
+          providerId: null,
+        })
       );
     });
 
@@ -538,6 +539,7 @@ describe('File Attachments API', () => {
             }),
           ]),
           model: null,
+          providerId: null,
           interactive: true,
         }
       );
@@ -689,6 +691,7 @@ describe('File Attachments API', () => {
           systemPrompt: null,
           fileAttachments: expect.any(Array),
           model: null,
+          providerId: null,
           interactive: true,
         }
       );
@@ -711,6 +714,7 @@ describe('File Attachments API', () => {
           systemPrompt: null,
           fileAttachments: [], // Empty attachments
           model: null,
+          providerId: null,
           interactive: true,
         }
       );

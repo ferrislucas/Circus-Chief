@@ -9,6 +9,7 @@ import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 import { determineInitialStatus } from './projects-session-helpers.js';
 import { buildRunsBySession } from './projects-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
+import { normalizeFinalErrorMessage } from '../services/visibleFinalErrorMessage.js';
 import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute, join } from 'path';
 import { getRepositoryUrl } from '../services/gitService.js';
@@ -269,7 +270,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     // If the session row was already created, mark it as errored so it isn't left dangling.
     if (session && session.id) {
       try {
-        sessions.update(session.id, { status: 'error', error: error.message });
+        sessions.update(session.id, { status: 'error', error: normalizeFinalErrorMessage(error) });
       } catch (updateError) {
         console.error('Failed to mark session as errored:', updateError);
       }

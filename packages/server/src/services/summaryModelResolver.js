@@ -1,4 +1,8 @@
-import { modelProviders, sessions } from '../database.js';
+import { modelProviders, modelTiers, sessions } from '../database.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { getTierMembersResolved, isUnhealthy } from './tierResolutionService.js';
+import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
+import { validateExactTierMember } from './tierIdentity.js';
 import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
@@ -25,12 +29,49 @@ export function isKnownBuiltInAnthropicModel(modelId) {
   );
 }
 
+/**
+ * Resolve a summary tier ref to a concrete (model, providerId) suitable for
+ * `resolveExplicitSummaryModel`, or `null` if a missing, empty, or stale tier
+ * should fall through to the default summary model selection. A valid tier
+ * whose members are all cooling down throws instead, preserving the selected
+ * tier policy rather than silently substituting a system default.
+ * @param {string} summaryModel - Tier ref sentinel string
+ * @returns {{ model: string, providerId: string }|null}
+ */
+function resolveHealthyTierSummaryMember(summaryModel) {
+  const tierId = parseTierRef(summaryModel);
+  const members = tierId ? getTierMembersResolved(tierId) : [];
+  if (members.length === 0) {
+    console.warn(
+      `[summaryModelResolver] Summary tier "${summaryModel}" has no resolvable members — falling back to default summary model`
+    );
+    return null;
+  }
+
+  const resolved = members.find((member) => !isUnhealthy(member.providerId, member.modelId));
+  if (!resolved) {
+    const tierName = modelTiers.getByIdWithMembers(tierId)?.name || summaryModel;
+    throw createTierCooldownUnavailableError(tierId, tierName);
+  }
+
+  return { model: resolved.modelId, providerId: resolved.providerId };
+}
+
 export function resolveSummaryModel(summarySettings = {}) {
   const summaryModel = summarySettings?.summaryModel || '';
   const summaryProviderId = summarySettings?.summaryProviderId || null;
 
   if (summaryModel) {
-    return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
+    // Tier ref: resolve to a concrete (model, providerId) before building the summary run
+    if (isTierRef(summaryModel)) {
+      const resolved = resolveHealthyTierSummaryMember(summaryModel);
+      if (resolved) {
+        return resolveExplicitSummaryModel(resolved.model, resolved.providerId);
+      }
+      // Fall through to default resolution below
+    } else {
+      return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
+    }
   }
   if (summaryProviderId) {
     throw new Error('summaryModel is required when summaryProviderId is set');
@@ -55,20 +96,26 @@ export function resolveSummaryModel(summarySettings = {}) {
   return defaultAnthropicResolution('fallback');
 }
 
-function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
+/**
+ * Resolve a concrete (summaryModel, summaryProviderId) pair to a full
+ * resolution object. Exported (Work Item 2) so `callSummaryModel`'s own
+ * tier-traversal loop can build a per-member resolution the same way the
+ * single-shot path does, for every eligible member it attempts — not just
+ * the first one.
+ * @param {string} summaryModel
+ * @param {string} summaryProviderId
+ * @returns {{ model: string, provider: Object, providerId: string, kind: string, isDefault: boolean, selectionReason: string }}
+ */
+export function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
   if (!summaryProviderId) {
     throw new Error('summaryProviderId is required when summaryModel is set');
   }
 
+  // Exact-pair identity (existence + enabled on both halves) shares the one
+  // server predicate with tier resolution — a summary pinned to a disabled
+  // or removed pair fails closed here instead of dispatching to it.
+  validateExactTierMember(summaryProviderId, summaryModel);
   const provider = modelProviders.getById(summaryProviderId);
-  if (!provider) {
-    throw new Error(`Summary provider not found: ${summaryProviderId}`);
-  }
-
-  const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
-  if (!ownsModel) {
-    throw new Error(`Summary provider ${summaryProviderId} does not own model ${summaryModel}`);
-  }
   return providerResolution(summaryModel, provider, 'explicit');
 }
 

@@ -354,6 +354,7 @@ describe('SchedulerService', () => {
           pendingPrompt: null,
           pendingConversationId: null,
           pendingModel: null,
+          pendingProviderId: null,
           pendingInteractive: null,
           error: 'Scheduled launch refused: max total tokens reached (1,000).',
         });
@@ -492,6 +493,7 @@ describe('SchedulerService', () => {
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingProviderId: null,
         pendingInteractive: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -686,6 +688,7 @@ describe('SchedulerService', () => {
         pendingPrompt: null,
         pendingConversationId: null,
         pendingModel: null,
+        pendingProviderId: null,
         pendingInteractive: null,
       });
     });

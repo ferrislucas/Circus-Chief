@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import SummarySettingsView from './SummarySettingsView.vue';
 
 const mockSettingsStore = reactive({
@@ -28,6 +29,19 @@ vi.mock('../stores/settings.js', () => ({
 
 vi.mock('../stores/ui.js', () => ({
   useUiStore: () => mockUiStore,
+}));
+
+const wsHandlers = {};
+vi.mock('../composables/useWebSocket.js', () => ({
+  useWebSocket: () => ({
+    on: vi.fn((type, cb) => { wsHandlers[type] = cb; }),
+    off: vi.fn((type) => { delete wsHandlers[type]; }),
+    onReconnect: vi.fn(() => () => {}),
+  }),
+}));
+
+vi.mock('../composables/useApi.js', () => ({
+  api: { getSummarySettings: vi.fn().mockResolvedValue(null) },
 }));
 
 vi.mock('../components/ResizableTextarea.vue', () => ({
@@ -76,6 +90,7 @@ vi.mock('../components/ModelSelector.vue', () => ({
 
 describe('SummarySettingsView', () => {
   beforeEach(() => {
+    setActivePinia(createPinia());
     vi.clearAllMocks();
     mockSettingsStore.summarySettings = {
       disableSessionSummaries: false,
@@ -98,7 +113,8 @@ describe('SummarySettingsView', () => {
     const wrapper = mountView();
     await nextTick();
 
-    expect(mockSettingsStore.fetchSummarySettings).toHaveBeenCalledOnce();
+    const { api } = await import('../composables/useApi.js');
+    expect(api.getSummarySettings).toHaveBeenCalledOnce();
     expect(wrapper.find('[data-testid="summary-model-select"]').element.value).toBe('');
     expect(wrapper.find('[data-testid="summary-model-select"]').attributes('data-hide-built-in-duplicates')).toBe('false');
   });
@@ -117,6 +133,48 @@ describe('SummarySettingsView', () => {
 
     expect(wrapper.find('[data-testid="summary-model-select"]').element.value).toBe('custom-openai::gpt-5.4-mini');
     expect(wrapper.find('textarea').element.value).toBe('Saved prompt');
+  });
+
+  it('surfaces an external title-prompt change after first load instead of dropping it', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await nextTick();
+
+    wsHandlers['settings:summary_updated']({
+      settings: {
+        disableSessionSummaries: false,
+        sessionTitlePrompt: 'Remote prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+        defaultSessionTitlePrompt: 'Default title prompt',
+      },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('textarea').element.value).toBe('Remote prompt');
+  });
+
+  it('keeps a locally edited title prompt and flags a conflict when upstream also moves it', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await nextTick();
+
+    await wrapper.find('textarea').setValue('My local prompt');
+    wsHandlers['settings:summary_updated']({
+      settings: {
+        disableSessionSummaries: false,
+        sessionTitlePrompt: 'Remote prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+        defaultSessionTitlePrompt: 'Default title prompt',
+      },
+    });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('textarea').element.value).toBe('My local prompt');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
   });
 
   it('saves an explicit provider and model pair', async () => {
@@ -168,6 +226,35 @@ describe('SummarySettingsView', () => {
     await flushPromises();
 
     expect(wrapper.find('.error-message').text()).toBe('Save failed');
+    expect(mockUiStore.success).not.toHaveBeenCalled();
+  });
+
+  it('shows a conflict and blocks save when the selected tier was deleted', async () => {
+    const { useTiersStore } = await import('../stores/tiers.js');
+    mockSettingsStore.summarySettings = {
+      disableSessionSummaries: false,
+      sessionTitlePrompt: '',
+      summaryModel: 'tier::t-gone',
+      summaryProviderId: null,
+      defaultSessionTitlePrompt: 'Default title prompt',
+    };
+
+    const wrapper = mountView();
+    await nextTick();
+    await flushPromises();
+
+    // The catalog no longer contains the selected tier.
+    const tiersStore = useTiersStore();
+    tiersStore.tiers = [];
+    tiersStore.loaded = true;
+    await nextTick();
+
+    expect(wrapper.find('.conflict-banner').exists()).toBe(true);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(mockSettingsStore.updateSummarySettings).not.toHaveBeenCalled();
     expect(mockUiStore.success).not.toHaveBeenCalled();
   });
 });
