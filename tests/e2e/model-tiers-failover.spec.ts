@@ -14,6 +14,7 @@ import {
   connectWebSocket,
   subscribeToSessionAndVerify,
   waitForWSMessage,
+  assertNoWSMessage,
   navigateAndWait,
   openSessionOverlay,
   BASE_URL,
@@ -845,6 +846,89 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
     await expect(page.getByTestId('tier-failover-marker')).toHaveCount(0);
+  });
+
+  test('explicit concrete-model override runs tier-free: single attempt, no event, no cooling', async () => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}ExplicitOverride Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'eo-model-a', displayName: 'ExplicitOverride Model A' });
+    const providerB = await createProvider({
+      name: `${TEST_PREFIX}ExplicitOverride Provider B`,
+      kind: 'openai',
+      baseUrl: 'https://explicit-override-b.example.test/v1',
+      authToken: 'test-token',
+    });
+    await addProviderModel(providerB.id, { modelId: 'eo-model-b', displayName: 'ExplicitOverride Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Explicit-Override Tier`,
+      members: [
+        { providerId: providerA.id, modelId: 'eo-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'eo-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+
+    // Start succeeds on A (snapshot A); the explicit override to concrete A
+    // fails quota and must NOT fail over to B; a fresh tier-bound session
+    // afterwards proves A was never cooled.
+    writeScript({
+      queues: {
+        [`${providerA.id}::eo-model-a`]: ['success', 'quota_error', 'success'],
+        [`${providerB.id}::eo-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Explicit Override Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier explicit override e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(session.id)).resolvedModel).toBe('eo-model-a');
+    await waitForCaptureRecords(1);
+
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, session.id);
+
+    // Off-binding move: an explicit concrete-model pick of A while the
+    // session is bound to the tier.
+    const overrideRes = await sendFollowUp(session.id, 'eo-model-a', 'Explicit override to concrete A');
+    expect(overrideRes.ok).toBe(true);
+
+    // The override turn fails on A with no retry: terminal error, and no
+    // failover event is broadcast while it settles.
+    await Promise.all([
+      waitForStatus(session.id, 'error', 15000),
+      assertNoWSMessage(ws, 'tier:failover', 8000),
+    ]);
+
+    // Exactly ONE additional spawn for A, zero for B.
+    const records = await waitForCaptureRecords(2);
+    expect(records.map((r: any) => r.modelId)).toEqual(['eo-model-a', 'eo-model-a']);
+    expect(records.map((r: any) => r.providerId)).toEqual([providerA.id, providerA.id]);
+
+    const failoverLogs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(failoverLogs).toHaveLength(0);
+
+    // Neither member cooled: B was never dispatched (zero spawns above), and
+    // a fresh tier-bound session still resolves to A — a cooled A would be
+    // skipped in favor of B.
+    const freshSession = await seedSession(project.id, {
+      prompt: 'Tier explicit override freshness check',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(freshSession.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(freshSession.id)).resolvedModel).toBe('eo-model-a');
+
+    const finalRecords = await waitForCaptureRecords(3);
+    expect(finalRecords.map((r: any) => r.modelId)).toEqual(['eo-model-a', 'eo-model-a', 'eo-model-a']);
+    const freshRecords = finalRecords.filter((r: any) => r.sessionId === freshSession.id);
+    expect(freshRecords).toHaveLength(1);
+    expect(freshRecords[0].providerId).toBe(providerA.id);
+
+    ws.close();
   });
 });
 
