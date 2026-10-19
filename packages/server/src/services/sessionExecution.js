@@ -392,7 +392,11 @@ export async function _executeSession({
       notifyUserStopSettled,
     });
     if (outcome === 'rethrow' || outcome === 'failed') throw error;
-    if (outcome === 'rescheduled') return { started: true, outcome };
+    // The receipt must carry sessionId: finishScheduledStart validates it with
+    // didSessionExecutionStart(result, session.id), and a truthy receipt
+    // without sessionId is classified as an invalid executor response — which
+    // rejects (and wipes) the reschedule this turn just committed.
+    if (outcome === 'rescheduled') return { started: true, sessionId, outcome };
   } finally {
     // Sole ownership-release point: runs only after the provider generator
     // above has settled, and only clears this turn's own entry (controller
@@ -489,12 +493,15 @@ async function handleTerminalStreamError({
   });
   if (rescheduled) {
     markExecutionState(sessionId, 'retrying');
-    return { started: true, outcome: 'rescheduled' };
+    // Receipts must carry sessionId (see the matching comment in _executeSession):
+    // without it, the scheduler's strict validation rejects this turn's own
+    // reschedule and rejectScheduledStart wipes it.
+    return { started: true, sessionId, outcome: 'rescheduled' };
   }
   closeOwnWork(sessionId, 'closed_failed', terminalError.message, {
     turnToken: workflowTurn?.turnToken,
   });
-  return { started: true, outcome: 'failed', error: terminalError, observableActivityBeforeTerminalError };
+  return { started: true, sessionId, outcome: 'failed', error: terminalError, observableActivityBeforeTerminalError };
 }
 /**
  * Run a Claude session (initial session start)
