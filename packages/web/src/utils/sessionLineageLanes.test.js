@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLineageRows } from './sessionLineageLanes.js';
+import { buildLineageRows, selectCollapsedRows } from './sessionLineageLanes.js';
 
 const T0 = new Date('2026-01-10T12:00:00Z').getTime();
 const MIN = 60 * 1000;
@@ -137,6 +137,101 @@ describe('buildLineageRows', () => {
     const rows = buildLineageRows([s], { now: NOW });
     expect(rows).toHaveLength(1);
     expect(rows[0].barEndPct).toBe(rows[0].barStartPct);
+  });
+
+  it('exposes per-row live lanes on a linear chain', () => {
+    const rows = buildLineageRows(
+      [
+        sess('c0', { createdAt: new Date(T0).toISOString() }),
+        sess('c1', {
+          parentSessionId: 'c0',
+          createdAt: new Date(T0 + 10 * MIN).toISOString(),
+        }),
+        sess('c2', {
+          parentSessionId: 'c1',
+          createdAt: new Date(T0 + 20 * MIN).toISOString(),
+        }),
+      ],
+      { now: NOW }
+    );
+    for (const row of rows) {
+      expect(row.liveLanes).toEqual([0]);
+      expect(row.forkLanes).toEqual([]);
+    }
+  });
+
+  it('marks fork lanes where a child leaves its parent lane', () => {
+    const rows = buildLineageRows(
+      [
+        sess('root', { createdAt: new Date(T0).toISOString() }),
+        sess('child-a', {
+          parentSessionId: 'root',
+          createdAt: new Date(T0 + 10 * MIN).toISOString(),
+        }),
+        sess('child-b', {
+          parentSessionId: 'root',
+          createdAt: new Date(T0 + 20 * MIN).toISOString(),
+        }),
+      ],
+      { now: NOW }
+    );
+    expect(rows[0].liveLanes).toEqual([0]);
+    expect(rows[0].forkLanes).toEqual([1]);
+    expect(rows[1].liveLanes).toEqual([0]);
+    expect(rows[1].forkLanes).toEqual([]);
+    expect(rows[2].liveLanes).toEqual([1]);
+    expect(rows[2].forkLanes).toEqual([]);
+  });
+
+  it('drops a finished branch lane from later rows', () => {
+    const rows = buildLineageRows(
+      [
+        sess('root', { createdAt: new Date(T0).toISOString() }),
+        sess('a', {
+          parentSessionId: 'root',
+          createdAt: new Date(T0 + 10 * MIN).toISOString(),
+        }),
+        sess('b', {
+          parentSessionId: 'root',
+          createdAt: new Date(T0 + 20 * MIN).toISOString(),
+        }),
+        sess('c', {
+          parentSessionId: 'b',
+          createdAt: new Date(T0 + 30 * MIN).toISOString(),
+        }),
+        sess('d', {
+          parentSessionId: 'a',
+          createdAt: new Date(T0 + 40 * MIN).toISOString(),
+        }),
+      ],
+      { now: NOW }
+    );
+    expect(rows.map((r) => r.session.id)).toEqual(['root', 'a', 'b', 'c', 'd']);
+    // Row 'b' sits on the fork lane while the parent lane passes through.
+    expect(rows[2].lane).toBe(1);
+    expect(rows[2].liveLanes).toEqual([0, 1]);
+    // The fork lane's subtree is finished by the last row, so it disappears.
+    const last = rows[rows.length - 1];
+    expect(last.liveLanes).toEqual([0]);
+    expect(last.liveLanes).not.toContain(1);
+  });
+
+  it('selectCollapsedRows pins the current row when it is past the limit', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ session: { id: `s${i}` } }));
+    const collapsed = selectCollapsedRows(rows, 's9', 8);
+    expect(collapsed).toHaveLength(8);
+    expect(collapsed.map((r) => r.session.id)).toEqual(
+      ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's9']
+    );
+  });
+
+  it('selectCollapsedRows keeps the first rows when the current row is within the limit', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ session: { id: `s${i}` } }));
+    expect(selectCollapsedRows(rows, 's2', 8).map((r) => r.session.id)).toEqual(
+      ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
+    );
+    expect(selectCollapsedRows(rows, null, 8)).toHaveLength(8);
+    expect(selectCollapsedRows(rows.slice(0, 8), 's7', 8)).toHaveLength(8);
   });
 
   it('returns [] for empty input without throwing', () => {

@@ -40,7 +40,6 @@
         :aria-label="`Open session ${row.session.name}`"
         :title="rowTooltip(row)"
         @click="openRow(row.session.id)"
-        @keydown.enter="openRow(row.session.id)"
       >
         <span
           class="lineage-gutter"
@@ -48,11 +47,17 @@
           aria-hidden="true"
         >
           <span
-            v-for="lane in laneCount"
+            v-for="lane in rowLiveLanes(row)"
             :key="lane"
             class="lineage-lane-line"
             :class="{ 'lineage-lane-line--dashed': row.isScheduled }"
-            :style="{ left: `${laneOffset(lane - 1)}px` }"
+            :style="{ left: `${laneOffset(lane)}px` }"
+          />
+          <span
+            v-for="forkLane in row.forkLanes || []"
+            :key="`fork-${forkLane}`"
+            class="lineage-fork-tick"
+            :style="forkTickStyle(row.lane, forkLane)"
           />
           <span
             class="lineage-node"
@@ -111,6 +116,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { formatTokenCount } from '@circuschief/shared';
+import { selectCollapsedRows } from '../utils/sessionLineageLanes.js';
 
 const props = defineProps({
   rows: {
@@ -149,11 +155,26 @@ const laneCount = computed(() =>
 const gutterWidth = computed(() => (laneCount.value - 1) * LANE_PITCH_PX + NODE_RADIUS_PX * 2 + 2);
 
 const visibleRows = computed(() =>
-  expanded.value ? props.rows : props.rows.slice(0, props.visibleLimit)
+  expanded.value
+    ? props.rows
+    : selectCollapsedRows(props.rows, props.currentSessionId, props.visibleLimit)
 );
 
 function laneOffset(lane) {
   return NODE_RADIUS_PX + 1 + lane * LANE_PITCH_PX;
+}
+
+// Lanes alive at this row come from the helper; rows built without it
+// (e.g. hand-rolled fixtures) fall back to drawing every lane.
+function rowLiveLanes(row) {
+  if (Array.isArray(row?.liveLanes)) return row.liveLanes;
+  return Array.from({ length: laneCount.value }, (_, lane) => lane);
+}
+
+function forkTickStyle(fromLane, toLane) {
+  const from = laneOffset(fromLane || 0);
+  const to = laneOffset(toLane || 0);
+  return { left: `${Math.min(from, to)}px`, width: `${Math.abs(to - from)}px` };
 }
 
 // emerald running (pulsing) / gray stopped / red error / amber scheduled+waiting+starting
@@ -289,6 +310,14 @@ function rowTooltip(row) {
   bottom: 0;
   width: 2px;
   margin-left: -1px;
+  background: var(--color-border);
+}
+
+.lineage-fork-tick {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
   background: var(--color-border);
 }
 

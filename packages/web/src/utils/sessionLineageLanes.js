@@ -22,22 +22,83 @@ const LIVE_STATUSES = new Set(['running', 'starting']);
  *
  * @param {Array<Object>} sessions raw session objects
  * @param {{ maxLanes?: number, now?: number }} [options]
- * @returns {Array<{ session: Object, lane: number, barStartPct: number, barEndPct: number, isScheduled: boolean }>}
+ * @returns {Array<{ session: Object, lane: number, liveLanes: number[], forkLanes: number[], barStartPct: number, barEndPct: number, isScheduled: boolean }>}
  */
 export function buildLineageRows(sessions, { maxLanes = 4, now = Date.now() } = {}) {
   const list = Array.isArray(sessions) ? sessions : [];
   if (list.length === 0) return [];
   const cap = Math.max(1, Math.floor(maxLanes) || 1);
   const sorted = sortLineageSessions(list);
-  const laneOf = assignLanes(sorted, indexById(sorted), indexChildren(sorted), cap);
+  const byId = indexById(sorted);
+  const childrenOf = indexChildren(sorted);
+  const laneOf = assignLanes(sorted, byId, childrenOf, cap);
   const bars = computeBarFractions(sorted, now);
+  const lifetimes = computeLaneLifetimes(sorted, childrenOf, laneOf);
   return sorted.map((s) => ({
     session: s,
     lane: laneOf.get(s.id) ?? 0,
+    liveLanes: lifetimes.liveLanes.get(s.id) ?? [laneOf.get(s.id) ?? 0],
+    forkLanes: lifetimes.forkLanes.get(s.id) ?? [],
     barStartPct: bars.get(s.id).barStartPct,
     barEndPct: bars.get(s.id).barEndPct,
     isScheduled: s?.status === 'scheduled',
   }));
+}
+
+// Per-row lane lifetimes for the gutter: a lane draws a vertical line on
+// row `i` when row `i` sits on it, or when an earlier row on that lane
+// still has a descendant below row `i` (a through-line). A finished
+// branch's lane therefore disappears from later rows. `forkLanes` marks
+// the lanes a child leaves this row's lane for (fork tick targets).
+function computeLaneLifetimes(sorted, childrenOf, laneOf) {
+  const positionOf = new Map(sorted.map((s, index) => [s?.id, index]));
+  const memo = new Map();
+  const liveLanes = new Map();
+  const forkLanes = new Map();
+  sorted.forEach((s, index) => {
+    const ownLane = laneOf.get(s?.id) ?? 0;
+    const live = new Set([ownLane]);
+    for (let j = 0; j < index; j++) {
+      const earlier = sorted[j];
+      const earlierLane = laneOf.get(earlier?.id) ?? 0;
+      if (live.has(earlierLane)) continue;
+      for (const descId of descendantIds(earlier?.id, childrenOf, memo)) {
+        if ((positionOf.get(descId) ?? -1) > index) {
+          live.add(earlierLane);
+          break;
+        }
+      }
+    }
+    liveLanes.set(s?.id, [...live].sort((a, b) => a - b));
+    const forks = new Set();
+    for (const childId of childrenOf.get(s?.id) || []) {
+      const childLane = laneOf.get(childId) ?? 0;
+      if (childLane !== ownLane) forks.add(childLane);
+    }
+    forkLanes.set(s?.id, [...forks].sort((a, b) => a - b));
+  });
+  return { liveLanes, forkLanes };
+}
+
+/**
+ * Pick the rows shown while the graph is collapsed. Rows within the limit
+ * (or when the current session is among them) render as-is; otherwise the
+ * first `limit - 1` rows render plus the current session's row, so the
+ * "you are here" marker is never sliced away. The expander still reveals
+ * everything.
+ *
+ * @param {Array<Object>} rows lineage rows (already ordered)
+ * @param {string|null} [currentSessionId]
+ * @param {number} [limit]
+ * @returns {Array<Object>}
+ */
+export function selectCollapsedRows(rows, currentSessionId = null, limit = 8) {
+  const list = Array.isArray(rows) ? rows : [];
+  const cap = Math.max(1, Math.floor(limit) || 1);
+  if (list.length <= cap) return list;
+  const currentIndex = list.findIndex((row) => row?.session?.id === currentSessionId);
+  if (currentIndex === -1 || currentIndex < cap) return list.slice(0, cap);
+  return [...list.slice(0, cap - 1), list[currentIndex]];
 }
 
 function sortLineageSessions(list) {
