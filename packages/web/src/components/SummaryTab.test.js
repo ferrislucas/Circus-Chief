@@ -1441,5 +1441,102 @@ describe('SummaryTab', () => {
     });
   });
 
+  describe('Session lineage graph', () => {
+    const T0 = new Date('2026-01-10T12:00:00Z').getTime();
+    const MIN = 60 * 1000;
+
+    function seedTree() {
+      sessionsStore.sessions = [
+        {
+          id: 'root-1', name: 'Root', status: 'stopped', projectId: 'proj-1',
+          createdAt: new Date(T0).toISOString(),
+          updatedAt: new Date(T0 + 10 * MIN).toISOString(),
+        },
+        {
+          id: 'child-1', name: 'Child', status: 'running', parentSessionId: 'root-1', projectId: 'proj-1',
+          createdAt: new Date(T0 + 10 * MIN).toISOString(),
+          updatedAt: new Date(T0 + 20 * MIN).toISOString(),
+        },
+        {
+          id: 'grandchild-1', name: 'Grandchild', status: 'waiting', parentSessionId: 'child-1', projectId: 'proj-1',
+          createdAt: new Date(T0 + 20 * MIN).toISOString(),
+          updatedAt: new Date(T0 + 25 * MIN).toISOString(),
+        },
+      ];
+      return sessionsStore.sessions;
+    }
+
+    function mountWithOverlaySpy(sessionId, spy) {
+      return mount(SummaryTab, {
+        props: { sessionId },
+        attrs: { onOpenSessionOverlay: spy },
+        global: {
+          stubs: {
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
+            SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
+            SummaryContent: {
+              name: 'SummaryContent',
+              props: ['summary'],
+              template: '<div class="summary-content-stub">{{ summary?.fullSummary || summary?.shortSummary }}</div>',
+            },
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub" data-testid="scheduled-child-card">{{ session.name }}</div>',
+            },
+          },
+        },
+      });
+    }
+
+    it('passes root-anchored lineageRows even when viewing a child session', async () => {
+      seedTree();
+      sessionsStore.currentSession = sessionsStore.sessions[1];
+
+      const wrapper = mountComponent({ sessionId: 'child-1' });
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('lineageRows').map((r) => r.session.id))
+        .toEqual(['root-1', 'child-1', 'grandchild-1']);
+      expect(overviewCard.props('currentSessionId')).toBe('child-1');
+      expect(wrapper.find('[data-testid="session-lineage-graph"]').exists()).toBe(true);
+    });
+
+    it('hides the graph for a single-session workspace', async () => {
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Solo work' });
+      sessionsStore.currentSession = {
+        id: 'solo', name: 'Solo', status: 'waiting', projectId: 'proj-1',
+        createdAt: new Date(T0).toISOString(),
+        updatedAt: new Date(T0 + 5 * MIN).toISOString(),
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent({ sessionId: 'solo' });
+      await flushAll(wrapper);
+
+      // Card renders (shortSummary) but the lineage subsection stays hidden.
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('lineageRows')).toHaveLength(1);
+      expect(wrapper.find('[data-testid="session-lineage-graph"]').exists()).toBe(false);
+    });
+
+    it('re-emits a graph row click as open-session-overlay', async () => {
+      seedTree();
+      sessionsStore.currentSession = sessionsStore.sessions[0];
+      // attrs listener: wrapper.emitted() is unreliable with script setup SFCs.
+      const spy = vi.fn();
+      const wrapper = mountWithOverlaySpy('root-1', spy);
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-session-id="grandchild-1"]').trigger('click');
+      expect(spy).toHaveBeenCalledWith('grandchild-1');
+    });
+  });
+
 
 });

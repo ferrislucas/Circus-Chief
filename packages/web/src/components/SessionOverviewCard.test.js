@@ -131,6 +131,68 @@ describe('SessionOverviewCard.vue', () => {
     });
   });
 
+  describe('Lineage graph subsection', () => {
+    function lineageRow(id, overrides = {}) {
+      return {
+        session: {
+          id,
+          name: `Session ${id}`,
+          status: 'stopped',
+          createdAt: '2026-01-10T12:00:00Z',
+          updatedAt: '2026-01-10T12:10:00Z',
+        },
+        lane: 0,
+        barStartPct: 0,
+        barEndPct: 50,
+        isScheduled: false,
+        ...overrides,
+      };
+    }
+
+    it('renders the lineage graph when lineageRows has 2+ rows', () => {
+      const wrapper = mountComponent({
+        hasMetrics: true,
+        lineageRows: [lineageRow('a'), lineageRow('b')],
+        currentSessionId: 'b',
+      });
+
+      expect(wrapper.find('[data-testid="session-lineage-graph"]').exists()).toBe(true);
+      expect(wrapper.findAll('[data-session-id]').map((el) => el.attributes('data-session-id')))
+        .toEqual(['a', 'b']);
+    });
+
+    it('hides the lineage graph for 0 or 1 rows', () => {
+      const withOne = mountComponent({
+        hasMetrics: true,
+        lineageRows: [lineageRow('a')],
+      });
+      expect(withOne.find('[data-testid="session-lineage-graph"]').exists()).toBe(false);
+
+      const withNone = mountComponent({ hasMetrics: true, lineageRows: [] });
+      expect(withNone.find('[data-testid="session-lineage-graph"]').exists()).toBe(false);
+    });
+
+    it("re-emits the graph's open-session as open-session-overlay", async () => {
+      // attrs listener per ScheduledChildCard.test.js (wrapper.emitted()
+      // is unreliable with script setup SFCs).
+      const spy = vi.fn();
+      const wrapper = mount(SessionOverviewCard, {
+        props: {
+          summary: null,
+          loading: false,
+          hasPrInfo: false,
+          hasMetrics: true,
+          lineageRows: [lineageRow('a'), lineageRow('b')],
+          currentSessionId: 'a',
+        },
+        attrs: { onOpenSessionOverlay: spy },
+      });
+
+      await wrapper.find('[data-session-id="b"]').trigger('click');
+      expect(spy).toHaveBeenCalledWith('b');
+    });
+  });
+
   describe('Session count metric', () => {
     it('renders the session count metric with a "Sessions" label', () => {
       const wrapper = mountComponent({
