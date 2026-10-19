@@ -60,6 +60,12 @@ export const WorkspaceCardKanbanResponse = z.object({
   cardId: z.string().uuid(),
   laneId: z.string().uuid(),
   laneName: z.string(),
+  // Queue presentation state, mirroring KanbanCardResponse. Absent (not
+  // null) when the entry is not queued — absence means "not queued".
+  entryState: z.enum(['running', 'queued']).optional(),
+  queuePosition: z.number().int().min(1).nullable().optional(),
+  // Present only while the card's entry waits in a disabled lane's queue.
+  entryStatus: z.enum(['queued']).optional(),
 });
 
 /**

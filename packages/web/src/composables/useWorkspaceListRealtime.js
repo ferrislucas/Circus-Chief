@@ -161,6 +161,20 @@ export function useWorkspaceListRealtime(projectId, refresh, options = {}) {
           else cb({ sessionId, buttonId, runId, delete: true });
         }),
         onSessionSummaryUpdated: cb => subscription.onSessionSummaryUpdated((sessionId, summary) => cb({ sessionId, summary })),
+        // Queue broadcasts patch the listed card's `kanban` object in place
+        // (no list reload on every queue tick). Move/remove also schedule a
+        // debounced refresh via REFRESH_EVENTS to converge the remaining
+        // card fields; the patch gives immediate badge convergence.
+        onKanbanEntryQueued: cb => subscription.onKanbanEntryQueued(msg => cb({
+          cardId: msg.cardId, laneId: msg.laneId, queuePosition: msg.queuePosition ?? null,
+        })),
+        onKanbanQueueDrained: cb => subscription.onKanbanQueueDrained(msg => cb({ laneId: msg.laneId })),
+        onKanbanCardMoved: cb => subscription.onKanbanCardMoved(
+          (cardId, fromLaneId, toLaneId, card) => cb({ cardId, fromLaneId, toLaneId, card })
+        ),
+        onKanbanCardRemoved: cb => subscription.onKanbanCardRemoved(
+          (cardId, laneId) => cb({ cardId, laneId })
+        ),
       };
       for (const [name, register] of Object.entries(patchHandlers)) {
         if (typeof subscription[name] === 'function') {

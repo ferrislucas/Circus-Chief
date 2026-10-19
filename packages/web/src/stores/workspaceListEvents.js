@@ -73,6 +73,110 @@ export function commandRunPatch(cardsById, event) {
   };
 }
 
+/** Queue presentation keys carried on a workspace card's `kanban` object. */
+const QUEUE_FIELD_KEYS = ['entryState', 'queuePosition', 'entryStatus'];
+
+function hasQueueFields(kanban) {
+  return QUEUE_FIELD_KEYS.some((key) => key in (kanban || {}));
+}
+
+/** A `kanban` object with queue presentation state removed. */
+function stripQueueFields(kanban) {
+  const next = { ...kanban };
+  for (const key of QUEUE_FIELD_KEYS) delete next[key];
+  return next;
+}
+
+/** Loaded card whose `kanban.cardId` matches a broadcast kanban card id. */
+function cardByKanbanCardId(cardsById, cardId) {
+  if (!cardId) return null;
+  for (const card of Object.values(cardsById)) {
+    if (card.kanban?.cardId === cardId) return card;
+  }
+  return null;
+}
+
+/**
+ * Patches for realtime kanban queue broadcasts. The broadcasts are
+ * authoritative for queue state ("authoritative broadcast wins", mirroring
+ * the kanban store): a queued broadcast sets the marker, drain/move/remove
+ * broadcasts clear a stale one. Each returns `{ cardId, patch }`; empty when
+ * the event names no loaded card, in which case the caller falls back to a
+ * full refresh.
+ */
+export function queuePatches(cardsById, event) {
+  switch (event?.kind) {
+    case 'onKanbanEntryQueued':
+      return queuedCardPatch(cardsById, event);
+    case 'onKanbanQueueDrained':
+      return drainedLanePatches(cardsById, event);
+    case 'onKanbanCardMoved':
+      return movedCardPatch(cardsById, event);
+    case 'onKanbanCardRemoved':
+      return removedCardPatch(cardsById, event);
+    default:
+      return [];
+  }
+}
+
+/**
+ * Restore the server-provided paused-lane marker (`entryStatus: 'queued'`)
+ * that `stripQueueFields` removes. Preserve-only for queued move broadcasts,
+ * which carry their own `entryStatus`: the marker is kept iff the loaded
+ * card already held it — never invented when absent.
+ */
+function preservePausedMarker(current, next) {
+  if (current?.entryStatus === 'queued') return { ...next, entryStatus: 'queued' };
+  return next;
+}
+
+/**
+ * `KANBAN_ENTRY_QUEUED` is emitted exclusively for disabled-lane (paused)
+ * entries, so the event implies the paused cause: stamp `entryStatus:
+ * 'queued'` alongside `entryState` (mirroring the server's disabled-path
+ * derivation and the kanban store handler) instead of preserve-only.
+ */
+function queuedCardPatch(cardsById, event) {
+  const card = cardByKanbanCardId(cardsById, event.cardId);
+  if (!card?.kanban) return [];
+  const kanban = { ...stripQueueFields(card.kanban), entryState: 'queued', entryStatus: 'queued' };
+  if (event.queuePosition != null) kanban.queuePosition = event.queuePosition;
+  return [{ cardId: card.id, patch: { kanban } }];
+}
+
+function drainedLanePatches(cardsById, event) {
+  return Object.values(cardsById)
+    .filter((card) => card.kanban?.laneId === event.laneId && hasQueueFields(card.kanban))
+    .map((card) => ({ cardId: card.id, patch: { kanban: stripQueueFields(card.kanban) } }));
+}
+
+function movedCardPatch(cardsById, event) {
+  const card = cardByKanbanCardId(cardsById, event.cardId);
+  if (!card?.kanban) return [];
+  const broadcast = event.card || {};
+  if (broadcast.entryState === 'queued' || broadcast.entryStatus === 'queued') {
+    return [{ cardId: card.id, patch: { kanban: queuedBroadcastKanban(card.kanban, broadcast) } }];
+  }
+  if (!hasQueueFields(card.kanban)) return [];
+  return [{ cardId: card.id, patch: { kanban: stripQueueFields(card.kanban) } }];
+}
+
+function queuedBroadcastKanban(current, broadcast) {
+  const kanban = preservePausedMarker(
+    current,
+    { ...stripQueueFields(current), entryState: 'queued' },
+  );
+  if (broadcast.queuePosition != null) kanban.queuePosition = broadcast.queuePosition;
+  if (broadcast.entryStatus === 'queued') kanban.entryStatus = 'queued';
+  return kanban;
+}
+
+function removedCardPatch(cardsById, event) {
+  const card = cardByKanbanCardId(cardsById, event.cardId);
+  if (!card?.kanban || !hasQueueFields(card.kanban)) return [];
+  return [{ cardId: card.id, patch: { kanban: stripQueueFields(card.kanban) } }];
+}
+
 /** Patch for a realtime summary update. */
 export function summaryPatch(cardsById, sessionId, summary) {
   const card = cardForMember(cardsById, sessionId);

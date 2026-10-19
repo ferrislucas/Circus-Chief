@@ -47,6 +47,17 @@ vi.mock('../stores/kanban.js', () => ({
   useKanbanStore: vi.fn(() => mockKanbanStoreInstance),
 }));
 
+// Shared sessions-store mock: SessionNameEditor consumes updateSession, the
+// header consumes getRootSession for workflow-root-first card resolution.
+const mockSessionsStoreInstance = {
+  updateSession: vi.fn(),
+  getRootSession: vi.fn(() => null),
+};
+
+vi.mock('../stores/sessions.js', () => ({
+  useSessionsStore: vi.fn(() => mockSessionsStoreInstance),
+}));
+
 vi.mock('../composables/useApi.js', () => ({
   api: {
     updateSession: vi.fn().mockResolvedValue({}),
@@ -69,6 +80,7 @@ describe('SessionHeaderPanel', () => {
     vi.clearAllMocks();
     mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null);
     mockKanbanStoreInstance.getLaneById.mockReturnValue(null);
+    mockSessionsStoreInstance.getRootSession.mockReturnValue(null);
   });
 
   function mountPanel(props = {}) {
@@ -686,6 +698,66 @@ describe('SessionHeaderPanel', () => {
 
         expect(wrapper.vm.showMoveCardModal).toBe(false);
       });
+    });
+  });
+
+  describe('queued badge', () => {
+    it('renders Queued #N in the indicators row when the workflow card is queued', () => {
+      mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
+        id: 'card-1', laneId: 'lane-1', entryState: 'queued', queuePosition: 1,
+      });
+
+      const wrapper = mountPanel();
+
+      const badge = wrapper.find('.left-indicators [data-testid="queued-badge"]');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('Queued');
+      expect(badge.text()).toContain('#1');
+    });
+
+    it('renders no badge when the entry is running, off-board, or the store throws', () => {
+      const cases = [
+        () => mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
+          id: 'card-1', laneId: 'lane-1', entryState: 'running', queuePosition: null,
+        }),
+        () => mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null),
+        () => mockKanbanStoreInstance.getCardBySessionId.mockImplementation(() => {
+          throw new Error('store unavailable');
+        }),
+      ];
+
+      for (const setup of cases) {
+        setup();
+        const wrapper = mountPanel();
+        expect(wrapper.find('[data-testid="queued-badge"]').exists()).toBe(false);
+      }
+    });
+
+    it('resolves a child session through its workflow root', () => {
+      mockSessionsStoreInstance.getRootSession.mockReturnValue({ id: 'root-1' });
+      mockKanbanStoreInstance.getCardBySessionId.mockImplementation((id) =>
+        id === 'root-1'
+          ? { id: 'card-1', laneId: 'lane-1', entryState: 'queued', queuePosition: 2 }
+          : null
+      );
+
+      const wrapper = mountPanel({
+        sessionId: 'child-1',
+        session: {
+          id: 'child-1',
+          name: 'Child session',
+          status: 'running',
+          projectId: 'proj-1',
+          parentSessionId: 'root-1',
+          starred: false,
+          prUrl: null,
+          archived: false,
+        },
+      });
+
+      const badge = wrapper.find('.left-indicators [data-testid="queued-badge"]');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('#2');
     });
   });
 

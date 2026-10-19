@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { resolveQueueState } from '../utils/queuedState.js';
 import {
   useWorkspaceListStore,
   WORKSPACE_PAGE_SIZE,
@@ -465,6 +466,150 @@ describe('workspace list realtime patching', () => {
     expect(api.getWorkspaceCard).toHaveBeenCalledWith('root-1');
     expect(api.getWorkspaceCards).not.toHaveBeenCalled();
     expect(store.facets).toEqual({ running: 1, idle: 0 });
+  });
+
+  describe('queue state patching', () => {
+    async function loadedStoreWithBoard() {
+      api.getWorkspaceCards.mockResolvedValue(response([
+        {
+          id: 'root-1',
+          memberIds: ['root-1', 'child-1'],
+          latestCommandRuns: [],
+          kanban: { cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' },
+        },
+      ]));
+      const store = useWorkspaceListStore();
+      await store.load('project-a', {});
+      return store;
+    }
+
+    it('patches a queued broadcast into the listed card without a request', async () => {
+      const store = await loadedStoreWithBoard();
+      api.getWorkspaceCards.mockClear();
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 2,
+      });
+      expect(patched).toBe('root-1');
+      expect(store.cardsById['root-1'].kanban).toMatchObject({ entryState: 'queued', entryStatus: 'queued', queuePosition: 2 });
+      expect(api.getWorkspaceCards).not.toHaveBeenCalled();
+    });
+
+    it('clears queue fields on a drain broadcast', async () => {
+      const store = await loadedStoreWithBoard();
+      store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 1,
+      });
+      expect(store.cardsById['root-1'].kanban).toMatchObject({ entryState: 'queued' });
+
+      const patched = store.applyQueueEvent({ kind: 'onKanbanQueueDrained', laneId: 'lane-1' });
+      expect(patched).toBe('root-1');
+      const kanban = store.cardsById['root-1'].kanban;
+      expect(kanban).toMatchObject({ cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane' });
+      expect('entryState' in kanban).toBe(false);
+      expect('queuePosition' in kanban).toBe(false);
+    });
+
+    it('lets an authoritative move clear a stale queued marker', async () => {
+      const store = await loadedStoreWithBoard();
+      store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 1,
+      });
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanCardMoved', cardId: 'card-1', card: { id: 'card-1', laneId: 'lane-2' },
+      });
+      expect(patched).toBe('root-1');
+      expect('entryState' in store.cardsById['root-1'].kanban).toBe(false);
+    });
+
+    it('preserves a server-provided paused marker across a causeless queued broadcast', async () => {
+      const store = await loadedStoreWithBoard();
+      store.patchCard('root-1', {
+        kanban: {
+          cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane',
+          entryState: 'queued', entryStatus: 'queued', queuePosition: 3,
+        },
+      });
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 2,
+      });
+      expect(patched).toBe('root-1');
+      expect(store.cardsById['root-1'].kanban).toMatchObject({
+        entryState: 'queued', entryStatus: 'queued', queuePosition: 2,
+      });
+    });
+
+    it('stamps the paused marker on a queued broadcast (paused-cause event)', async () => {
+      const store = await loadedStoreWithBoard();
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 2,
+      });
+      expect(patched).toBe('root-1');
+      expect(store.cardsById['root-1'].kanban).toMatchObject({
+        entryState: 'queued', entryStatus: 'queued', queuePosition: 2,
+      });
+    });
+
+    it('preserves a server-provided paused marker across a causeless queued move', async () => {
+      const store = await loadedStoreWithBoard();
+      store.patchCard('root-1', {
+        kanban: {
+          cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane',
+          entryState: 'queued', entryStatus: 'queued', queuePosition: 3,
+        },
+      });
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanCardMoved',
+        cardId: 'card-1',
+        card: { id: 'card-1', laneId: 'lane-1', entryState: 'queued', queuePosition: 1 },
+      });
+      expect(patched).toBe('root-1');
+      expect(store.cardsById['root-1'].kanban).toMatchObject({
+        entryState: 'queued', entryStatus: 'queued', queuePosition: 1,
+      });
+    });
+
+    it('does not invent a paused marker on a causeless queued move when absent', async () => {
+      const store = await loadedStoreWithBoard();
+      const patched = store.applyQueueEvent({
+        kind: 'onKanbanCardMoved',
+        cardId: 'card-1',
+        card: { id: 'card-1', laneId: 'lane-1', entryState: 'queued', queuePosition: 1 },
+      });
+      expect(patched).toBe('root-1');
+      expect(store.cardsById['root-1'].kanban).toMatchObject({
+        entryState: 'queued', queuePosition: 1,
+      });
+      expect('entryStatus' in store.cardsById['root-1'].kanban).toBe(false);
+    });
+
+    it('keeps the paused tooltip cause after a causeless queued broadcast patches a paused card', async () => {
+      const store = await loadedStoreWithBoard();
+      store.patchCard('root-1', {
+        kanban: {
+          cardId: 'card-1', laneId: 'lane-1', laneName: 'Lane',
+          entryState: 'queued', entryStatus: 'queued', queuePosition: 3,
+        },
+      });
+      store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-1', laneId: 'lane-1', queuePosition: 2,
+      });
+      const resolved = resolveQueueState(store.cardsById['root-1'].kanban, null);
+      expect(resolved).toMatchObject({ entryState: 'queued', entryStatus: 'queued' });
+    });
+
+    it('ignores queue broadcasts for unknown cards without crashing', async () => {
+      const store = await loadedStoreWithBoard();
+      expect(store.applyQueueEvent({
+        kind: 'onKanbanEntryQueued', cardId: 'card-unknown', laneId: 'lane-1', queuePosition: 1,
+      })).toBeNull();
+      expect(store.applyQueueEvent({ kind: 'onKanbanQueueDrained', laneId: 'lane-unknown' })).toBeNull();
+      expect(store.applyQueueEvent({
+        kind: 'onKanbanCardMoved', cardId: 'card-unknown', card: { id: 'card-unknown' },
+      })).toBeNull();
+      expect(store.applyQueueEvent({
+        kind: 'onKanbanCardRemoved', cardId: 'card-unknown', laneId: 'lane-1',
+      })).toBeNull();
+    });
   });
 
 });

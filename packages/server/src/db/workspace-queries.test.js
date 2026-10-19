@@ -97,7 +97,104 @@ describe('getWorkspaceCardPage', () => {
     expect(getWorkspaceCardPage(db, 'project', { status: 'idle', limit: 10 }).cards.map((c) => c.id))
       .toEqual(['idle-waiting-status']);
   }));
+});
 
+describe('getWorkspaceCardPage queue state', () => {
+  function addBoard(db, laneOptions = {}) {
+    const { automationEnabled = 1, concurrencyLimit = null, onEnterPrompt = 'run it' } = laneOptions;
+    db.prepare("INSERT INTO kanban_boards (id, project_id, created_at, updated_at) VALUES ('board', 'project', 1, 1)").run();
+    db.prepare(`INSERT INTO kanban_lanes
+      (id, board_id, name, sort_order, on_enter_prompt, concurrency_limit, automation_enabled, created_at, updated_at)
+      VALUES ('lane', 'board', 'Lane', 0, ?, ?, ?, 1, 1)`)
+      .run(onEnterPrompt, concurrencyLimit, automationEnabled);
+  }
+
+  function addCard(db, cardId, sessionId, options = {}) {
+    const { entryQueued = 0, laneEntryEventId = null, sortOrder = 0 } = options;
+    db.prepare(`INSERT INTO kanban_cards
+      (id, lane_id, sort_order, active_lane_run_id, lane_entry_event_id, entry_queued, created_at, updated_at)
+      VALUES (?, 'lane', ?, NULL, ?, ?, 1, 1)`)
+      .run(cardId, sortOrder, laneEntryEventId, entryQueued);
+    db.prepare('INSERT INTO kanban_card_sessions (id, card_id, session_id, created_at) VALUES (?, ?, ?, 1)')
+      .run(`kcs-${cardId}`, cardId, sessionId);
+  }
+
+  function addQueuedEntryEvent(db, eventId, cardId, sessionId) {
+    db.prepare(`INSERT INTO kanban_lane_entry_events
+      (id, idempotency_key, project_id, workspace_id, card_id, lane_id, cause, status, created_at, updated_at)
+      VALUES (?, ?, 'project', ?, ?, 'lane', 'card_added', 'queued', 1, 1)`)
+      .run(eventId, `key-${eventId}`, sessionId, cardId);
+    db.prepare('UPDATE kanban_cards SET lane_entry_event_id = ? WHERE id = ?').run(eventId, cardId);
+  }
+
+  function kanbanFor(db, sessionId, options) {
+    const page = getWorkspaceCardPage(db, 'project', { limit: 10, ...options });
+    return page.cards.find((card) => card.id === sessionId)?.kanban;
+  }
+
+  it('marks a card parked by a paused lane as queued', () => withDb((db) => {
+    addSession(db, 'root');
+    addBoard(db, { automationEnabled: 0 });
+    addCard(db, 'card', 'root');
+    addQueuedEntryEvent(db, 'event', 'card', 'root');
+
+    expect(kanbanFor(db, 'root')).toMatchObject({ cardId: 'card', entryState: 'queued' });
+  }));
+
+  it('marks cards queued behind a concurrency limit with board-matching positions', () => withDb((db) => {
+    addSession(db, 'first');
+    addSession(db, 'second');
+    addBoard(db, { concurrencyLimit: 1 });
+    addCard(db, 'card-first', 'first', { entryQueued: 1, sortOrder: 0 });
+    addCard(db, 'card-second', 'second', { entryQueued: 1, sortOrder: 1 });
+
+    expect(kanbanFor(db, 'first')).toMatchObject({ entryState: 'queued', queuePosition: 1 });
+    expect(kanbanFor(db, 'second')).toMatchObject({ entryState: 'queued', queuePosition: 2 });
+  }));
+
+  it('carries no queue fields for running or off-board cards', () => withDb((db) => {
+    addSession(db, 'running-root');
+    addSession(db, 'plain-root');
+    addBoard(db, { concurrencyLimit: 1 });
+    addCard(db, 'card-running', 'running-root', { entryQueued: 1 });
+    db.prepare(`INSERT INTO kanban_lane_runs
+      (id, lane_entry_event_id, project_id, workspace_id, card_id, source_lane_id, status, created_at, updated_at)
+      VALUES ('run', 'run-event', 'project', 'running-root', 'card-running', 'lane', 'open', 1, 1)`).run();
+    db.prepare('UPDATE kanban_cards SET active_lane_run_id = ? WHERE id = ?').run('run', 'card-running');
+
+    const running = kanbanFor(db, 'running-root');
+    expect(running.cardId).toBe('card-running');
+    expect('entryState' in running).toBe(false);
+    expect('queuePosition' in running).toBe(false);
+    expect(kanbanFor(db, 'plain-root')).toBeNull();
+  }));
+
+  it('carries no queue fields for archived workspace cards', () => withDb((db) => {
+    addSession(db, 'archived-root');
+    db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run('archived-root');
+    addBoard(db, { concurrencyLimit: 1 });
+    addCard(db, 'card-archived', 'archived-root', { entryQueued: 1 });
+
+    const page = getWorkspaceCardPage(db, 'project', { limit: 10, archived: true });
+    const kanban = page.cards.find((card) => card.id === 'archived-root')?.kanban;
+    expect(kanban.cardId).toBe('card-archived');
+    expect('entryState' in kanban).toBe(false);
+  }));
+
+  it('agrees between the list and the single-card path for the same workspace', () => withDb((db) => {
+    addSession(db, 'root');
+    addBoard(db, { concurrencyLimit: 1 });
+    addCard(db, 'card', 'root', { entryQueued: 1, sortOrder: 0 });
+
+    const listed = kanbanFor(db, 'root');
+    const single = kanbanFor(db, 'root', { rootId: 'root', limit: 1 });
+
+    expect(listed).toMatchObject({ entryState: 'queued', queuePosition: 1 });
+    expect(single).toEqual(listed);
+  }));
+});
+
+describe('getWorkspaceCardPage aggregates', () => {
   it('counts a workflow with active and blocked members in both facets', () => withDb((db) => {
     addSession(db, 'root', { status: 'running' });
     addSession(db, 'blocked-child', {
