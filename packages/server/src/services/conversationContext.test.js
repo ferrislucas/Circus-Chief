@@ -107,6 +107,16 @@ describe('conversationContext', () => {
       buildConversationContextForModelSwitch('conv-42');
       expect(messages.getByConversationId).toHaveBeenCalledWith('conv-42');
     });
+
+    it('keeps a trailing assistant message (failed-turn partial output)', () => {
+      messages.getByConversationId.mockReturnValue([
+        { role: 'user', content: 'Current prompt' },
+        { role: 'assistant', content: 'Partial work before quota wall' },
+      ]);
+      const result = buildConversationContextForModelSwitch('conv-1');
+      expect(result).toContain('User: Current prompt');
+      expect(result).toContain('Assistant: Partial work before quota wall');
+    });
   });
 
   // ── buildConversationContextForBranch ─────────────────────────────────

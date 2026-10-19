@@ -1,7 +1,7 @@
-import { conversations, messages, sessions, workLogs } from '../database.js';
+import { conversations, messages, sessions, workLogs, modelTiers } from '../database.js';
 import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
-import { isTierRef } from '@circuschief/shared';
-import { resolveActiveModel, resolveAnyMember } from './tierResolutionService.js';
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+import { isUnhealthy, resolveActiveModel, resolveAnyMember } from './tierResolutionService.js';
 
 // Default agent kind when none is recorded or resolvable.
 const DEFAULT_AGENT_TYPE = 'claude-code';
@@ -245,8 +245,141 @@ export function checkCatalogFallbackDispatchKind(session, sessionId, requestedMo
  * @returns {{ error: string, message: string }|null} Block payload, or null.
  */
 export function checkContinuationDispatchKind(session, sessionId, requestedModel, candidate) {
-  return checkExplicitTierDispatchKind(session, sessionId, requestedModel, candidate)
+  const block = checkExplicitTierDispatchKind(session, sessionId, requestedModel, candidate)
     ?? checkCatalogFallbackDispatchKind(session, sessionId, requestedModel, candidate);
+  // Mid-session tier advance (§5.1): a CROSS_KIND block against the exact pair
+  // of a genuine tier-driven advance is lifted when the kind move itself is
+  // in scope. Every other candidate keeps today's block.
+  if (block?.error === 'CROSS_KIND_MODEL_SWITCH'
+    && isOwnBindingTierAdvance(session, requestedModel, candidate)
+    && isTierFailoverLiftable(session.agentType, candidate?.effectiveModel, candidate?.providerIdHint)) {
+    return null;
+  }
+  return block;
+}
+
+/**
+ * Whether a candidate is the live resolution of a genuine tier-driven
+ * advance of the session's OWN binding: no explicit new selection, a concrete
+ * candidate that moves OFF a snapshotted member currently in cooldown, on a
+ * tier with automatic failover enabled.
+ *
+ * This is intentionally narrower than "any cross-kind tier candidate": it
+ * requires advance evidence (a cooled snapshot the candidate moves off of),
+ * so explicit new-tier selections, legacy snapshot-less bindings, uncooled
+ * pins, and flag-off tiers all keep today's block.
+ *
+ * @param {Object} session - Current session row.
+ * @param {string|null} requestedModel - Explicit model override, or null.
+ * @param {{ effectiveModel: string|null, providerIdHint: string|null }} candidate
+ * @returns {boolean}
+ */
+function isOwnBindingCandidate(session, requestedModel, candidate) {
+  if (!session || !isTierRef(session.model)) return false;
+  if (requestedModel != null && requestedModel !== session.model) return false;
+  const model = candidate?.effectiveModel;
+  if (!model || isTierRef(model)) return false;
+  return true;
+}
+
+function isCooledSnapshotDeparture(session, model, providerId) {
+  if (!session.resolvedModel || !session.resolvedProviderId) return false;
+  if (session.resolvedModel === model && (session.resolvedProviderId ?? null) === providerId) return false;
+  return isUnhealthy(session.resolvedProviderId, session.resolvedModel);
+}
+
+function isOwnBindingTierAdvance(session, requestedModel, candidate) {
+  if (!isOwnBindingCandidate(session, requestedModel, candidate)) return false;
+  if (!isCooledSnapshotDeparture(session, candidate.effectiveModel, candidate.providerIdHint ?? null)) return false;
+  const tier = modelTiers.getById(parseTierRef(session.model));
+  if (tier && tier.autoFailoverEnabled === false) return false;
+  return true;
+}
+
+/**
+ * Whether a CROSS_KIND block may be lifted for a tier-driven failover
+ * candidate (§5.1): the candidate is a concrete (non-tier) model and both the
+ * session's current kind and the candidate's kind are in
+ * `IN_SCOPE_SWITCH_KINDS`. Provider-aware: the candidate kind is derived from
+ * the exact (model, providerId) pair, never by model-id lookup alone.
+ *
+ * Same-kind candidates are vacuously liftable; anything involving `gemini`
+ * (or a tier sentinel) is not.
+ *
+ * @param {string} sessionAgentType - The session's current agent type.
+ * @param {string|null} candidateModel - Concrete candidate model id.
+ * @param {string|null} [candidateProviderId] - Exact owning provider id.
+ * @returns {boolean}
+ */
+export function isTierFailoverLiftable(sessionAgentType, candidateModel, candidateProviderId = null) {
+  if (!candidateModel || isTierRef(candidateModel)) return false;
+  const from = sessionAgentType || DEFAULT_AGENT_TYPE;
+  const to = resolveAgentTypeFromModel(candidateModel, candidateProviderId ?? undefined);
+  if (to === from) return true;
+  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+}
+
+/**
+ * Derive the agentType update for a continuation, advance-aware (§5.1).
+ * Shared by both continuation paths so a resolver move off the snapshot
+ * re-derives the persisted agent kind identically everywhere — established
+ * sessions included (the liftable-kind guard already passed) — while every
+ * other resolution keeps the draft-only defense-in-depth reconciliation.
+ *
+ * @param {Object} session - Pre-update session row.
+ * @param {string} sessionId
+ * @param {string|null} effectiveModel - Newly resolved concrete model.
+ * @param {string|null} providerIdHint - Exact owning provider id.
+ * @param {Object} persist - Resolver persist payload.
+ * @returns {Object} Partial update ({ agentType } or {}).
+ */
+export function buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist }) {
+  if (!effectiveModel) return {};
+  if (isTierAdvancePersist(session, persist)) {
+    return buildTierAdvanceAgentTypeUpdate(session, effectiveModel, providerIdHint);
+  }
+  return deriveAgentTypeUpdate(session, sessionId, effectiveModel, {
+    providerId: providerIdHint ?? session.providerId,
+  });
+}
+
+/**
+ * Whether a resolver `persist` payload moved a tier binding OFF its previous
+ * snapshot onto a new member (a §5.1 advance) as opposed to backfilling a
+ * missing snapshot (legacy initialization) or reusing the pin. Shared by both
+ * continuation paths so snapshot/agentType/env handling cannot drift.
+ *
+ * @param {Object} session - Pre-update session row.
+ * @param {Object} persist - Resolver persist payload.
+ * @returns {boolean}
+ */
+export function isTierAdvancePersist(session, persist) {
+  if (!persist || !persist.resolvedModel) return false;
+  if (!session.resolvedModel) return false;
+  return persist.resolvedModel !== session.resolvedModel
+    || (persist.resolvedProviderId ?? null) !== (session.resolvedProviderId ?? null);
+}
+
+/**
+ * Derive the agentType update for a tier-driven advance that crossed agent
+ * kinds (§5.1). Unlike `deriveAgentTypeUpdate` (draft-only reconciliation),
+ * this applies to established sessions: the dispatch already passed the
+ * liftable-kind guard, so the persisted kind must follow the new member or
+ * the wrong adapter dispatches. Returns {} when the kind is unchanged or the
+ * move is out of scope (defense in depth — the guard throws first).
+ *
+ * @param {Object} session - Pre-update session row.
+ * @param {string|null} effectiveModel - Newly resolved concrete model.
+ * @param {string|null} providerIdHint - Exact owning provider id.
+ * @returns {Object} Partial update ({ agentType } or {}).
+ */
+export function buildTierAdvanceAgentTypeUpdate(session, effectiveModel, providerIdHint) {
+  if (!effectiveModel) return {};
+  const current = session.agentType || DEFAULT_AGENT_TYPE;
+  const derived = resolveAgentTypeFromModel(effectiveModel, providerIdHint ?? undefined);
+  if (!derived || derived === current) return {};
+  if (!isTierFailoverLiftable(current, effectiveModel, providerIdHint)) return {};
+  return { agentType: derived };
 }
 
 /**

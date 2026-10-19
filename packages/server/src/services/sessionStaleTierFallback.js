@@ -1,7 +1,7 @@
 import { sessions } from '../database.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastToSession } from '../websocket.js';
-import { resolveTierRefForContinue } from './tierResolutionService.js';
+import { isUnhealthy, resolveTierRefForContinue } from './tierResolutionService.js';
 import { resolvePreviousExecutedPair } from './sessionAgentGuard.js';
 import { isExactTierMemberValid } from './tierIdentity.js';
 import { agentCallLogger } from './agentCallLogger.js';
@@ -155,7 +155,10 @@ export function resolveTierRefForContinueWithStaleFallback(sessionId, session, r
 function resolveFallbackNoticeParties(session, requestedModel, dispatchedPair) {
   if (!session || !isTierRef(session.model)) return null;
   if (requestedModel != null && requestedModel !== session.model) return null;
-  if (session.resolvedModel) return null;
+  // §5.1 next-turn advance: the session carries its own binding's snapshot,
+  // but the snapshot member is in cooldown and resolution advanced to a
+  // different pair. Snapshot reuse (same pair) stays silent.
+  if (session.resolvedModel) return resolveSnapshotAdvanceParties(session, dispatchedPair);
   const prev = resolvePreviousExecutedPair(session);
   if (!prev?.model || !dispatchedPair?.model) return null;
   const samePair = prev.model === dispatchedPair.model
@@ -164,12 +167,34 @@ function resolveFallbackNoticeParties(session, requestedModel, dispatchedPair) {
   return { prev };
 }
 
-export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair) {
+/**
+ * Notice parties for a cooled-snapshot departure (§5.1). Returns null unless
+ * resolution actually moved off a cooled snapshot member onto a different
+ * pair — the observable signal that an automatic advance happened.
+ */
+function resolveSnapshotAdvanceParties(session, dispatchedPair) {
+  const snapshotPair = { model: session.resolvedModel, providerId: session.resolvedProviderId ?? null };
+  if (!dispatchedPair?.model) return null;
+  const departed = snapshotPair.model !== dispatchedPair.model
+    || (snapshotPair.providerId ?? null) !== (dispatchedPair.providerId ?? null);
+  if (!departed) return null;
+  if (!isUnhealthy(snapshotPair.providerId, snapshotPair.model)) return null;
+  return { prev: snapshotPair, advance: true };
+}
+
+export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair, { suppressAdvanceNotice = false } = {}) {
   const parties = resolveFallbackNoticeParties(session, requestedModel, dispatchedPair);
   if (!parties) return;
+  // A same-turn retry's second attempt re-resolves off the just-cooled
+  // snapshot via the same §5.1 rule, but its advance was already announced
+  // (with the exhaustion reason) when the retry armed — stay silent here so
+  // the turn emits exactly one TIER_FAILOVER event.
+  if (parties.advance && suppressAdvanceNotice) return;
   const { prev } = parties;
   const tierRef = session.model;
-  const reason = `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
+  const reason = parties.advance
+    ? `Tier member "${prev.model}" is in cooldown — automatically advanced to "${dispatchedPair.model}"`
+    : `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
   const payload = {
     sessionId: session.id,
     tierRef,

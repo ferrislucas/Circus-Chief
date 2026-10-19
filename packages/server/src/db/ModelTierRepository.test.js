@@ -326,6 +326,36 @@ describe('ModelTierRepository', () => {
     });
   });
 
+  describe('autoFailoverEnabled', () => {
+    it('defaults to true on create', () => {
+      const tier = repo.create({ name: 'Default Flag' });
+      expect(tier.autoFailoverEnabled).toBe(true);
+    });
+
+    it('round-trips an explicit false on create', () => {
+      const tier = repo.create({ name: 'Flag Off', autoFailoverEnabled: false });
+      expect(tier.autoFailoverEnabled).toBe(false);
+      expect(repo.getByIdWithMembers(tier.id).autoFailoverEnabled).toBe(false);
+    });
+
+    it('toggles via update', () => {
+      const tier = repo.create({ name: 'Toggle Flag' });
+      expect(tier.autoFailoverEnabled).toBe(true);
+      const updated = repo.update(tier.id, { autoFailoverEnabled: false });
+      expect(updated.autoFailoverEnabled).toBe(false);
+      const reloaded = repo.getByIdWithMembers(tier.id);
+      expect(reloaded.autoFailoverEnabled).toBe(false);
+    });
+
+    it('surfaces the flag in getAllWithMembers', () => {
+      repo.create({ name: 'Tier On' });
+      repo.create({ name: 'Tier Off', autoFailoverEnabled: false });
+      const all = repo.getAllWithMembers();
+      expect(all.find((t) => t.name === 'Tier On').autoFailoverEnabled).toBe(true);
+      expect(all.find((t) => t.name === 'Tier Off').autoFailoverEnabled).toBe(false);
+    });
+  });
+
   describe('provider cascade delete', () => {
     it('removes members when the owning provider is deleted', () => {
       const tier = repo.create({

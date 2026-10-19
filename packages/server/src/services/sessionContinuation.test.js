@@ -643,11 +643,41 @@ describe('sessionContinuation — tier health context (mid-conversation cooldown
     });
 
     expect(capturedTierContexts).toHaveLength(1);
-    expect(capturedTierContexts[0]).toEqual({
+    // §5.2: the tier has a healthy successor and automatic failover is on,
+    // so the first attempt authorizes a single same-turn retry — while still
+    // carrying the member-health attribution of the pinned path.
+    expect(capturedTierContexts[0]).toMatchObject({
+      currentMemberId: 'health-model-a',
+      currentMemberProviderId: providerA.id,
+      allowFailover: true,
+      allowFailoverAfterActivity: true,
+      nextMember: { providerId: providerB.id, modelId: 'health-model-b', position: 1 },
+    });
+  });
+
+  it('passes a health-only context when the tier has no healthy successor', async () => {
+    const tier = modelTiers.create({
+      name: 'Single Health Tier',
+      members: [{ providerId: providerA.id, modelId: 'health-model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: 'health-model-a',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(session.id, 'Follow-up', '/tmp/test', {
+      options: {}, callbacks: mockCallbacks,
+    });
+
+    // No successor, no authorization — the exact pre-§5.2 health-only shape.
+    expect(capturedTierContexts).toEqual([{
       currentMemberId: 'health-model-a',
       currentMemberProviderId: providerA.id,
       allowFailover: false,
-    });
+    }]);
   });
 
   it('passes NO tier context for a non-tier continuation', async () => {
@@ -1531,5 +1561,119 @@ describe('sessionContinuation — catalog-fallback cross-kind guard (issue 1)', 
     expect(capturedQueryParams[0].options?.model).toBe('issue1-claude');
     const row = sessions.getById(session.id);
     expect(row.resolvedModel).toBe('issue1-claude');
+  });
+});
+
+describe('sessionContinuation — mid-session tier advance (§5.1)', () => {
+  let project;
+  let providerA;
+  let providerB;
+
+  beforeEach(() => {
+    capturedQueryParams = [];
+    capturedTierContexts = [];
+    capturedAgentTypes = [];
+    capturedAgentCallMetas = [];
+    workflowMock.laneRunOwnsSession = true;
+    vi.clearAllMocks();
+    activeSessions.clear();
+
+    project = projects.create('Advance Test Project', '/tmp/advance-continue-test');
+    providerA = modelProviders.create({ name: 'Advance Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'advance-a', displayName: 'Advance A' });
+    modelProviders.addModel(providerA.id, { modelId: 'advance-a2', displayName: 'Advance A2' });
+    providerB = modelProviders.create({ name: 'Advance Provider B', kind: 'openai' });
+    modelProviders.addModel(providerB.id, { modelId: 'advance-b', displayName: 'Advance B' });
+  });
+
+  function createPinnedTierSession(members, snapshot) {
+    const tier = modelTiers.create({ name: 'Advance Continue Tier', members });
+    const tierRef = buildTierRef(tier.id);
+    const session = createTestSession(project, {
+      model: tierRef,
+      agentType: 'claude-code',
+      resolvedModel: snapshot.modelId,
+      resolvedProviderId: snapshot.providerId,
+    });
+    conversations.ensureActiveConversation(session.id);
+    return { tier, tierRef, session };
+  }
+
+  it('dispatches the next healthy member after the snapshot cools and persists the new snapshot', async () => {
+    const { session } = createPinnedTierSession(
+      [
+        { providerId: providerA.id, modelId: 'advance-a', position: 0 },
+        { providerId: providerA.id, modelId: 'advance-a2', position: 1 },
+      ],
+      { modelId: 'advance-a', providerId: providerA.id }
+    );
+    markUnhealthy(providerA.id, 'advance-a');
+    try {
+      await continueSessionCore(session.id, 'Follow-up after cooldown', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+    } finally {
+      clearUnhealthy(providerA.id, 'advance-a');
+    }
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    expect(capturedQueryParams[0].options?.model).toBe('advance-a2');
+    expect(capturedAgentCallMetas[0]?.model).toBe('advance-a2');
+    const row = sessions.getById(session.id);
+    expect(row.resolvedModel).toBe('advance-a2');
+    expect(row.resolvedProviderId).toBe(providerA.id);
+  });
+
+  it('stays pinned to the cooled member when automatic failover is disabled', async () => {
+    const { tier, session } = createPinnedTierSession(
+      [
+        { providerId: providerA.id, modelId: 'advance-a', position: 0 },
+        { providerId: providerA.id, modelId: 'advance-a2', position: 1 },
+      ],
+      { modelId: 'advance-a', providerId: providerA.id }
+    );
+    modelTiers.update(tier.id, { autoFailoverEnabled: false });
+    markUnhealthy(providerA.id, 'advance-a');
+    try {
+      await continueSessionCore(session.id, 'Follow-up with flag off', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+    } finally {
+      clearUnhealthy(providerA.id, 'advance-a');
+    }
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    expect(capturedQueryParams[0].options?.model).toBe('advance-a');
+    expect(sessions.getById(session.id).resolvedModel).toBe('advance-a');
+  });
+
+  it('advances across agent kinds on an established session, reconciling the adapter', async () => {
+    const { session } = createPinnedTierSession(
+      [
+        { providerId: providerA.id, modelId: 'advance-a', position: 0 },
+        { providerId: providerB.id, modelId: 'advance-b', position: 1 },
+      ],
+      { modelId: 'advance-a', providerId: providerA.id }
+    );
+    // Established conversation: the cross-kind guard is locked, so only the
+    // §5.1 lift lets this dispatch proceed.
+    messages.create(session.id, 'user', 'hi');
+    messages.create(session.id, 'assistant', 'hello');
+    markUnhealthy(providerA.id, 'advance-a');
+    try {
+      await continueSessionCore(session.id, 'Follow-up across kinds', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+    } finally {
+      clearUnhealthy(providerA.id, 'advance-a');
+    }
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    expect(capturedQueryParams[0].options?.model).toBe('advance-b');
+    expect(capturedAgentTypes).toContain('codex');
+    const row = sessions.getById(session.id);
+    expect(row.agentType).toBe('codex');
+    expect(row.resolvedModel).toBe('advance-b');
+    expect(row.resolvedProviderId).toBe(providerB.id);
   });
 });

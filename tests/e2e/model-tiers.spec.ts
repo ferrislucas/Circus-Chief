@@ -12,6 +12,7 @@ import {
   API_URL,
   TEST_PREFIX,
 } from './helpers';
+import { createTierViaApi, deleteTierViaApi } from './tier-test-helpers';
 
 /**
  * E2E tests for Model Tiers (Issue 1 — review-fix remediation plan).
@@ -36,26 +37,6 @@ import {
 // TEST_PREFIX-named provider for the whole file — run serially so concurrent
 // tests don't delete each other's fixtures mid-test (mirrors settings.spec.ts).
 test.describe.configure({ mode: 'serial' });
-
-async function createTierViaApi(data: {
-  name: string;
-  description?: string | null;
-  members?: Array<{ providerId: string; modelId: string; position: number }>;
-}) {
-  const response = await fetch(`${API_URL}/api/tiers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to create tier (${response.status}): ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function deleteTierViaApi(id: string) {
-  await fetch(`${API_URL}/api/tiers/${id}`, { method: 'DELETE' }).catch(() => {});
-}
 
 async function getTiersViaApi(): Promise<any[]> {
   const response = await fetch(`${API_URL}/api/tiers`);
@@ -236,6 +217,41 @@ test.describe('Model Tiers', () => {
       const reloadedCard = page.locator('.tier-card', { hasText: tier.name });
       await expect(reloadedCard.locator('.member-row').nth(0).locator('.member-model')).toHaveText('reorder-model-b');
       await expect(reloadedCard.locator('.member-row').nth(1).locator('.member-model')).toHaveText('reorder-model-a');
+    });
+  });
+
+  test.describe('Auto-failover toggle', () => {
+    test('toggling automatic failover off via the UI persists and survives reload', async ({ page }) => {
+      const provider = await createProvider({ name: `${TEST_PREFIX}Toggle Provider` });
+      await addProviderModel(provider.id, { modelId: 'toggle-model-a', displayName: 'Toggle Model A' });
+
+      const tier = await createTierViaApi({
+        name: `${TEST_PREFIX}Toggle Tier`,
+        members: [{ providerId: provider.id, modelId: 'toggle-model-a', position: 0 }],
+      });
+      createdTierIds.push(tier.id);
+      expect(tier.autoFailoverEnabled).toBe(true);
+
+      await navigateAndWait(page, `${BASE_URL}/settings/tiers`);
+      const tierCard = page.locator('.tier-card', { hasText: tier.name });
+      await expect(tierCard).toBeVisible();
+      const toggle = tierCard.locator('[data-testid="auto-failover-toggle"]');
+      await expect(toggle).toBeChecked();
+
+      await toggle.uncheck();
+
+      // The PATCH persisted server-side.
+      await expect.poll(async () => {
+        const res = await fetch(`${API_URL}/api/tiers/${tier.id}`);
+        if (!res.ok) return undefined;
+        return (await res.json()).autoFailoverEnabled;
+      }, { timeout: 5000 }).toBe(false);
+
+      // The toggle still renders unchecked after a reload.
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      const reloadedToggle = page.locator('.tier-card', { hasText: tier.name }).locator('[data-testid="auto-failover-toggle"]');
+      await expect(reloadedToggle).not.toBeChecked();
     });
   });
 

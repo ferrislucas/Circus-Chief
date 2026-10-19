@@ -286,6 +286,16 @@ export async function runSessionWithTierFailover(
   const tierName = _getTierName(tierId);
   const attemptableMembers = resolveAttemptableTierMembers(tierId, tierName);
 
+  // FR0: a tier with automatic failover disabled never advances to a
+  // successor at start — attempt only the resolved (first healthy) member
+  // once, then surface the error. The single-member loop below still cools
+  // the failed member for future sessions via the normal classification
+  // path, and computes no successor, so no TIER_FAILOVER event is emitted.
+  // Mirrors the mid-session gates (sessionAgentGuard, tierResolutionService,
+  // sessionContinueFailover), which already consult this flag.
+  const failoverDisabled = modelTiers.getById(tierId)?.autoFailoverEnabled === false;
+  const membersToAttempt = failoverDisabled ? attemptableMembers.slice(0, 1) : attemptableMembers;
+
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
@@ -297,8 +307,8 @@ export async function runSessionWithTierFailover(
   // itself must never wipe the successor's ownership.
   let latestAttemptToken = null;
   try {
-    for (let memberIndex = 0; memberIndex < attemptableMembers.length; memberIndex++) {
-      const member = attemptableMembers[memberIndex];
+    for (let memberIndex = 0; memberIndex < membersToAttempt.length; memberIndex++) {
+      const member = membersToAttempt[memberIndex];
       // Re-check cooldown before every attempt against the frozen member
       // list (the list itself never re-reads live configuration mid-run):
       // a member cooled after the loop-start snapshot — by a concurrent
@@ -307,7 +317,7 @@ export async function runSessionWithTierFailover(
       // the failover event is likewise the next STILL-HEALTHY member, so a
       // cooled successor can neither suppress rescheduling nor be announced.
       if (isUnhealthy(member.providerId, member.modelId)) continue;
-      const nextMember = attemptableMembers
+      const nextMember = membersToAttempt
         .slice(memberIndex + 1)
         .find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
 

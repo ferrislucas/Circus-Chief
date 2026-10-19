@@ -366,3 +366,29 @@ h2 {
   color: var(--color-error, #f87171);
   background: rgba(248, 113, 113, 0.1);
 }
+
+.auto-failover-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.auto-failover-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-accent, #22d3ee);
+  cursor: pointer;
+}
+
+.auto-failover-label {
+  font-weight: 600;
+}
+
+.auto-failover-copy {
+  margin: 0.25rem 0 0 1.5rem;
+  font-size: 0.82rem;
+  color: var(--color-text-soft, #a3a3a3);
+}

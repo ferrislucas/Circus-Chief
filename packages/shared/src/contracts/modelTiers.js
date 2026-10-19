@@ -84,6 +84,8 @@ export const CreateTierRequest = z
     name: z.string().trim().min(1).max(100),
     description: z.string().nullable().optional(),
     members: CanonicalTierMembers,
+    // Optional on write; the repository defaults an absent flag to true.
+    autoFailoverEnabled: z.boolean().optional(),
   })
   // Both tier write contracts reject unknown keys.
   .strict();
@@ -93,6 +95,7 @@ export const UpdateTierRequest = z
     name: z.string().trim().min(1).max(100).optional(),
     description: z.string().nullable().optional(),
     members: CanonicalTierMembers.optional(),
+    autoFailoverEnabled: z.boolean().optional(),
   })
   .strict();
 
@@ -100,6 +103,7 @@ export const TierResponse = z.object({
   id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
+  autoFailoverEnabled: z.boolean(),
   members: z.array(
     z.object({
       id: z.string().uuid(),

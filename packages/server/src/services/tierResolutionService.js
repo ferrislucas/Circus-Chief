@@ -309,26 +309,34 @@ export function findNextHealthyTierMember(tierRef, failedMember) {
  *
  * @param {Object|null} session - Refreshed session row after continuation
  *   model resolution (model, resolvedModel, resolvedProviderId).
+ * @param {{ dispatchedPair?: { model: string|null, providerId: string|null } }} [opts] -
+ *   The concrete pair actually about to be dispatched. Resolution may have
+ *   advanced off a cooled snapshot (§5.1) or backfilled a legacy row, so the
+ *   persisted snapshot can lag one attempt behind — attribute to the
+ *   dispatched pair instead. Still validated against CURRENT membership;
+ *   falls back to the snapshot when no dispatched pair is supplied.
  * @returns {{ currentMemberId: string, currentMemberProviderId: string, allowFailover: false }|null}
  */
-export function buildTierHealthContext(session) {
+export function buildTierHealthContext(session, { dispatchedPair = null } = {}) {
   if (!session || !isTierRef(session.model)) return null;
   const tierId = parseTierRef(session.model);
   if (!tierId) return null;
 
-  const { resolvedModel, resolvedProviderId } = session;
-  if (!resolvedModel || !resolvedProviderId) return null;
+  const candidate = dispatchedPair
+    ? { modelId: dispatchedPair.model, providerId: dispatchedPair.providerId }
+    : { modelId: session.resolvedModel, providerId: session.resolvedProviderId };
+  if (!candidate.modelId || !candidate.providerId) return null;
 
   // Only attribute health to a member that is still a current, resolvable
-  // member of the bound tier — never to a stale snapshot.
+  // member of the bound tier — never to a stale snapshot or an unrelated pair.
   const mapsToCurrentMember = getTierMembersResolved(tierId).some(
-    (member) => member.providerId === resolvedProviderId && member.modelId === resolvedModel
+    (member) => member.providerId === candidate.providerId && member.modelId === candidate.modelId
   );
   if (!mapsToCurrentMember) return null;
 
   return {
-    currentMemberId: resolvedModel,
-    currentMemberProviderId: resolvedProviderId,
+    currentMemberId: candidate.modelId,
+    currentMemberProviderId: candidate.providerId,
     // Pinned conversation: may report member health, may not fail over.
     allowFailover: false,
   };
@@ -364,11 +372,61 @@ function snapshotResolution(session) {
 }
 
 /**
+ * Mid-session automatic advance (§5.1): when the session carries a snapshot of
+ * its own tier binding whose exact pair is still valid but currently in
+ * cooldown, resolve live to the next healthy member instead of reusing the
+ * stale snapshot. Returns null when there is nothing to advance from or to —
+ * callers keep their existing behavior in that case.
+ *
+ * Deliberately narrow (FR0/FR2/FR7):
+ * - tiers with automatic failover disabled never advance (pinned behavior);
+ * - a structurally-stale snapshot (provider deleted/disabled, model
+ *   removed/disabled) does NOT advance — the atomic-identity contract owns
+ *   that case and `snapshotResolution` still throws its typed error;
+ * - a fully-cooled tier (no healthy member) keeps snapshot reuse so the turn
+ *   fails visibly through the normal error path instead of silently succeeding.
+ *
+ * @param {Object} session - Current session row (model, resolvedModel, resolvedProviderId).
+ * @returns {{ effectiveModel: string, providerIdHint: string, persist: Object }|null}
+ */
+function isFlagOffTier(tierId) {
+  const tier = modelTiers.getById(tierId);
+  return Boolean(tier) && tier.autoFailoverEnabled === false;
+}
+
+function isValidCooledSnapshot(session) {
+  try {
+    validateExactTierMember(session.resolvedProviderId, session.resolvedModel);
+  } catch {
+    return false;
+  }
+  return isUnhealthy(session.resolvedProviderId, session.resolvedModel);
+}
+
+function resolveCooledSnapshotAdvance(session) {
+  if (!session.resolvedModel || !session.resolvedProviderId) return null;
+  const tierId = parseTierRef(session.model);
+  if (!tierId || isFlagOffTier(tierId)) return null;
+  if (!isValidCooledSnapshot(session)) return null;
+  const live = resolveActiveModel(session.model, {});
+  if (!live) return null;
+  if (live.model === session.resolvedModel
+    && (live.providerId ?? null) === (session.resolvedProviderId ?? null)) return null;
+  return {
+    effectiveModel: live.model,
+    providerIdHint: live.providerId,
+    persist: { resolvedModel: live.model, resolvedProviderId: live.providerId },
+  };
+}
+
+/**
  * Resolve an explicit tier-ref request (`resolveTierRefForContinue` branch).
  * Switching tiers must never reuse a snapshot captured for a different,
  * previously-bound tier — the NEW tier is resolved live. Re-selecting the
  * ALREADY-bound tier reuses that binding's own snapshot (see
- * `snapshotResolution`).
+ * `snapshotResolution`), advancing live when that snapshot cooled off (§5.1,
+ * same contract as the no-override path — the scheduled auto-send consumes
+ * pendingModel, so it arrives here rather than as a null request).
  *
  * @param {Object} session - Current session row.
  * @param {string} requestedModel - The explicit `tier::<id>` request.
@@ -377,6 +435,8 @@ function snapshotResolution(session) {
  */
 function resolveRequestedTierRef(session, requestedModel) {
   if (requestedModel === session.model) {
+    const advance = resolveCooledSnapshotAdvance(session);
+    if (advance) return advance;
     const snapshot = snapshotResolution(session);
     if (snapshot) return snapshot;
   }
@@ -446,6 +506,11 @@ export function resolveTierRefForContinue(session, requestedModel, requestedProv
 
   // No explicit override — use whatever is already bound to the session.
   if (isTierRef(session.model)) {
+    // Mid-session automatic failover (§5.1): a cooled snapshot advances to
+    // the next healthy member instead of reusing the stale pin.
+    const advance = resolveCooledSnapshotAdvance(session);
+    if (advance) return advance;
+
     // Reuse the snapshot — it was captured for THIS same tier binding.
     const snapshot = snapshotResolution(session);
     if (snapshot) return snapshot;

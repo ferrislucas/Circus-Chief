@@ -90,6 +90,19 @@
         >
           No members — add models to use this tier in sessions.
         </div>
+
+        <label class="auto-failover-row">
+          <input
+            type="checkbox"
+            data-testid="auto-failover-toggle"
+            :checked="tier.autoFailoverEnabled !== false"
+            @change="toggleAutoFailover(tier, $event)"
+          >
+          <span class="auto-failover-label">Automatic failover</span>
+        </label>
+        <p class="auto-failover-copy">
+          When a provider runs out, automatically switch to the next model in this tier.
+        </p>
       </div>
     </div>
 
@@ -536,6 +549,18 @@ async function saveTier() {
     modalError.value = err.message || 'Failed to save tier';
   } finally {
     saving.value = false;
+  }
+}
+
+// ── Automatic failover toggle ──────────────────────────────────────────────────
+async function toggleAutoFailover(tier, event) {
+  const autoFailoverEnabled = event.target.checked;
+  try {
+    await tiersStore.updateTier(tier.id, { autoFailoverEnabled });
+  } catch (err) {
+    const checkbox = event.target;
+    if (checkbox) checkbox.checked = tier.autoFailoverEnabled !== false;
+    uiStore.error(err.message || 'Failed to update tier');
   }
 }
 

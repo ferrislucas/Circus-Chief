@@ -156,6 +156,24 @@ describe('Model Tiers API', () => {
       expect(response.body.members).toHaveLength(2);
     });
 
+    it('defaults autoFailoverEnabled to true on create', async () => {
+      const response = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Flag Default', members: [] })
+        .expect(201);
+
+      expect(response.body.autoFailoverEnabled).toBe(true);
+    });
+
+    it('persists an explicit autoFailoverEnabled false on create', async () => {
+      const response = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Flag Off', members: [], autoFailoverEnabled: false })
+        .expect(201);
+
+      expect(response.body.autoFailoverEnabled).toBe(false);
+    });
+
     it('rejects a request missing name', async () => {
       const response = await request(app)
         .post('/api/tiers')
@@ -392,6 +410,21 @@ describe('Model Tiers API', () => {
 
       expect(response.body.name).toBe('Renamed');
       expect(response.body.description).toBe('new desc');
+    });
+
+    it('toggles autoFailoverEnabled via PATCH', async () => {
+      const created = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Flag Toggle', members: [] })
+        .expect(201);
+      expect(created.body.autoFailoverEnabled).toBe(true);
+
+      const response = await request(app)
+        .patch(`/api/tiers/${created.body.id}`)
+        .send({ autoFailoverEnabled: false })
+        .expect(200);
+
+      expect(response.body.autoFailoverEnabled).toBe(false);
     });
 
     it('replaces members atomically', async () => {

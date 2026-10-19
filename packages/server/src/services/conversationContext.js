@@ -26,8 +26,13 @@ export function formatConversationHistory(messageArray) {
 export function buildConversationContextForModelSwitch(conversationId) {
   const conversationMessages = messages.getByConversationId(conversationId);
 
-  // Don't include the last user message (that's the current prompt)
-  const previousMessages = conversationMessages.slice(0, -1);
+  // Don't include a trailing user message (that's the current prompt, which
+  // is appended after the context). A trailing ASSISTANT message is output
+  // from a failed same-turn attempt (tier-failover retry) — it must be kept
+  // so the successor continues the partial work instead of losing it (G3).
+  const lastIsCurrentPrompt = conversationMessages.length > 0
+    && conversationMessages[conversationMessages.length - 1].role === 'user';
+  const previousMessages = lastIsCurrentPrompt ? conversationMessages.slice(0, -1) : conversationMessages;
 
   if (previousMessages.length === 0) {
     return '';

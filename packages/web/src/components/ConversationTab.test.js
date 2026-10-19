@@ -95,12 +95,16 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onConversationDeleted: vi.fn(() => vi.fn()),
     onUsageUpdate: vi.fn(() => vi.fn()),
   })),
+  // ConversationMessages subscribes to TIER_FAILOVER for inline markers.
+  useWebSocket: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
 }));
 
 // Mock API composable
 vi.mock('../composables/useApi.js', () => ({
   api: {
     updateSessionPendingPrompt: vi.fn().mockResolvedValue(),
+    // ConversationMessages loads persisted tier-failover markers.
+    getSessionAgentCalls: vi.fn().mockResolvedValue([]),
   },
 }));
 

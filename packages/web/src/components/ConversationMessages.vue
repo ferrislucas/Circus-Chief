@@ -5,12 +5,24 @@
   >
     <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
     <template v-if="!isDraft && !isScheduledDraft">
-      <MessageItem
-        v-for="message in messages"
-        :key="message.id"
-        :message="message"
-        :work-logs="getWorkLogsForMessage(message.id)"
-      />
+      <template
+        v-for="entry in timeline"
+        :key="entry.key"
+      >
+        <MessageItem
+          v-if="entry.kind === 'message'"
+          :message="entry.message"
+          :work-logs="getWorkLogsForMessage(entry.message.id)"
+        />
+        <div
+          v-else
+          class="failover-marker"
+          data-testid="tier-failover-marker"
+        >
+          <span class="failover-marker__route">Switched from {{ failoverFrom(entry.failover) }} to {{ failoverTo(entry.failover) }}</span>
+          <span class="failover-marker__reason">{{ failoverReason(entry.failover) }}</span>
+        </div>
+      </template>
     </template>
 
     <!-- Streaming partial message -->
@@ -65,9 +77,12 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { api } from '../composables/useApi.js';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useMessageScroll } from '../composables/useMessageScroll.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import MessageItem from './MessageItem.vue';
 import StreamingMessage from './StreamingMessage.vue';
 import TokenCostPanel from './TokenCostPanel.vue';
@@ -85,6 +100,71 @@ const sessionsStore = useInjectedSessionsStore();
 // Derived data from store
 const messages = computed(() => sessionsStore.messages);
 const partialText = computed(() => sessionsStore.partialText);
+
+// ── Inline tier-failover markers (FRD G4) ─────────────────────────────────────
+// Persisted `tierFailover` agent-call entries are interleaved chronologically
+// with messages so each automatic switch reads as a system timeline entry at
+// the point it happened. Live TIER_FAILOVER events reload the list without a
+// page refresh. Deliberately no session-header badge (see TierFailoverHistory
+// for the separate audit-trail panel).
+const failovers = ref([]);
+let failoverRequestVersion = 0;
+const { on, off } = useWebSocket();
+
+async function loadFailovers() {
+  const version = ++failoverRequestVersion;
+  if (!props.sessionId) {
+    failovers.value = [];
+    return;
+  }
+  try {
+    const calls = await api.getSessionAgentCalls(props.sessionId, { callType: 'tierFailover', limit: 100 });
+    if (version !== failoverRequestVersion) return;
+    failovers.value = (calls ?? []).filter((call) => call.callType === 'tierFailover');
+  } catch {
+    // Failover markers supplement the timeline; a failing log read must not
+    // hide the conversation.
+    if (version !== failoverRequestVersion) return;
+    failovers.value = [];
+  }
+}
+
+watch(() => props.sessionId, loadFailovers, { immediate: true });
+
+function handleTierFailover(message) {
+  if (message?.sessionId === props.sessionId) loadFailovers();
+}
+
+on(WS_MESSAGE_TYPES.TIER_FAILOVER, handleTierFailover);
+onUnmounted(() => off(WS_MESSAGE_TYPES.TIER_FAILOVER, handleTierFailover));
+
+function failoverFrom(failover) {
+  return failover.metadata?.fromModel || failover.model || 'previous model';
+}
+
+function failoverTo(failover) {
+  return failover.metadata?.toModel || 'next model';
+}
+
+function failoverReason(failover) {
+  return failover.metadata?.reason || failover.errorMessage || 'No failure reason recorded';
+}
+
+const timeline = computed(() => {
+  const messageEntries = messages.value.map((message) => ({
+    kind: 'message',
+    key: `message-${message.id}`,
+    sort: message.timestamp ?? 0,
+    message,
+  }));
+  const markerEntries = failovers.value.map((failover) => ({
+    kind: 'failover',
+    key: `failover-${failover.id}`,
+    sort: failover.startedAt ?? failover.createdAt ?? 0,
+    failover,
+  }));
+  return [...messageEntries, ...markerEntries].sort((a, b) => a.sort - b.sort);
+});
 
 // Scroll management composable
 const { messagesContainer, isNearBottom, scrollToBottom, scrollToSendButton, scrollToClaudesTurn } = useMessageScroll({
@@ -124,6 +204,29 @@ defineExpose({ scrollToBottom, scrollToSendButton, scrollToClaudesTurn });
   overflow-x: hidden;
   overflow-y: auto;
   scroll-behavior: smooth;
+}
+
+/* Inline tier-failover timeline marker (FRD G4): a system entry interleaved
+   chronologically with messages at the point the automatic switch happened. */
+.failover-marker {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  display: grid;
+  gap: 0.15rem;
+}
+
+.failover-marker__route {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.failover-marker__reason {
+  font-size: 0.85rem;
+  color: var(--color-text-soft, #a3a3a3);
+  overflow-wrap: anywhere;
 }
 
 .conversation-controls-row {

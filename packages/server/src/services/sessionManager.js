@@ -6,7 +6,7 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveDispatchProvider, resolveDurableProviderId, resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import { buildTierHealthContext } from './tierResolutionService.js';
-import { buildLastExecutedUpdate, checkContinuationDispatchKind, checkCrossKindSwitch, createCrossKindDispatchError, deriveAgentTypeUpdate, hasDispatchPairChanged } from './sessionAgentGuard.js';
+import { buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind, checkCrossKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged } from './sessionAgentGuard.js';
 import { activeLaneRunOwnsSession, pauseForUserStop, releaseLaneSlotForUserStop } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { clearedPendingSchedule } from './pendingSchedule.js';
@@ -321,9 +321,9 @@ function buildModelAndProvider(session, sessionId, model, providerId = null) {
   // explicit model override and is simply continuing on the existing
   // binding. This mirrors `sessionContinuation.buildContinueModelAndEnv`,
   // which already reconciles unconditionally on `effectiveModel`.
-  const agentTypeUpdate = effectiveModel
-    ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: providerIdHint ?? session.providerId })
-    : {};
+  // Advance-aware agentType reconciliation (§5.1): shared with
+  // sessionContinuation.buildContinueModelAndEnv.
+  const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
   // Record the durable last-executed identity alongside any other persistence
   // (see sessionContinuation.js). Written only when it differs.
   const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
