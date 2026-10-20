@@ -127,7 +127,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
-import { useDraftSaving } from '../composables/useDraftSaving.js';
+import { useDraftSaving, shouldRestoreServerDraft } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
 import { createQuickResponseInsert } from '../composables/useQuickResponseInsert.js';
 import './ConversationTab.css';
@@ -364,6 +364,13 @@ function restoreInitialInput() {
 
   const pending = session?.pendingPrompt;
   const statusAllowsRestore = Boolean(session) && (isDraft.value || RESTORE_ALLOWED_STATUSES.has(session?.status));
+
+  // Mount-time hydration is async and can resolve after the user has already
+  // typed when the server is slow (overlay session switch under load). The
+  // in-memory text is newer than the server draft, so never clobber it: a
+  // silent wipe would make Send submit an empty prompt, which the
+  // empty-prompt guard drops without feedback.
+  if (!shouldRestoreServerDraft(input.value)) return;
 
   if (pending && statusAllowsRestore) {
     // No imperative DOM write — ResizableTextarea's watch(modelValue)

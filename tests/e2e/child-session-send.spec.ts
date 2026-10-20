@@ -79,23 +79,24 @@ test.describe('Child Session Start from Overlay', () => {
 
     // 8. Wait for the agent turn to actually execute.
     //    The child session starts in 'waiting' status, so waitForStatus('waiting')
-    //    would return immediately. Instead, poll until the status leaves 'waiting',
-    //    then wait for it to return to 'waiting' (agent turn complete).
-    const statusChangeDeadline = Date.now() + 30000;
-    while (Date.now() < statusChangeDeadline) {
-      const session = await getSession(childSession.id);
-      if (session && session.status !== 'waiting') break;
-      await new Promise((r) => setTimeout(r, 300));
-    }
+    //    would return immediately. Instead, poll until the status leaves
+    //    'waiting' — a fail-fast assertion here (rather than a silent deadline
+    //    loop) pinpoints a Send/Start that never took effect instead of
+    //    surfacing later as missing messages.
+    await expect.poll(async () => (await getSession(childSession.id))?.status, {
+      timeout: 30000,
+    }).not.toBe('waiting');
     // Agent turn should now be running or starting — wait for it to finish
     await waitForStatus(childSession.id, 'waiting', 60000);
 
-    // 9. Verify the session ran: user message was created and agent responded
-    const messages = await getSessionMessages(childSession.id);
-    const userMessages = messages.filter((m: any) => m.role === 'user');
-    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
-
-    expect(userMessages.length).toBeGreaterThanOrEqual(1);
-    expect(assistantMessages.length).toBeGreaterThanOrEqual(1);
+    // 9. Verify the session ran: user message was created and agent responded.
+    //    Poll (rather than a one-shot read) so a status flip that lands just
+    //    before the message commit can't flake the assertions under load.
+    await expect.poll(async () =>
+      (await getSessionMessages(childSession.id)).filter((m: any) => m.role === 'user').length,
+    { timeout: 30000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(async () =>
+      (await getSessionMessages(childSession.id)).filter((m: any) => m.role === 'assistant').length,
+    { timeout: 30000 }).toBeGreaterThanOrEqual(1);
   });
 });

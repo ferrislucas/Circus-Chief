@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref } from 'vue';
-import { useDraftSaving } from './useDraftSaving.js';
+import { useDraftSaving, shouldRestoreServerDraft } from './useDraftSaving.js';
 
 // Mock the API module
 vi.mock('./useApi.js', () => ({
@@ -340,6 +340,28 @@ describe('useDraftSaving', () => {
       flush();
 
       expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('session-123', 'draft-a');
+    });
+  });
+
+  describe('shouldRestoreServerDraft', () => {
+    it('restores into an empty input (fresh mount)', () => {
+      expect(shouldRestoreServerDraft('')).toBe(true);
+    });
+
+    it('restores when the input is nullish', () => {
+      expect(shouldRestoreServerDraft(null)).toBe(true);
+      expect(shouldRestoreServerDraft(undefined)).toBe(true);
+    });
+
+    it('restores into whitespace-only input (not submittable, no content to lose)', () => {
+      expect(shouldRestoreServerDraft('   ')).toBe(true);
+    });
+
+    it('preserves user-typed text when hydration resolves late', () => {
+      // Regression guard for the overlay child-session race: mount-time
+      // hydration resolving after the user typed must not clobber the
+      // newer in-memory text with the stale server draft.
+      expect(shouldRestoreServerDraft('Reply with exactly: "Draft started successfully."')).toBe(false);
     });
   });
 });
