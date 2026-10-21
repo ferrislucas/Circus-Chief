@@ -24,6 +24,9 @@
       :has-warnings="hasWarnings"
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
+      :lineage-rows="lineageRows"
+      :current-session-id="props.sessionId"
+      :lineage-token-totals="lineageTokenTotals"
       @open-session-overlay="(sessionId) => emit('open-session-overlay', sessionId)"
     />
 
@@ -81,6 +84,7 @@ import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import LatestResponseCard from './LatestResponseCard.vue';
 import SessionOverviewCard from './SessionOverviewCard.vue';
+import { buildLineageRows } from '../utils/sessionLineageLanes.js';
 import { useSummaryStreaming } from '../composables/useSummaryStreaming.js';
 import {
   computeActiveSessionTime,
@@ -145,6 +149,27 @@ const allScheduledSessions = computed(() => {
 });
 
 const projectId = computed(() => session.value?.projectId || null);
+
+// Workspace lineage, rooted at the workspace root regardless of which
+// session in the tree is viewed. Re-resolved from the store on every read
+// (same pattern as `liveSessionChain` in useSessionTree.js): store updates
+// replace session objects, so the computed picks up status flips with no
+// manual patching, and sorting by immutable `createdAt` never re-orders.
+const lineageSessions = computed(() => {
+  const root = sessionsStore.getRootSession(props.sessionId);
+  if (!root) return [];
+  return [root, ...sessionsStore.getAllDescendants(root.id)];
+});
+
+const lineageRows = computed(() => buildLineageRows(lineageSessions.value));
+
+const lineageTokenTotals = computed(() => {
+  const totals = {};
+  for (const s of lineageSessions.value) {
+    totals[s.id] = sessionsStore.getSessionTokenTotal(s.id);
+  }
+  return totals;
+});
 
 const runningSessionIds = computed(() => {
   const ids = [];

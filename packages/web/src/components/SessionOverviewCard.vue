@@ -126,6 +126,15 @@
       </div>
     </div>
 
+    <!-- Session lineage graph -->
+    <SessionLineageGraph
+      v-if="lineageRows.length > 1"
+      :rows="lineageRows"
+      :current-session-id="currentSessionId"
+      :token-totals="lineageTokenTotals"
+      @open-session="(sessionId) => $emit('open-session-overlay', sessionId)"
+    />
+
     <!-- Scheduled sessions (parent + children) -->
     <div
       v-if="scheduledSessions.length > 0"
@@ -151,6 +160,7 @@
 <script setup>
 import { formatPrState, extractPrNumber } from '../composables/useSummaryHelpers.js';
 import ScheduledChildCard from './ScheduledChildCard.vue';
+import SessionLineageGraph from './SessionLineageGraph.vue';
 
 defineProps({
   summary: {
@@ -196,6 +206,18 @@ defineProps({
   hasWarnings: {
     type: Boolean,
     default: false,
+  },
+  lineageRows: {
+    type: Array,
+    default: () => [],
+  },
+  currentSessionId: {
+    type: String,
+    default: null,
+  },
+  lineageTokenTotals: {
+    type: Object,
+    default: () => ({}),
   },
   scheduledSessions: {
     type: Array,
