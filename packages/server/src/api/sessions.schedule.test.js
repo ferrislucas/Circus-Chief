@@ -158,18 +158,29 @@ describe('Sessions API - POST /:id/schedule', () => {
     return { card, run, worker };
   }
 
-  it('keeps a forged interactive schedule fenced after its active lane worker is superseded', async () => {
+  it('schedules a superseded active lane worker as a lane-inert independent continuation', async () => {
+    // FRD (detached-session scheduling, FR-1/OQ-1): a mid-turn self-schedule
+    // after supersession is not lane work — the endpoint cannot tell "revive
+    // the lane" from "poll my own job", so it persists a user-authorized
+    // wake-up on the same session. Lane authority stays fenced at the
+    // transition/claim/auto-send level (see sessions.scheduleDetached.test.js).
     const { card, worker } = attachLaneWorker();
     activeSessions.set(worker.id, { controller: { signal: { aborted: false } } });
     supersedeRunForCard(card.id, 'test_supersession');
 
+    const scheduledAt = Date.now() + 3600000;
     const response = await request(app)
       .post(`/api/sessions/${worker.id}/schedule`)
-      .send({ prompt: 'Revive the superseded worker', scheduledAt: Date.now() + 3600000 })
-      .expect(409);
+      .send({ prompt: 'Poll the existing job; do not start a duplicate.', scheduledAt })
+      .expect(200);
 
-    expect(response.body.error).toBe('Session no longer owns an active lane run');
-    expect(sessions.getById(worker.id).scheduledAt).toBeNull();
+    expect(response.body.id).toBe(worker.id);
+    expect(response.body.pendingInteractive).toBe(true);
+    expect(sessions.getById(worker.id)).toEqual(expect.objectContaining({
+      pendingPrompt: 'Poll the existing job; do not start a duplicate.',
+      scheduledAt,
+      pendingInteractive: true,
+    }));
   });
 
   it('allows an idle terminal lane worker to create a trusted user schedule', async () => {
