@@ -113,6 +113,7 @@
 import { computed } from 'vue';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   sessionIds: { type: Array, required: true },
@@ -122,6 +123,7 @@ const props = defineProps({
 
 const streamingStore = useSessionStreamingStore();
 const sessionsStore = useSessionsStore();
+const tiersStore = useTiersStore();
 const collapseSessionId = computed(() => props.rootSessionId || props.sessionIds[0]);
 
 function resolveSession(id) {
@@ -130,10 +132,22 @@ function resolveSession(id) {
   return sessionsStore._findSessionById(id) || null;
 }
 
+function displayModelForSession(session) {
+  if (!session?.model) return '';
+  if (!isTierRef(session.model)) return session.model;
+  // Tier-bound session: show the resolved concrete model (what the agent is
+  // actually running), never the raw `tier::<id>` sentinel.
+  const resolved = session.resolvedModel ?? session.resolved_model;
+  if (resolved) return resolved;
+  const tierId = session.model.slice('tier::'.length);
+  const tier = tiersStore.getById?.(tierId);
+  return tier ? `Tier: ${tier.name}` : 'Tier';
+}
+
 const activeModel = computed(() => {
   for (const id of props.sessionIds) {
-    const session = resolveSession(id);
-    if (session?.model) return session.model;
+    const label = displayModelForSession(resolveSession(id));
+    if (label) return label;
   }
   return '';
 });

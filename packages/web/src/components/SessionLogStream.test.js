@@ -350,6 +350,25 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
     });
 
+    it('shows the resolved model instead of the raw tier:: ref', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'tier::tier-1', resolvedModel: 'claude-sonnet-4-20250514' }];
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).not.toContain('tier::');
+    });
+
+    it('falls back to the tier label when no resolved model is available yet', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'tier::tier-1', resolvedModel: null }];
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).not.toContain('tier::');
+    });
+
     it('reflects updated model on re-mount', () => {
       mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'claude-sonnet-4-20250514' }];
       seedWorkLog();

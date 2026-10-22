@@ -16,6 +16,26 @@ import { api } from './useApi.js';
  * @param {() => string} options.getSessionId - Function that returns the current session ID
  * @returns {Object} Draft saving utilities
  */
+/**
+ * Decide whether a mount-time server draft may populate the textarea.
+ *
+ * Mount-time hydration is async: under a slow server it can resolve AFTER
+ * the user has already typed (e.g. switching to a freshly created child
+ * session in the overlay and typing immediately). Whatever is already in
+ * the input is newer than the server value, so restoring then would wipe
+ * the user's text and Send would submit an empty prompt (silently dropped
+ * by the empty-prompt guard, leaving the session idle with no messages).
+ * Fresh mounts start with an empty input, so only restore into an empty
+ * field. Whitespace-only input counts as empty: it is not submittable and
+ * carries no user content worth preserving.
+ *
+ * @param {string} currentInput - The current textarea value
+ * @returns {boolean} True when the server draft may be restored
+ */
+export function shouldRestoreServerDraft(currentInput) {
+  return !currentInput || currentInput.trim().length === 0;
+}
+
 export function useDraftSaving({ input: inputRef, canSendMessage, isRunning, getSessionId }) {
   const input = inputRef;
   const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
