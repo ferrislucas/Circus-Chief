@@ -81,6 +81,7 @@ describe('SessionHeaderPanel', () => {
     mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null);
     mockKanbanStoreInstance.getLaneById.mockReturnValue(null);
     mockSessionsStoreInstance.getRootSession.mockReturnValue(null);
+    delete mockKanbanStoreInstance.board;
   });
 
   function mountPanel(props = {}) {
@@ -758,6 +759,59 @@ describe('SessionHeaderPanel', () => {
       const badge = wrapper.find('.left-indicators [data-testid="queued-badge"]');
       expect(badge.exists()).toBe(true);
       expect(badge.text()).toContain('#2');
+    });
+  });
+
+  describe('lane chip resolution', () => {
+    function mountChildPanel() {
+      return mountPanel({
+        sessionId: 'child-1',
+        session: {
+          id: 'child-1',
+          name: 'Child session',
+          status: 'running',
+          projectId: 'proj-1',
+          parentSessionId: 'root-1',
+          starred: false,
+          prUrl: null,
+          archived: false,
+        },
+      });
+    }
+
+    it('resolves the lane chip for a child session through its workflow root', () => {
+      mockSessionsStoreInstance.getRootSession.mockReturnValue({ id: 'root-1' });
+      mockKanbanStoreInstance.getCardBySessionId.mockImplementation((id) =>
+        id === 'root-1' ? { id: 'card-1', laneId: 'lane-1' } : null
+      );
+      mockKanbanStoreInstance.getLaneById.mockImplementation((id) =>
+        id === 'lane-1' ? { id: 'lane-1', name: 'In Progress' } : null
+      );
+
+      const wrapper = mountChildPanel();
+
+      const laneChip = wrapper.find('.lane-chip');
+      expect(laneChip.exists()).toBe(true);
+      expect(laneChip.text()).toContain('In Progress');
+    });
+
+    it('prefers the lane containing the card over a stale card.laneId', () => {
+      mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-stale' });
+      mockKanbanStoreInstance.board = {
+        lanes: [
+          { id: 'lane-stale', name: 'Stale', cards: [] },
+          { id: 'lane-fresh', name: 'Fresh', cards: [{ id: 'card-1', laneId: 'lane-stale' }] },
+        ],
+      };
+      mockKanbanStoreInstance.getLaneById.mockImplementation((id) =>
+        id === 'lane-stale' ? { id: 'lane-stale', name: 'Stale' } : null
+      );
+
+      const wrapper = mountPanel();
+
+      const laneChip = wrapper.find('.lane-chip');
+      expect(laneChip.exists()).toBe(true);
+      expect(laneChip.text()).toContain('Fresh');
     });
   });
 

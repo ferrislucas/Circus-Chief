@@ -501,6 +501,28 @@ describe('SessionDetailView kanban realtime', () => {
     expect(kanbanStore.getCardBySessionId('sess-3')?.id).toBe('card-new');
   });
 
+  it('revalidates the board on mount even when the cached project matches', async () => {
+    // mountDetail seeds currentProjectId with the session's project: the old
+    // guard skipped the fetch and the lane chip kept whatever was cached.
+    await mountDetail('sess-1', { id: 'sess-1', name: 'W', status: 'stopped', projectId: 'proj-1' });
+
+    expect(kanbanStore.fetchBoard).toHaveBeenCalledWith('proj-1');
+  });
+
+  it('refetches the board on websocket reconnect', async () => {
+    const { useWebSocket } = await import('../composables/useWebSocket.js');
+    await mountDetail('sess-1', { id: 'sess-1', name: 'W', status: 'stopped', projectId: 'proj-1' });
+
+    const socket = useWebSocket();
+    const reconnectCallbacks = socket.onReconnect.mock.calls.map((call) => call[0]);
+    expect(reconnectCallbacks.length).toBeGreaterThan(0);
+
+    kanbanStore.fetchBoard.mockClear();
+    for (const callback of reconnectCallbacks) await callback();
+
+    expect(kanbanStore.fetchBoard).toHaveBeenCalledWith('proj-1');
+  });
+
   it('removes kanban listeners and the project subscription on unmount', async () => {
     const wrapper = await mountDetail('sess-1', { id: 'sess-1', name: 'W', status: 'stopped', projectId: 'proj-1' });
     expect(getHandlers(WS_MESSAGE_TYPES.KANBAN_CARD_MOVED).size).toBeGreaterThan(0);

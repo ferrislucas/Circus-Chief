@@ -145,28 +145,46 @@ function safeCardLookup(sessionId) {
   }
 }
 
-// Get the lane name if this session is on the kanban board
-const sessionLane = computed(() => {
-  const card = safeCardLookup(props.sessionId);
-  if (!card) return null;
-  const lane = kanbanStore.getLaneById(card.laneId);
-  return lane;
-});
-
-// Get the card for this session
-const sessionCard = computed(() => safeCardLookup(props.sessionId));
-
-// Queue state for the badge. The queue parks the workflow, so resolve the
-// root first and fall back to the session id (same resolution as
-// archiveWorkflowCard in SessionDetailView).
-const queueCard = computed(() => {
+// Cards are keyed to the workflow root, so resolve the root first and fall
+// back to the session id in case the ancestor chain isn't fully loaded in
+// the store (same resolution as archiveWorkflowCard in SessionDetailView and
+// queueCard below). Without this, child sessions resolve no card and the lane
+// chip disagrees with the queue badge.
+function resolveWorkflowCard(sessionId) {
   try {
-    const rootId = sessionsStore.getRootSession(props.sessionId)?.id || props.sessionId;
-    return safeCardLookup(rootId) || safeCardLookup(props.sessionId);
+    const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+    return safeCardLookup(rootId) || safeCardLookup(sessionId);
+  } catch {
+    return safeCardLookup(sessionId);
+  }
+}
+
+// Resolve the lane by where the card actually lives in the board read model,
+// falling back to the card's laneId field. The field can lag the move
+// broadcast (optimistic copies, thin projections), so trusting it first shows
+// a stale lane.
+function resolveLaneForCard(card) {
+  if (!card) return null;
+  try {
+    const located = kanbanStore.board?.lanes?.find((lane) =>
+      lane.cards?.some((candidate) => candidate.id === card.id)
+    );
+    if (located) return located;
+    return kanbanStore.getLaneById(card.laneId) || null;
   } catch {
     return null;
   }
-});
+}
+
+// Get the lane if this session is on the kanban board
+const sessionLane = computed(() => resolveLaneForCard(sessionCard.value));
+
+// Get the card for this session
+const sessionCard = computed(() => resolveWorkflowCard(props.sessionId));
+
+// Queue state for the badge. The queue parks the workflow, so it shares the
+// same root-first resolution as the lane chip above.
+const queueCard = computed(() => resolveWorkflowCard(props.sessionId));
 
 const queueState = computed(() => resolveQueueState(null, queueCard.value));
 
