@@ -390,11 +390,15 @@ async function ensureProjectKanbanData(session) {
     await projectsStore.fetchProject(session.projectId);
   }
 
-  if (kanbanStore.currentProjectId !== session.projectId) {
-    kanbanStore.fetchBoard(session.projectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
-  }
+  // Always revalidate the board, even when the cached copy already belongs
+  // to this project. The cache may predate lane moves made in another tab or
+  // broadcasts missed while unsubscribed, and the header's lane chip reads
+  // straight from it — trusting it is what rendered stale lanes. fetchBoard
+  // keeps the old board visible until the fresh one arrives, so this is a
+  // background refresh, not a flicker.
+  kanbanStore.fetchBoard(session.projectId).catch(err => {
+    console.warn('Failed to fetch kanban board:', err);
+  });
 }
 
 watch(
@@ -612,7 +616,9 @@ async function addSessionToLane(lane) {
   if (!sessionToAdd.value || !lane) return;
 
   try {
-    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    const rootId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+    const existingCard = kanbanStore.getCardBySessionId(rootId)
+      || kanbanStore.getCardBySessionId(sessionToAdd.value.id);
     if (existingCard) {
       if (currentLaneIdForSessionToAdd.value === lane.id) return;
       await kanbanStore.routeWorkspaceCard(sessionToAdd.value.projectId, sessionToAdd.value.id, existingCard.id, lane.id);
@@ -630,14 +636,17 @@ async function addSessionToLane(lane) {
 }
 
 function getLaneIdForSession(sessionId) {
-  const card = kanbanStore.getCardBySessionId(sessionId);
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  const card = kanbanStore.getCardBySessionId(rootId)
+    || kanbanStore.getCardBySessionId(sessionId);
   if (!card) return null;
-  if (card.laneId) return card.laneId;
 
+  // Prefer the lane that actually contains the card in the board read model;
+  // the card's laneId field can lag move broadcasts and would show stale.
   const lane = kanbanStore.board?.lanes?.find((candidate) =>
     candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
   );
-  return lane?.id || null;
+  return lane?.id || card.laneId || null;
 }
 
 async function handleCopySessionId() {
