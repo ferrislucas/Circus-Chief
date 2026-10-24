@@ -101,7 +101,8 @@
           <span class="auto-failover-label">Automatic failover</span>
         </label>
         <p class="auto-failover-copy">
-          When a provider runs out, automatically switch to the next model in this tier.
+          When a provider runs out, immediately switch to the next model in this tier (no same-model retries).
+          Unchecked: retry the same model later instead.
         </p>
       </div>
     </div>
@@ -237,6 +238,20 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label class="auto-failover-row">
+            <input
+              v-model="form.autoFailoverEnabled"
+              type="checkbox"
+              data-testid="auto-failover-modal-toggle"
+            >
+            <span class="auto-failover-label">Automatic failover</span>
+          </label>
+          <p class="auto-failover-copy">
+            When a provider runs out, immediately switch to the next model in this tier (no same-model retries).
+          </p>
+        </div>
+
         <div
           v-if="modalError"
           class="error-message"
@@ -319,7 +334,7 @@ const editingTier = ref(null);
 const saving = ref(false);
 const modalError = ref('');
 
-const form = ref({ name: '', description: '', members: [] });
+const form = ref({ name: '', description: '', members: [], autoFailoverEnabled: true });
 const newMemberKey = ref('');
 
 const confirmingDelete = ref(null);
@@ -448,7 +463,7 @@ watch(() => providersStore.providers, refreshFormAvailability, { deep: true });
 // ── Modal helpers ────────────────────────────────────────────────────────────
 function openCreateModal() {
   editingTier.value = null;
-  form.value = { name: '', description: '', members: [] };
+  form.value = { name: '', description: '', members: [], autoFailoverEnabled: true };
   newMemberKey.value = '';
   modalError.value = '';
   showModal.value = true;
@@ -461,6 +476,7 @@ function openEditModal(tier) {
     name: tier.name,
     description: tier.description || '',
     members: tier.members.map((m, i) => ({ ...m, position: i })),
+    autoFailoverEnabled: tier.autoFailoverEnabled !== false,
   };
   newMemberKey.value = '';
   modalError.value = '';
@@ -534,6 +550,7 @@ async function saveTier() {
       modelId: m.modelId,
       position: i,
     })),
+    autoFailoverEnabled: form.value.autoFailoverEnabled !== false,
   };
 
   try {

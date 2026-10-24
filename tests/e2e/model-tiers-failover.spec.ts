@@ -10,6 +10,9 @@ import {
   waitForStatus,
   getSession,
   getSessionMessages,
+  getConversations,
+  getConversationMessages,
+  branchConversation,
   getAgentCallLogs,
   connectWebSocket,
   subscribeToSessionAndVerify,
@@ -927,6 +930,140 @@ test.describe('Model Tiers failover (scripted CLI, Phase 2)', () => {
     const freshRecords = finalRecords.filter((r: any) => r.sessionId === freshSession.id);
     expect(freshRecords).toHaveLength(1);
     expect(freshRecords[0].providerId).toBe(providerA.id);
+
+    ws.close();
+  });
+
+  test('branch-continue quota failure advances to the next member in the same turn (checked tier)', async () => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}BranchContinue Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'bc-model-a', displayName: 'BranchContinue Model A' });
+    const providerB = await createProvider({ name: `${TEST_PREFIX}BranchContinue Provider B`, kind: 'anthropic' });
+    await addProviderModel(providerB.id, { modelId: 'bc-model-b', displayName: 'BranchContinue Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Branch-Continue Tier`,
+      members: [
+        { providerId: providerA.id, modelId: 'bc-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'bc-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+    expect(tier.autoFailoverEnabled).toBe(true);
+
+    // Start succeeds on A (snapshot A); the branched follow-up fails quota
+    // on A and must advance to B in the same turn with no same-model
+    // reschedule (PRD §4 — the branch-continue path).
+    writeScript({
+      queues: {
+        [`${providerA.id}::bc-model-a`]: ['success', 'quota_error'],
+        [`${providerB.id}::bc-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Branch Continue Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier branch-continue e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(session.id)).resolvedModel).toBe('bc-model-a');
+    await waitForCaptureRecords(1);
+
+    const conversations = await getConversations(session.id);
+    const active = conversations.find((c: any) => c.isActive) ?? conversations[0];
+    const convoMessages = await getConversationMessages(session.id, active.id);
+    const userMessage = convoMessages.find((m: any) => m.role === 'user');
+    expect(userMessage?.id).toBeTruthy();
+
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, session.id);
+    const failoverPromise = waitForWSMessage(ws, 'tier:failover', 15000);
+
+    // Branching auto-starts the turn on the existing user message — the
+    // branch-continue path (no duplicate message, no re-executed prompt).
+    await branchConversation(session.id, active.id, userMessage.id, 'Branch follow-up needing failover');
+
+    const failoverEvent = await failoverPromise;
+    expect(failoverEvent.tierRef).toBe(`tier::${tier.id}`);
+    expect(failoverEvent.fromModel).toBe('bc-model-a');
+    expect(failoverEvent.toModel).toBe('bc-model-b');
+
+    await waitForStatus(session.id, 'waiting', 15000);
+    const finalSession = await waitForResolvedModel(session.id);
+    expect(finalSession.model).toBe(`tier::${tier.id}`);
+    expect(finalSession.resolvedModel).toBe('bc-model-b');
+    expect(finalSession.resolvedProviderId).toBe(providerB.id);
+    expect(finalSession.status).not.toBe('scheduled');
+
+    // Start on A, branched turn on A, same-turn retry on B.
+    const records = await waitForCaptureRecords(3);
+    expect(records.map((r: any) => r.modelId)).toEqual(['bc-model-a', 'bc-model-a', 'bc-model-b']);
+
+    const logs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+
+    ws.close();
+  });
+
+  test('branch-continue quota failure stays pinned on an unchecked tier (no advance, no event)', async () => {
+    const providerA = await createProvider({ name: `${TEST_PREFIX}BranchPinned Provider A`, kind: 'anthropic' });
+    await addProviderModel(providerA.id, { modelId: 'bp-model-a', displayName: 'BranchPinned Model A' });
+    const providerB = await createProvider({ name: `${TEST_PREFIX}BranchPinned Provider B`, kind: 'anthropic' });
+    await addProviderModel(providerB.id, { modelId: 'bp-model-b', displayName: 'BranchPinned Model B' });
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX}Branch-Pinned Tier`,
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'bp-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'bp-model-b', position: 1 },
+      ],
+    });
+    createdTierIds.push(tier.id);
+    expect(tier.autoFailoverEnabled).toBe(false);
+
+    writeScript({
+      queues: {
+        [`${providerA.id}::bp-model-a`]: ['success', 'quota_error'],
+        [`${providerB.id}::bp-model-b`]: ['success'],
+      },
+    });
+
+    const project = await seedProject('Tier Branch Pinned Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Tier branch pinned e2e',
+      model: `tier::${tier.id}`,
+      startImmediately: true,
+    });
+    await waitForStatus(session.id, 'waiting', 15000);
+    expect((await waitForResolvedModel(session.id)).resolvedModel).toBe('bp-model-a');
+    await waitForCaptureRecords(1);
+
+    const conversations = await getConversations(session.id);
+    const active = conversations.find((c: any) => c.isActive) ?? conversations[0];
+    const convoMessages = await getConversationMessages(session.id, active.id);
+    const userMessage = convoMessages.find((m: any) => m.role === 'user');
+    expect(userMessage?.id).toBeTruthy();
+
+    const ws = await connectWebSocket();
+    await subscribeToSessionAndVerify(ws, session.id);
+
+    await branchConversation(session.id, active.id, userMessage.id, 'Branch follow-up on pinned tier');
+
+    // Pinned failure: terminal error on A, no retry, no advance, no event.
+    await Promise.all([
+      waitForStatus(session.id, 'error', 15000),
+      assertNoWSMessage(ws, 'tier:failover', 8000),
+    ]);
+    const pinned = await getSession(session.id);
+    expect(pinned.resolvedModel).toBe('bp-model-a');
+
+    const records = await waitForCaptureRecords(2);
+    expect(records.map((r: any) => r.modelId)).toEqual(['bp-model-a', 'bp-model-a']);
+
+    const logs = await getAgentCallLogs({ sessionId: session.id, callType: 'tierFailover' });
+    expect(logs).toHaveLength(0);
 
     ws.close();
   });

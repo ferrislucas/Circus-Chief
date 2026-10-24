@@ -76,6 +76,9 @@ describe('ModelTiersView', () => {
         { providerId: 'enabled-provider', modelId: 'ready', position: 0 },
         { providerId: 'disabled-provider', modelId: 'paused', position: 1 },
       ],
+      // The modal now persists the flag; a tier without one keeps the
+      // default-checked semantics.
+      autoFailoverEnabled: true,
     });
   });
 
@@ -148,6 +151,9 @@ describe('ModelTiersView', () => {
       name: 'Mid-edit tier',
       description: null,
       members: [{ providerId: 'mid-edit-provider', modelId: 'mid-edit-model', position: 0 }],
+      // The modal now persists the flag; a tier without one keeps the
+      // default-checked semantics.
+      autoFailoverEnabled: true,
     });
   });
 
@@ -282,6 +288,71 @@ describe('ModelTiersView', () => {
     await wrapper.get('[data-testid="auto-failover-toggle"]').setValue(false);
 
     expect(updateTier).toHaveBeenCalledWith('tier-1', { autoFailoverEnabled: false });
+  });
+
+  it('states the zero-retry contract in the card copy', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Flagged tier', description: null, autoFailoverEnabled: true,
+      members: [],
+    }];
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    const copy = wrapper.get('.auto-failover-copy').text();
+    expect(copy).toMatch(/immediately/i);
+    expect(copy).toMatch(/no same-model retr/i);
+  });
+
+  it('exposes automatic failover in the create modal, checked by default', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [];
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.get('button.btn-primary').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="auto-failover-modal-toggle"]').element.checked).toBe(true);
+  });
+
+  it('saves the modal toggle state on create', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [];
+    const createTier = vi.spyOn(tiersStore, 'createTier').mockResolvedValue({ id: 'tier-new' });
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.get('button.btn-primary').trigger('click');
+    await flushPromises();
+
+    await wrapper.get('#tier-name').setValue('Fresh tier');
+    await wrapper.get('[data-testid="auto-failover-modal-toggle"]').setValue(false);
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+
+    expect(createTier).toHaveBeenCalledWith(expect.objectContaining({ autoFailoverEnabled: false }));
+  });
+
+  it('reflects the persisted flag in the edit modal and saves it', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Unchecked tier', description: null, autoFailoverEnabled: false,
+      members: [],
+    }];
+    const updateTier = vi.spyOn(tiersStore, 'updateTier').mockResolvedValue(undefined);
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.findAll('.btn-ghost').find((button) => button.text() === 'Edit').trigger('click');
+    await flushPromises();
+
+    const toggle = wrapper.get('[data-testid="auto-failover-modal-toggle"]');
+    expect(toggle.element.checked).toBe(false);
+
+    await toggle.setValue(true);
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+
+    expect(updateTier).toHaveBeenCalledWith('tier-1', expect.objectContaining({ autoFailoverEnabled: true }));
   });
 
   it('reverts the toggle to the persisted value when the PATCH fails', async () => {
