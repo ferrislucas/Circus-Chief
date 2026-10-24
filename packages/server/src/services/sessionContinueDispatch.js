@@ -23,8 +23,11 @@ import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
  * binding — a keep-current echo, not a move off the binding. Tier-ref echoes
  * match regardless of provider hint (mirrors normalizeRequestedSelection in
  * api/sessions-messages.js); concrete requests must match the exact pair.
+ *
+ * Shared with the branch-continue path (`prepareBranchContinueTurn`), which
+ * applies the same keep-current-vs-move contract to its tier context.
  */
-function isSameBindingSelection(session, model, providerId) {
+export function isSameBindingSelection(session, model, providerId) {
   return model === session.model
     && (isTierRef(model) || providerId == null || providerId === session.providerId);
 }
@@ -263,8 +266,11 @@ export async function executeContinueAttempt(sessionId, turn, dispatch, opts) {
  * An already-settled throw (the pipeline ran inside `_executeSession`)
  * propagates unchanged; re-entering `handleTurnFailure` would run member
  * cooling, reschedule evaluation, and the visible error a second time.
+ *
+ * Shared with the branch-continue path, whose retry loop settles a declined
+ * pre-settlement rethrow through the identical decision.
  */
-async function settleOrThrowContinueError({ sessionId, error, tierContext, controller, callbacks, interactive, firstAttempt }) {
+export async function settleOrThrowContinueError({ sessionId, error, tierContext, controller, callbacks, interactive, firstAttempt }) {
   if (firstAttempt && tierContext?.allowFailover === true && !isUserStopAbort(controller)
     && shouldRethrowForTierFailover(sessionId, error, tierContext)) {
     const settled = await settleUnsettledContinueError({ sessionId, error, callbacks, controller, interactive });
