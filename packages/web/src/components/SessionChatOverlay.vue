@@ -97,7 +97,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['close', 'session-created', 'session-deleted']);
+const emit = defineEmits(['close', 'session-created', 'session-deleted', 'active-session-change']);
 const mainSessionsStore = useSessionsStore();
 
 const visible = ref(true);
@@ -133,6 +133,7 @@ function afterLeave() {
 
 function handleActiveSessionChange(session) {
   overlaySessionStatus.value = session?.status || '';
+  emit('active-session-change', session);
 }
 
 function handlePickerSelect(sessionId) {

@@ -67,10 +67,6 @@
         </span>
         <span class="lineage-main">
           <span class="lineage-top">
-            <span
-              class="lineage-dot"
-              :class="`lineage-dot--${dotKind(row.session)}`"
-            />
             <span class="lineage-name">{{ row.session.name }}</span>
             <span
               v-if="row.session.id === currentSessionId"
@@ -290,6 +286,7 @@ function rowTooltip(row) {
 }
 
 .lineage-row--current {
+  background: rgba(34, 197, 255, 0.08);
   box-shadow: inset 0 0 0 1px var(--color-primary, #22c5ff);
 }
 
@@ -422,7 +419,12 @@ function rowTooltip(row) {
 
 .lineage-current-marker {
   flex-shrink: 0;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(34, 197, 255, 0.14);
   font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
   color: var(--color-primary, #22c5ff);
 }
 

@@ -190,4 +190,11 @@ describe('SessionLineageGraph', () => {
     expect(wrapper.find('[data-session-id="a"]').attributes('aria-label')).toBe('Open session Fix auth flow');
     expect(wrapper.find('[data-session-id="b"]').attributes('aria-label')).toBe('Open session Session b');
   });
+
+  it('renders no per-row status dot (status lives on the gutter node; legend keeps its dots)', () => {
+    const rows = [makeRow('a'), makeRow('b')];
+    const wrapper = mountGraph(rows, { currentSessionId: 'b' });
+    expect(wrapper.findAll('.lineage-legend .lineage-dot').length).toBeGreaterThan(0);
+    expect(wrapper.findAll('.lineage-row .lineage-dot')).toHaveLength(0);
+  });
 });

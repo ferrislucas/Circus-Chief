@@ -53,7 +53,7 @@ vi.mock('../components/SessionChatOverlay.vue', () => ({
     name: 'SessionChatOverlay',
     template: '<div class="session-chat-overlay"><button v-if="sessionChain?.length > 1" data-testid="session-tree-dropdown">Sessions</button></div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
-    emits: ['close', 'session-created', 'session-deleted']
+    emits: ['close', 'session-created', 'session-deleted', 'active-session-change']
   }
 }));
 vi.mock('../components/SessionChatContent.vue', () => ({
@@ -4936,6 +4936,45 @@ describe('SessionDetailView', () => {
       expect(chatContent.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
       expect(chatContent.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
       expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
+    });
+
+    it('syncs overlaySessionId when the chat tab selection changes', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1/chat');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(chatContent.exists()).toBe(true);
+      chatContent.vm.$emit('active-session-change', { id: 'child-1', status: 'running' });
+      await nextTick();
+
+      // The lineage "you are here" marker reads overlaySessionId, so it now
+      // follows the session picked on the chat tab.
+      expect(wrapper.vm.overlaySessionId).toBe('child-1');
     });
 
     it('navigates from a deleted embedded chat route to the fallback session and preserves chat tab', async () => {
