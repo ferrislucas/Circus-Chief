@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { setActivePinia, createPinia } from 'pinia';
 import SessionLineageGraph from './SessionLineageGraph.vue';
 import { buildLineageRows } from '../utils/sessionLineageLanes.js';
+import { useTiersStore } from '../stores/tiers.js';
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+});
 
 const T0 = new Date('2026-01-10T12:00:00Z').getTime();
 const MIN = 60 * 1000;
@@ -189,6 +195,43 @@ describe('SessionLineageGraph', () => {
     const wrapper = mountGraph(rows);
     expect(wrapper.find('[data-session-id="a"]').attributes('aria-label')).toBe('Open session Fix auth flow');
     expect(wrapper.find('[data-session-id="b"]').attributes('aria-label')).toBe('Open session Session b');
+  });
+
+  it('shows the resolved concrete model, not the tier, for tier-bound sessions', () => {
+    const rows = [
+      makeRow('a', { session: { model: 'tier::tier-1', resolvedModel: 'claude-sonnet-5' } }),
+      makeRow('b', { session: { model: 'claude-opus-4-8' } }),
+    ];
+    const wrapper = mountGraph(rows);
+    const label = wrapper.find('[data-session-id="a"] .lineage-model');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('Sonnet 5');
+    expect(label.text()).not.toContain('tier::');
+    expect(wrapper.find('[data-session-id="a"]').attributes('title')).toContain('Sonnet 5');
+    expect(wrapper.find('[data-session-id="a"]').attributes('title')).not.toContain('tier::tier-1');
+  });
+
+  it('falls back to the tier label when a tier-bound session has no resolved model yet', () => {
+    useTiersStore().tiers = [{ id: 'tier-1', name: 'High' }];
+    const rows = [
+      makeRow('a', { session: { model: 'tier::tier-1', resolvedModel: null } }),
+      makeRow('b'),
+    ];
+    const wrapper = mountGraph(rows);
+    const label = wrapper.find('[data-session-id="a"] .lineage-model');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('Tier: High');
+    expect(label.text()).not.toContain('tier::');
+  });
+
+  it('shows the friendly display name for concrete model ids', () => {
+    const rows = [
+      makeRow('a', { session: { model: 'claude-sonnet-5' } }),
+      makeRow('b', { session: { model: 'gpt-5.6-sol' } }),
+    ];
+    const wrapper = mountGraph(rows);
+    expect(wrapper.find('[data-session-id="a"] .lineage-model').text()).toBe('Sonnet 5');
+    expect(wrapper.find('[data-session-id="b"] .lineage-model').text()).not.toBe('gpt-5.6-sol');
   });
 
   it('renders no per-row status dot (status lives on the gutter node; legend keeps its dots)', () => {
