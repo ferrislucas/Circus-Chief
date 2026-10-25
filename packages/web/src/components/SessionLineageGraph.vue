@@ -67,10 +67,6 @@
         </span>
         <span class="lineage-main">
           <span class="lineage-top">
-            <span
-              class="lineage-dot"
-              :class="`lineage-dot--${dotKind(row.session)}`"
-            />
             <span class="lineage-name">{{ row.session.name }}</span>
             <span
               v-if="row.session.id === currentSessionId"
@@ -82,10 +78,10 @@
           <span class="lineage-meta">
             <span class="lineage-time">{{ rowTimeLabel(row) }}</span>
             <span
-              v-if="row.session.model"
+              v-if="modelLabel(row.session)"
               class="lineage-model"
             >
-              {{ row.session.model }}
+              {{ modelLabel(row.session) }}
             </span>
           </span>
           <span
@@ -117,6 +113,8 @@
 import { computed, ref } from 'vue';
 import { formatTokenCount } from '@circuschief/shared';
 import { selectCollapsedRows } from '../utils/sessionLineageLanes.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
+import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   rows: {
@@ -138,6 +136,23 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['open-session']);
+
+const { getModelDisplayName } = useModelInfo();
+const tiersStore = useTiersStore();
+
+// Tier-bound sessions store the `tier::<id>` sentinel in `model` with the
+// concrete member snapshot in `resolvedModel`: show what actually ran, never
+// the tier (same rule as SessionLogStream's live-output badge). Concrete ids
+// resolve through the same display-name lookup as LatestResponseCard.
+function modelLabel(session) {
+  const model = session?.model;
+  if (!model) return '';
+  if (!isTierRef(model)) return getModelDisplayName(model);
+  const resolved = session.resolvedModel ?? session.resolved_model;
+  if (resolved) return getModelDisplayName(resolved);
+  const tier = tiersStore.getById?.(model.slice('tier::'.length));
+  return tier ? `Tier: ${tier.name}` : 'Tier';
+}
 
 function openRow(sessionId) {
   emit('open-session', sessionId);
@@ -216,7 +231,8 @@ function rowEndMs(session) {
 function rowTooltip(row) {
   const session = row.session;
   const parts = [session.name];
-  if (session.model) parts.push(session.model);
+  const label = modelLabel(session);
+  if (label) parts.push(label);
   const total = props.tokenTotals?.[session.id];
   if (typeof total === 'number' && total > 0) parts.push(`${formatTokenCount(total)} tokens`);
   const start = new Date(session.createdAt).getTime();
@@ -290,6 +306,7 @@ function rowTooltip(row) {
 }
 
 .lineage-row--current {
+  background: rgba(34, 197, 255, 0.08);
   box-shadow: inset 0 0 0 1px var(--color-primary, #22c5ff);
 }
 
@@ -422,7 +439,12 @@ function rowTooltip(row) {
 
 .lineage-current-marker {
   flex-shrink: 0;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(34, 197, 255, 0.14);
   font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
   color: var(--color-primary, #22c5ff);
 }
 

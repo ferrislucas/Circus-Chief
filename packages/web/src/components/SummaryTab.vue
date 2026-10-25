@@ -25,7 +25,7 @@
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
       :lineage-rows="lineageRows"
-      :current-session-id="props.sessionId"
+      :current-session-id="lineageCurrentSessionId"
       :lineage-token-totals="lineageTokenTotals"
       @open-session-overlay="(sessionId) => emit('open-session-overlay', sessionId)"
     />
@@ -96,6 +96,7 @@ const emit = defineEmits(['open-session-overlay']);
 
 const props = defineProps({
   sessionId: { type: String, required: true },
+  activeSessionId: { type: String, default: null },
 });
 
 const uiStore = useUiStore();
@@ -160,6 +161,11 @@ const lineageSessions = computed(() => {
   if (!root) return [];
   return [root, ...sessionsStore.getAllDescendants(root.id)];
 });
+
+// "You are here" follows the session selected on the chat tab (which can
+// differ from the route session after picker navigation), falling back to
+// the route session when no chat selection is known yet.
+const lineageCurrentSessionId = computed(() => props.activeSessionId || props.sessionId);
 
 const lineageRows = computed(() => buildLineageRows(lineageSessions.value));
 

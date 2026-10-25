@@ -66,6 +66,7 @@
           v-if="activeTab === 'summary'"
           :key="route.params.id"
           :session-id="route.params.id"
+          :active-session-id="overlaySessionId"
           @open-session-overlay="handleScheduledSessionClick"
         />
         <ChangesTab
@@ -99,6 +100,7 @@
           mode="embedded"
           @session-created="handleOverlaySessionCreated"
           @session-deleted="handleOverlaySessionDeleted"
+          @active-session-change="handleActiveSessionChange"
         />
       </div>
 
@@ -119,6 +121,7 @@
         @close="handleOverlayClose"
         @session-created="handleOverlaySessionCreated"
         @session-deleted="handleOverlaySessionDeleted"
+        @active-session-change="handleActiveSessionChange"
       />
 
       <!-- Archive Confirm Modal -->
@@ -320,6 +323,15 @@ async function handleOverlaySessionDeleted(payload) {
 
   await buildSessionChain();
   resolveOverlayTarget();
+}
+
+// Keep the lineage "you are here" marker aligned with the session actually
+// selected on the chat tab. SessionChatContent tracks its own active session
+// after picker navigation, so sync it back to the shared overlay target;
+// assigning the same id is a no-op for the chat watcher.
+function handleActiveSessionChange(session) {
+  const id = typeof session === 'string' ? session : session?.id;
+  if (id) overlaySessionId.value = id;
 }
 
 const { cleanup, initializeSession } = useSessionInitializer({

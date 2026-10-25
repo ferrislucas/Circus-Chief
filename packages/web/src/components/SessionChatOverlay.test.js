@@ -903,6 +903,35 @@ describe('SessionChatOverlay', () => {
 
       wrapper.unmount();
     });
+
+    it('forwards the chat active-session-change to the parent', async () => {
+      // Note: wrapper.emitted() is unreliable with Vue 3 script setup SFCs
+      // (same as ScheduledChildCard.test.js) — capture via attrs listener.
+      const spy = vi.fn();
+      const wrapper = mount(SessionChatOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: chainSummaries,
+        },
+        attrs: { onActiveSessionChange: spy },
+        global: {
+          plugins: [router],
+        },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      const content = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(content.exists()).toBe(true);
+      content.vm.$emit('active-session-change', { id: 'child-1', status: 'running' });
+      await nextTick();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith({ id: 'child-1', status: 'running' });
+
+      wrapper.unmount();
+    });
   });
 
   describe('data loading', () => {

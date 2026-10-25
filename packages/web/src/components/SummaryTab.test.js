@@ -1506,6 +1506,17 @@ describe('SummaryTab', () => {
       expect(wrapper.find('[data-testid="session-lineage-graph"]').exists()).toBe(true);
     });
 
+    it('marks the chat-selected session as current when activeSessionId differs', async () => {
+      seedTree();
+      sessionsStore.currentSession = sessionsStore.sessions[0];
+
+      const wrapper = mountComponent({ sessionId: 'root-1', activeSessionId: 'grandchild-1' });
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('currentSessionId')).toBe('grandchild-1');
+    });
+
     it('hides the graph for a single-session workspace', async () => {
       api.getSessionSummary.mockResolvedValue({ shortSummary: 'Solo work' });
       sessionsStore.currentSession = {
