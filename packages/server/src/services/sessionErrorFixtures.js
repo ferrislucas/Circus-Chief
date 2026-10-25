@@ -108,6 +108,11 @@ export const SESSION_ERROR_FIXTURES = [
     'quota', SRC_OPENAI_429, { providerKind: 'openai' }
   ),
   row(
+    'API Error: Request rejected (429) · [1310][Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-26 09:27:49][202610260518098ef41fc630bc4ada]',
+    'quota', 'agent_call_logs — z.ai via Claude Code: weekly/monthly limit-exhaustion string rescheduled instead of failing over',
+    { providerKind: 'anthropic' }
+  ),
+  row(
     'Error: 429 RESOURCE_EXHAUSTED',
     'quota', [
       'sessionErrors.test.js — synthetic regression for the Gemini CLI text-only rate-limit',
