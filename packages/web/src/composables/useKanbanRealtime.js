@@ -1,5 +1,5 @@
 import { onUnmounted, watch } from 'vue';
-import { useProjectSubscription } from './useWebSocket.js';
+import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 import { useKanbanStore } from '../stores/kanban.js';
 
 /**
@@ -85,8 +85,25 @@ export function useKanbanRealtime(projectId) {
 
   const stopProjectWatch = watch(projectId, installProjectSubscription, { immediate: true });
 
+  // Resync the board after a WebSocket reconnect. Moves broadcast while the
+  // socket was down never reach the patch handlers above, so without this the
+  // lane chip keeps rendering the pre-disconnect lane until the next move.
+  let stopReconnect = null;
+  try {
+    const ws = useWebSocket();
+    if (ws && typeof ws.onReconnect === 'function') {
+      stopReconnect = ws.onReconnect(() => {
+        const id = typeof projectId === 'string' ? projectId : projectId?.value ?? null;
+        if (id) kanbanStore.fetchBoard(id).catch(() => {});
+      });
+    }
+  } catch {
+    // WebSocket unavailable (some unit-test mocks): realtime patches still apply.
+  }
+
   onUnmounted(() => {
     stopProjectWatch();
     cleanupCurrentProject();
+    stopReconnect?.();
   });
 }

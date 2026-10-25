@@ -248,6 +248,11 @@ describe('SessionDetailView', () => {
     vi.spyOn(canvasStore, 'fetchItems').mockResolvedValue(undefined);
     vi.spyOn(todosStore, 'fetchTodos').mockResolvedValue(undefined);
 
+    // The detail view revalidates the board on mount, so reset the board
+    // endpoint to its empty default; tests that need board state serve it
+    // from here.
+    api.getKanbanBoard.mockResolvedValue(null);
+
     // Mock window.confirm
     window.confirm = vi.fn(() => true);
 
@@ -907,6 +912,7 @@ describe('SessionDetailView', () => {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
       };
       kanbanStore.currentProjectId = 'proj-1';
+      api.getKanbanBoard.mockResolvedValue(kanbanStore.board);
 
       await router.push('/sessions/session-1');
       await router.isReady();
@@ -956,6 +962,7 @@ describe('SessionDetailView', () => {
         ],
       };
       kanbanStore.currentProjectId = 'proj-1';
+      api.getKanbanBoard.mockResolvedValue(kanbanStore.board);
 
       await router.push('/sessions/session-1');
       await router.isReady();
@@ -996,6 +1003,7 @@ describe('SessionDetailView', () => {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
       };
       kanbanStore.currentProjectId = 'proj-1';
+      api.getKanbanBoard.mockResolvedValue(kanbanStore.board);
       const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard').mockResolvedValue({
         id: 'card-1',
         laneId: 'lane-1',
@@ -1049,6 +1057,7 @@ describe('SessionDetailView', () => {
         ],
       };
       kanbanStore.currentProjectId = 'proj-1';
+      api.getKanbanBoard.mockResolvedValue(kanbanStore.board);
       const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard');
       const moveSpy = vi.spyOn(kanbanStore, 'routeWorkspaceCard').mockResolvedValue({ status: 'moved', laneId: 'lane-2' });
 
