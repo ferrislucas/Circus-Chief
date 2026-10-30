@@ -1,6 +1,9 @@
 import { sessions, modelTiers } from '../database.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
-import { buildTierHealthContext, findNextHealthyTierMember, markUnhealthy } from './tierResolutionService.js';
+import {
+  buildTierHealthContext, findNextHealthyTierMemberInSnapshot, getTierMembersResolved, markUnhealthy,
+} from './tierResolutionService.js';
+import { isExactTierMemberValid, validateExactTierMember } from './tierIdentity.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { isUserStopAbort } from './sessionAbort.js';
 import { emitTierFailoverEvent, sanitizeTierFailureReason } from './tierAttemptOutcome.js';
@@ -32,19 +35,26 @@ export function buildContinueTierContext(session, effectiveModel, authorizeFailo
   if (!health || !authorizeFailover || !effectiveModel) return health;
   const tier = modelTiers.getById(parseTierRef(session.model));
   if (tier && tier.autoFailoverEnabled === false) return health;
-  const eligible = (member) => isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
-  const nextMember = findNextHealthyTierMember(session.model, {
+  // A same-turn continuation cycle freezes its configured membership here.
+  // The snapshot is intentionally turn-local (kept in tierContext/retry), so
+  // later turns and explicit tier switches still resolve current settings.
+  // Exact identity, kind, and cooldown checks remain live when it is used.
+  const members = getTierMembersResolved(parseTierRef(session.model));
+  const eligible = (member) => isExactTierMemberValid(member.providerId, member.modelId)
+    && isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
+  const nextMember = findNextHealthyTierMemberInSnapshot(members, {
     modelId: effectiveModel,
     providerId: health.currentMemberProviderId,
   }, new Set(), eligible);
   if (!nextMember) return health;
-  return { ...health, allowFailover: true, allowFailoverAfterActivity: true, nextMember };
+  return { ...health, allowFailover: true, allowFailoverAfterActivity: true, members, nextMember };
 }
 
 /**
  * Decide whether a failed continuation attempt may retry once on the next
  * tier member (§5.2). Every condition is re-evaluated LIVE against current
- * state — the prep-time successor may have cooled while the attempt ran.
+ * state within the cycle's frozen membership — the prep-time successor may
+ * have cooled or become invalid while the attempt ran.
  *
  * Returns the retry plan, or null when the turn must fail normally.
  */
@@ -60,23 +70,50 @@ export function considerContinueFailoverRetry({ sessionId, error, tierContext, c
     providerId: tierContext.currentMemberProviderId,
   };
   if (!fromMember.modelId || !fromMember.providerId) return null;
-  const nextMember = findNextHealthyTierMember(
-    session.model,
-    fromMember,
-    new Set(),
-    (member) => isTierFailoverLiftable(session.agentType, member.modelId, member.providerId)
-  );
+  const members = tierContext.members;
+  if (!Array.isArray(members)) return null;
+  const nextMember = findNextHealthyTierMemberInSnapshot(members, fromMember, new Set(), (member) => (
+    isExactTierMemberValid(member.providerId, member.modelId)
+      && isTierFailoverLiftable(session.agentType, member.modelId, member.providerId)
+  ));
   if (!nextMember) return null;
-  return { fromMember, nextMember, error };
+  return { fromMember, nextMember, members, error };
+}
+
+/**
+ * Re-check the captured retry cycle immediately before second dispatch. Tier
+ * membership/order remains frozen, while cooldown, exact catalog identity,
+ * and kind eligibility remain live. This can advance past a member that was
+ * disabled after the first attempt without admitting a newly added member.
+ */
+export function findHealthyContinueRetryMember(session, retry) {
+  if (!retry || !Array.isArray(retry.members)) return null;
+  return findNextHealthyTierMemberInSnapshot(retry.members, retry.fromMember, new Set(), (member) => (
+    isExactTierMemberValid(member.providerId, member.modelId)
+      && isTierFailoverLiftable(session.agentType, member.modelId, member.providerId)
+  ));
+}
+
+/**
+ * Convert a selected frozen-snapshot member into the continuation resolver
+ * shape. This validates live identity without consulting current tier
+ * membership, so the cycle remains frozen while disabled/deleted identities
+ * still block dispatch.
+ */
+export function resolveFrozenContinueRetryMember(retryMember) {
+  const pair = validateExactTierMember(retryMember.providerId, retryMember.modelId);
+  return {
+    effectiveModel: pair.modelId,
+    providerIdHint: pair.providerId,
+    persist: { resolvedModel: pair.modelId, resolvedProviderId: pair.providerId },
+  };
 }
 
 /**
  * Apply a same-turn failover retry's arm-time side effects: cool the failed
  * member exactly once (FR3 — the pre-settlement rethrow skipped health
  * attribution). The failover event is NOT emitted here — it is deferred to
- * second-attempt dispatch (see `emitContinueFailoverDispatched`), because the
- * armed successor is only a prediction and a tier edit before dispatch can
- * re-resolve the retry onto a different member (PR #1180 review #2). Returns
+ * second-attempt dispatch (see `emitContinueFailoverDispatched`). Returns
  * the boundary marker injected into the retry prompt so the successor
  * continues the failed turn's transcript instead of re-executing it (NG1).
  */
@@ -166,5 +203,12 @@ export function armContinueFailoverRetry(sessionId, { retry, error, activeConver
   activeConversationIds.set(sessionId, activeConversation.id);
   sessions.update(sessionId, { status: 'running' });
   broadcastSessionStatus(sessionId, 'running');
-  return { failoverBoundary, unsettledError, session: sessions.getById(sessionId) };
+  return {
+    failoverBoundary,
+    unsettledError,
+    // The frozen retry plan is not persisted and expires with this one-retry
+    // continuation cycle.
+    retry,
+    session: sessions.getById(sessionId),
+  };
 }
