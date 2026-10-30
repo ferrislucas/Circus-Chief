@@ -260,6 +260,100 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
   });
 
+  it('uses a successor that recovers during a failed call instead of rescheduling', async () => {
+    // B is the only possible successor. It is unavailable at A's initial
+    // selection, but recovers before A reports its eligible failure.
+    markUnhealthy(providerB.id, 'model-b', 10);
+    sessionRepo.update(session.id, {
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+    // eslint-disable-next-line require-yield -- startup failure after cooldown expiry
+    mockQuery.mockImplementationOnce(async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-b']);
+    expect(sessionRepo.getById(session.id).status).not.toBe('scheduled');
+  });
+
+  it('does not reuse a stale successor that becomes unhealthy during a failed call', async () => {
+    sessionRepo.update(session.id, {
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+    const failoverCountBefore = broadcastToSession.mock.calls
+      .filter((call) => call[1] === 'tier:failover').length;
+    // eslint-disable-next-line require-yield -- A fails after B becomes unavailable
+    mockQuery.mockImplementationOnce(async function* () {
+      markUnhealthy(providerB.id, 'model-b');
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.getById(session.id).status).toBe('scheduled');
+    expect(broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover'))
+      .toHaveLength(failoverCountBefore);
+  });
+
+  it('keeps a cooled current member as the circular origin for a fresh cycle', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const threeMemberTier = modelTiers.create({
+      name: 'Cooled Origin Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(threeMemberTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+    markUnhealthy(providerB.id, 'model-b');
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-c']);
+  });
+
+  it('does not announce a successor that cools at the provider dispatch fence', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    // eslint-disable-next-line require-yield -- A fails before activity
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    let dispatches = 0;
+    await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => {
+        dispatches += 1;
+        if (dispatches === 2) markUnhealthy(providerB.id, 'model-b');
+      },
+    });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-c']);
+    const failoverEvents = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(failoverEvents.at(-1)[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-c' });
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows.at(-1).metadata).toMatchObject({ fromModel: 'model-a', toModel: 'model-c' });
+  });
+
   it('fails over when a retryable provider failure arrives as result:error', async () => {
     mockQuery.mockImplementationOnce(async function* () {
       yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- this loop and its start-path lifecycle share one failover boundary. */
 import { sessions, modelTiers } from '../database.js';
 import {
   reconcileAgentTypeForRun,
@@ -34,11 +35,19 @@ import {
 import {
   ModelTierExhaustedError,
   classifyAttemptFailure,
+  emitTierFailoverEvent,
   throwTerminalStreamFailure,
 } from './tierAttemptOutcome.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 export { ModelTierExhaustedError } from './tierAttemptOutcome.js';
+
+class TierMemberUnavailableAtDispatchError extends Error {
+  constructor() {
+    super('Tier member became unavailable before provider dispatch');
+    this.code = 'TIER_MEMBER_UNAVAILABLE_AT_DISPATCH';
+  }
+}
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -175,7 +184,7 @@ function snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken) {
 async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
   member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
   systemPrompt, activeConversation, callbacks,
-  beforeProviderExecute = null, onProviderDispatchInitiated = null,
+  beforeProviderExecute = null, onProviderDispatchInitiated = null, onFailoverDispatch = null,
 }) {
   // Finding 12: user cancellation takes precedence over startup failover —
   // never (re-)register active ownership or dispatch a successor adapter
@@ -191,6 +200,7 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
     currentMemberProviderId: member.providerId,
     currentMemberIndex: memberIndex,
     nextMember,
+    resolveNextMember,
     // Explicit failover authorization: ONLY the startup loop may advance to
     // another member. A context without this flag (see
     // buildTierHealthContext) reports member health but can never trigger
@@ -222,8 +232,19 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       controller,
       callbacks,
       tierContext,
-      beforeProviderExecute,
-      onProviderDispatchInitiated,
+      beforeProviderExecute: async () => {
+        await beforeProviderExecute?.();
+        // The health check at loop selection is necessarily optimistic. Check
+        // once more immediately before the adapter call so a notice can never
+        // name a cooled member that was skipped at the dispatch fence.
+        if (isUnhealthy(member.providerId, member.modelId)) {
+          throw new TierMemberUnavailableAtDispatchError();
+        }
+      },
+      onProviderDispatchInitiated: () => {
+        onFailoverDispatch?.();
+        onProviderDispatchInitiated?.();
+      },
     });
 
     // A rejected dispatch (e.g. lane-run ownership lost before the provider
@@ -252,11 +273,14 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       clearTierAttemptMember(sessionId, attemptToken);
       throw error;
     }
+    if (error?.code === 'TIER_MEMBER_UNAVAILABLE_AT_DISPATCH') {
+      return { settled: false, attemptToken, nextMember: resolveNextMember() };
+    }
     const selectedNextMember = classifyAttemptFailure(error, {
       sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
       resolveNextMember,
     });
-    return { settled: false, attemptToken, nextMember: selectedNextMember };
+    return { settled: false, attemptToken, error, nextMember: selectedNextMember };
   }
 }
 
@@ -266,7 +290,10 @@ function selectInitialCycleMember(sessionId, members) {
     candidate.modelId === currentSession?.resolvedModel
     && candidate.providerId === currentSession?.resolvedProviderId
   ));
-  return pinnedMember && !isUnhealthy(pinnedMember.providerId, pinnedMember.modelId)
+  // The configured current member remains this cycle's circular origin even
+  // while cooling. The loop below applies health eligibility as it scans
+  // forward, so B-cooling in [A,B,C] starts at C rather than resetting to A.
+  return pinnedMember
     ? pinnedMember
     : members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
 }
@@ -276,6 +303,7 @@ function selectNextCycleMember(members, member, attemptedMemberKeys, failoverDis
   return findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
 }
 
+// eslint-disable-next-line max-statements, sonarjs/cognitive-complexity -- cycle membership, health, and dispatch remain one atomic loop.
 async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
   members, failoverDisabled, controller, tierRef, tierId, tierName,
   systemPrompt, activeConversation, callbacks,
@@ -285,6 +313,7 @@ async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirec
   let attemptedAny = false;
   const attemptedMemberKeys = new Set();
   let latestAttemptToken = null;
+  let pendingFailover = null;
   let member = selectInitialCycleMember(sessionId, members);
   try {
     while (member && attemptedMemberKeys.size < members.length) {
@@ -302,9 +331,22 @@ async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirec
       const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
         member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
         systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
+        onFailoverDispatch: pendingFailover
+          ? () => emitTierFailoverEvent(pendingFailover.error, {
+            sessionId,
+            member: pendingFailover.member,
+            tierRef,
+            tierName,
+            nextMember: member,
+          })
+          : null,
       });
       if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
       if (result.settled) return result.execution;
+      // A dispatch-fence skip is not a new provider failure. Retain the
+      // original failed member so the eventual concrete dispatch is reported
+      // as that failure's replacement, rather than inventing B → C.
+      if (result.error) pendingFailover = { error: result.error, member };
       member = result.nextMember ?? selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
     }
     if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });

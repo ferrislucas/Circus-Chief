@@ -263,7 +263,7 @@ function logSkippedReschedule(setting) {
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string|null} sessionId - Session ID
- * @param {{ allowFailover?: boolean, currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null }|null} tierContext
+ * @param {{ allowFailover?: boolean, currentMemberId?: string, currentMemberProviderId?: string, nextMember?: Object|null, resolveNextMember?: Function }|null} tierContext
  * @returns {boolean}
  */
 export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
@@ -291,10 +291,14 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
     return false;
   }
 
-  // The failover loop supplies the successor from its immutable member
-  // snapshot. Never re-read live tier configuration here: an edit while a
-  // provider call is in flight must not make rescheduling disagree with the
-  // retry and notice for that same attempt.
+  // Resolve against the immutable member snapshot at the failure boundary,
+  // not just before the provider call. Health and cooldown state can change
+  // while that call is in flight. A resolver's null is authoritative: it
+  // means normal terminal/reschedule handling must proceed rather than
+  // reviving a stale pre-call candidate.
+  if (typeof tierContext.resolveNextMember === 'function') {
+    return tierContext.resolveNextMember() != null;
+  }
   return tierContext.nextMember != null;
 }
 
