@@ -254,34 +254,50 @@ export function resolveAnyMember(modelOrRef, context = {}) {
  * failover notice/log payload — one ordered scan shared by both so they can
  * never disagree (Fix 5).
  *
- * A pure forward-only, cooldown-aware scan: only considers members strictly
- * AFTER `failedMember`'s position and skips members currently in cooldown.
- * The tier is exhausted before failure — there is no attempt cap. The loop
- * that calls this (`runSessionWithTierFailover`) iterates a finite,
- * DB-ordered, de-duplicated member list with no re-entry path that could
- * revisit a member, so `members.length` is itself the termination bound.
+ * Select the next healthy member from an already-resolved tier snapshot.
+ * Selection is circular, but bounded: it visits every member after `origin`
+ * once and never returns `origin`. `excludedMemberKeys` is cycle-local state
+ * owned by the caller, so a start cycle cannot make a second revolution.
+ *
+ * @param {Array<{ providerId: string, modelId: string, position: number }>} members
+ * @param {{ modelId: string, providerId: string }} origin
+ * @param {Set<string>} [excludedMemberKeys]
+ * @returns {{ providerId: string, modelId: string, position: number }|null}
+ */
+export function findNextHealthyTierMemberInSnapshot(members, origin, excludedMemberKeys = new Set()) {
+  const originIndex = members.findIndex(
+    (member) => member.providerId === origin.providerId && member.modelId === origin.modelId
+  );
+  if (originIndex === -1 || members.length < 2) return null;
+
+  for (let offset = 1; offset < members.length; offset++) {
+    const candidate = members[(originIndex + offset) % members.length];
+    if (excludedMemberKeys.has(tierMemberKey(candidate))) continue;
+    if (!isUnhealthy(candidate.providerId, candidate.modelId)) return candidate;
+  }
+  return null;
+}
+
+/** @param {{ providerId: string, modelId: string }} member */
+export function tierMemberKey(member) {
+  return `${member.providerId}::${member.modelId}`;
+}
+
+/**
+ * Find the next healthy member in circular configured order. This resolves a
+ * fresh snapshot for callers that do not already hold one (continuations).
  *
  * @param {string} tierRef - Tier ref sentinel string.
  * @param {{ modelId: string, providerId: string }} failedMember - The member that just failed.
+ * @param {Set<string>} [excludedMemberKeys] exact provider/model identities
  * @returns {{ providerId: string, modelId: string, position: number }|null}
  */
-export function findNextHealthyTierMember(tierRef, failedMember) {
+export function findNextHealthyTierMember(tierRef, failedMember, excludedMemberKeys = new Set()) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) return null;
 
   const members = getTierMembersResolved(tierId);
-  const failedIndex = members.findIndex(
-    (m) => m.providerId === failedMember.providerId && m.modelId === failedMember.modelId
-  );
-  if (failedIndex === -1) return null;
-
-  for (let i = failedIndex + 1; i < members.length; i++) {
-    const candidate = members[i];
-    if (!isUnhealthy(candidate.providerId, candidate.modelId)) {
-      return candidate;
-    }
-  }
-  return null;
+  return findNextHealthyTierMemberInSnapshot(members, failedMember, excludedMemberKeys);
 }
 
 /**
@@ -408,14 +424,15 @@ function resolveCooledSnapshotAdvance(session) {
   const tierId = parseTierRef(session.model);
   if (!tierId || isFlagOffTier(tierId)) return null;
   if (!isValidCooledSnapshot(session)) return null;
-  const live = resolveActiveModel(session.model, {});
+  const live = findNextHealthyTierMember(session.model, {
+    modelId: session.resolvedModel,
+    providerId: session.resolvedProviderId,
+  });
   if (!live) return null;
-  if (live.model === session.resolvedModel
-    && (live.providerId ?? null) === (session.resolvedProviderId ?? null)) return null;
   return {
-    effectiveModel: live.model,
+    effectiveModel: live.modelId,
     providerIdHint: live.providerId,
-    persist: { resolvedModel: live.model, resolvedProviderId: live.providerId },
+    persist: { resolvedModel: live.modelId, resolvedProviderId: live.providerId },
   };
 }
 

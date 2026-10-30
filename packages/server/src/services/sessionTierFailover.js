@@ -7,7 +7,9 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import {
   getTierMembersResolved,
+  findNextHealthyTierMemberInSnapshot,
   isUnhealthy,
+  tierMemberKey,
 } from './tierResolutionService.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
@@ -118,15 +120,10 @@ async function attemptRunWithModel(
   });
 }
 
-function resolveAttemptableTierMembers(tierId, tierName) {
+function resolveTierMemberSnapshot(tierId, tierName) {
   const configuredMembers = getTierMembersResolved(tierId);
   if (configuredMembers.length === 0) throw new Error(`No members configured for tier "${tierName}" — cannot start session`);
-
-  const attemptableMembers = configuredMembers.filter((member) => !isUnhealthy(member.providerId, member.modelId));
-  if (attemptableMembers.length === 0) {
-    throw createTierCooldownUnavailableError(tierId, tierName);
-  }
-  return attemptableMembers;
+  return configuredMembers;
 }
 /**
  * Snapshot the member whose turn succeeded (Fix 5 / Fix 3).
@@ -262,9 +259,59 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
   return { settled: false, attemptToken }; // advance to the next member
 }
 
+function selectInitialCycleMember(sessionId, members) {
+  const currentSession = sessions.getById(sessionId);
+  const pinnedMember = members.find((candidate) => (
+    candidate.modelId === currentSession?.resolvedModel
+    && candidate.providerId === currentSession?.resolvedProviderId
+  ));
+  return pinnedMember && !isUnhealthy(pinnedMember.providerId, pinnedMember.modelId)
+    ? pinnedMember
+    : members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+}
+
+async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
+  members, failoverDisabled, controller, tierRef, tierId, tierName,
+  systemPrompt, activeConversation, callbacks,
+  beforeProviderExecute, onProviderDispatchInitiated,
+}) {
+  const attempts = [];
+  let attemptedAny = false;
+  const attemptedMemberKeys = new Set();
+  let latestAttemptToken = null;
+  let member = selectInitialCycleMember(sessionId, members);
+  try {
+    while (member && attemptedMemberKeys.size < members.length) {
+      const memberKey = tierMemberKey(member);
+      if (isUnhealthy(member.providerId, member.modelId)) {
+        attemptedMemberKeys.add(memberKey);
+        member = failoverDisabled ? null : findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+        continue;
+      }
+      const memberIndex = members.findIndex((candidate) => tierMemberKey(candidate) === memberKey);
+      attemptedMemberKeys.add(memberKey);
+      const nextMember = failoverDisabled ? null
+        : findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+      attemptedAny = true;
+      const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
+        member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+        systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
+      });
+      if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
+      if (result.settled) return result.execution;
+      member = findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+    }
+    if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+    if (!attemptedAny) throw createTierCooldownUnavailableError(tierId, tierName);
+  } finally {
+    clearTierAttemptMember(sessionId, latestAttemptToken ?? undefined);
+  }
+}
+
 /**
  * Tier failover loop for `runSessionCore`.
- * Iterates healthy tier members in position order, retrying on eligible start failures.
+ * Starts at the first healthy configured member then advances through a
+ * cycle-local, circular snapshot on eligible start failures.
  */
 export async function runSessionWithTierFailover(
   sessionId,
@@ -284,7 +331,7 @@ export async function runSessionWithTierFailover(
   // empty configuration and a temporarily exhausted configuration are
   // different user-visible conditions.
   const tierName = _getTierName(tierId);
-  const attemptableMembers = resolveAttemptableTierMembers(tierId, tierName);
+  const members = resolveTierMemberSnapshot(tierId, tierName);
 
   // FR0: a tier with automatic failover disabled never advances to a
   // successor at start — attempt only the resolved (first healthy) member
@@ -294,65 +341,13 @@ export async function runSessionWithTierFailover(
   // Mirrors the mid-session gates (sessionAgentGuard, tierResolutionService,
   // sessionContinueFailover), which already consult this flag.
   const failoverDisabled = modelTiers.getById(tierId)?.autoFailoverEnabled === false;
-  const membersToAttempt = failoverDisabled ? attemptableMembers.slice(0, 1) : attemptableMembers;
-
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
-  const attempts = [];
-  let attemptedAny = false;
-  // Finding 11: the token of the most recent attempt registration. The loop
-  // exit clears only that registration — a stale outer `finally` unwinding
-  // after a successor (auto-send continuation, newer execution) registered
-  // itself must never wipe the successor's ownership.
-  let latestAttemptToken = null;
-  try {
-    for (let memberIndex = 0; memberIndex < membersToAttempt.length; memberIndex++) {
-      const member = membersToAttempt[memberIndex];
-      // Re-check cooldown before every attempt against the frozen member
-      // list (the list itself never re-reads live configuration mid-run):
-      // a member cooled after the loop-start snapshot — by a concurrent
-      // session, or by an earlier attempt's attribution — must be skipped,
-      // never hammered. The successor handed to the reschedule decision and
-      // the failover event is likewise the next STILL-HEALTHY member, so a
-      // cooled successor can neither suppress rescheduling nor be announced.
-      if (isUnhealthy(member.providerId, member.modelId)) continue;
-      const nextMember = membersToAttempt
-        .slice(memberIndex + 1)
-        .find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
-
-      attemptedAny = true;
-      const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
-        member,
-        nextMember,
-        memberIndex,
-        controller,
-        tierRef,
-        tierId,
-        tierName,
-        attempts,
-        systemPrompt,
-        activeConversation,
-        callbacks,
-        beforeProviderExecute,
-        onProviderDispatchInitiated,
-      });
-      if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
-      if (result.settled) return result.execution;
-    }
-
-    if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
-    if (!attemptedAny) {
-      // Every frozen member was cooled before its attempt: the tier is
-      // temporarily exhausted, exactly as if the loop-start snapshot had
-      // found nothing attemptable.
-      throw createTierCooldownUnavailableError(tierId, tierName);
-    }
-  } finally {
-    // Late events from an unwinding stream must never pin the session to a
-    // member that is no longer running.
-    clearTierAttemptMember(sessionId, latestAttemptToken ?? undefined);
-  }
+  return runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
+    members, failoverDisabled, controller, tierRef, tierId, tierName,
+    systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
+  });
 }
 
 function _getTierName(tierId) {

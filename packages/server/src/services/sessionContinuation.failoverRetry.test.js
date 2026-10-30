@@ -108,6 +108,7 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
   let project;
   let providerA;
   let providerB;
+  let providerC;
 
   beforeEach(() => {
     dispatched.length = 0;
@@ -123,6 +124,8 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     modelProviders.addModel(providerA.id, { modelId: 'retry-a2', displayName: 'Retry A2' });
     providerB = modelProviders.create({ name: 'Retry Provider B', kind: 'openai' });
     modelProviders.addModel(providerB.id, { modelId: 'retry-b', displayName: 'Retry B' });
+    providerC = modelProviders.create({ name: 'Retry Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'retry-c', displayName: 'Retry C' });
   });
 
   function createPinnedSession(members, snapshot, { flagOn = true } = {}) {
@@ -190,6 +193,33 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     expect(events[0][2]).toMatchObject({ fromModel: 'retry-a', toModel: 'retry-a2' });
     expect(isUnhealthy(providerA.id, 'retry-a')).toBe(true);
     clearUnhealthy(providerA.id, 'retry-a');
+  });
+
+  it('wraps a final-member continuation retry to the first healthy member', async () => {
+    const { session } = createPinnedSession(
+      [
+        { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+        { providerId: providerA.id, modelId: 'retry-a2', position: 1 },
+        { providerId: providerC.id, modelId: 'retry-c', position: 2 },
+      ],
+      { modelId: 'retry-c', providerId: providerC.id }
+    );
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }, {}];
+
+    try {
+      await continueSessionCore(session.id, 'Follow-up needing wrapped retry', '/tmp/test', {
+        options: {}, callbacks: mockCallbacks,
+      });
+
+      expect(dispatched).toHaveLength(2);
+      expect(dispatched[0].queryParams.options?.model).toBe('retry-c');
+      expect(dispatched[1].queryParams.options?.model).toBe('retry-a');
+      expect(failoverEvents()).toHaveLength(1);
+      expect(failoverEvents()[0][2]).toMatchObject({ fromModel: 'retry-c', toModel: 'retry-a' });
+      expect(isUnhealthy(providerC.id, 'retry-c')).toBe(true);
+    } finally {
+      clearUnhealthy(providerC.id, 'retry-c');
+    }
   });
 
   it('does not retry on an ineligible error', async () => {

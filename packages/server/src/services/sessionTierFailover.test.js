@@ -157,6 +157,44 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2].sessionId).toBe(session.id);
   });
 
+  it('wraps a cycle from C to A without dispatching a member twice', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const threeMemberTier = modelTiers.create({
+      name: 'Circular Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(threeMemberTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+
+    // Begin the fresh cycle at the session's current B binding. B and C fail
+    // before activity; the only untried healthy successor of C is wrapped A.
+    // eslint-disable-next-line require-yield -- simulates startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    // eslint-disable-next-line require-yield -- simulates startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model))
+      .toEqual(['model-b', 'model-c', 'model-a']);
+    const events = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(events.slice(-2).map(([, , payload]) => [payload.fromModel, payload.toModel]))
+      .toEqual([['model-b', 'model-c'], ['model-c', 'model-a']]);
+  });
+
   it('never broadcasts raw credentials from the failing member error', async () => {
     const sentinel = 'sentinel-3f9b-broadcast-secret';
     // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
