@@ -43,12 +43,13 @@ export function throwTerminalStreamFailure(execution) {
 }
 
 function recordTierAttemptFailure(error, {
-  sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+  sessionId, member, nextMember, resolveNextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
 }) {
   const resolvedNextMember = classifyTierMemberFailure(error, {
     sessionId,
     member,
     nextMember,
+    resolveNextMember,
     tierRef,
     tierName,
     // Terminal stream handling records its visible error before returning
@@ -79,7 +80,9 @@ function recordTierAttemptFailure(error, {
  * @param {Error} error
  * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string }} ctx
  */
-function classifyTierMemberFailure(error, { sessionId, member, nextMember, tierRef, tierName, preConversationOverride }) {
+function classifyTierMemberFailure(error, {
+  sessionId, member, nextMember, resolveNextMember, tierRef, tierName, preConversationOverride,
+}) {
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
   const isEligible = matchesStartFailoverEligibleError(error);
@@ -95,9 +98,14 @@ function classifyTierMemberFailure(error, { sessionId, member, nextMember, tierR
   // especially a single-member tier) is hammered again by every new session.
   markUnhealthy(member.providerId, member.modelId);
 
+  // Cooldown may have expired while the provider call was in flight. Resolve
+  // the successor only after marking this failed member unhealthy, then use
+  // that one concrete member for both reporting and dispatch.
+  const resolvedNextMember = resolveNextMember?.() ?? nextMember;
+
   // There IS a next healthy, attemptable member — emit the failover event.
-  if (nextMember) emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
-  return nextMember;
+  if (resolvedNextMember) emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember: resolvedNextMember });
+  return resolvedNextMember;
 }
 
 /**
@@ -160,7 +168,7 @@ export function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierN
  * attempt never reaches classification.
  */
 export function classifyAttemptFailure(error, {
-  sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+  sessionId, member, nextMember, resolveNextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
 }) {
   // Finding 5: the frozen member went stale between the loop-start freeze
   // and its attempt boundary (provider deleted/disabled, model removed or
@@ -178,9 +186,10 @@ export function classifyAttemptFailure(error, {
       modelId: member.modelId,
       reason: sanitizeTierFailureReason(error),
     });
-    if (nextMember && wasPreActivity) {
-      emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
-      return;
+    const resolvedNextMember = resolveNextMember?.() ?? nextMember;
+    if (resolvedNextMember && wasPreActivity) {
+      emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember: resolvedNextMember });
+      return resolvedNextMember;
     }
     if (!wasPreActivity) throw error;
     throw new ModelTierExhaustedError({ tierId, tierName, attempts });
@@ -188,6 +197,6 @@ export function classifyAttemptFailure(error, {
   // Non-eligible and mid-conversation errors must retain their original
   // protocol. Eligible startup failures are recorded exactly once.
   recordTierAttemptFailure(error, {
-    sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+    sessionId, member, nextMember, resolveNextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
   });
 }

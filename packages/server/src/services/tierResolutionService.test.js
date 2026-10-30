@@ -794,6 +794,54 @@ describe('tierResolutionService', () => {
         clearUnhealthy(providerA.id, 'dupe-model');
       }
     });
+
+    it('skips an incompatible member while advancing a cooled continuation pin', () => {
+      const providerBClaude = modelProviders.create({ name: 'Provider B Claude', kind: 'anthropic' });
+      const providerCGemini = modelProviders.create({ name: 'Provider C Gemini', kind: 'google' });
+      modelProviders.addModel(providerBClaude.id, { modelId: 'model-b-claude', displayName: 'Model B Claude' });
+      modelProviders.addModel(providerCGemini.id, { modelId: 'model-c-gemini', displayName: 'Model C Gemini' });
+      const tier = modelTiers.create({
+        name: 'Compatible Advance Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerBClaude.id, modelId: 'model-b-claude', position: 1 },
+          { providerId: providerCGemini.id, modelId: 'model-c-gemini', position: 2 },
+        ],
+      });
+      const session = {
+        model: buildTierRef(tier.id),
+        agentType: 'claude-code',
+        resolvedModel: 'model-b-claude',
+        resolvedProviderId: providerBClaude.id,
+      };
+      markUnhealthy(providerBClaude.id, 'model-b-claude');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toMatchObject({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+        });
+      } finally {
+        clearUnhealthy(providerBClaude.id, 'model-b-claude');
+      }
+    });
+
+    it('recovers through a live member when a cooled catalog-valid pin was removed from the tier', () => {
+      const { tier, tierRef } = buildAdvanceTier();
+      const session = { model: tierRef, agentType: 'claude-code', resolvedModel: 'model-b', resolvedProviderId: providerB.id };
+      modelTiers.update(tier.id, {
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      markUnhealthy(providerB.id, 'model-b');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: { resolvedModel: 'model-a', resolvedProviderId: providerA.id },
+        });
+      } finally {
+        clearUnhealthy(providerB.id, 'model-b');
+      }
+    });
   });
 
   describe('createTierCooldown (deterministic expiry)', () => {

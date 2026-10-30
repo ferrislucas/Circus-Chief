@@ -173,7 +173,7 @@ function snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken) {
  * propagate.
  */
 async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
-  member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+  member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
   systemPrompt, activeConversation, callbacks,
   beforeProviderExecute = null, onProviderDispatchInitiated = null,
 }) {
@@ -252,11 +252,12 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       clearTierAttemptMember(sessionId, attemptToken);
       throw error;
     }
-    classifyAttemptFailure(error, {
+    const selectedNextMember = classifyAttemptFailure(error, {
       sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+      resolveNextMember,
     });
+    return { settled: false, attemptToken, nextMember: selectedNextMember };
   }
-  return { settled: false, attemptToken }; // advance to the next member
 }
 
 function selectInitialCycleMember(sessionId, members) {
@@ -268,6 +269,11 @@ function selectInitialCycleMember(sessionId, members) {
   return pinnedMember && !isUnhealthy(pinnedMember.providerId, pinnedMember.modelId)
     ? pinnedMember
     : members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+}
+
+function selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled) {
+  if (failoverDisabled) return null;
+  return findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
 }
 
 async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
@@ -285,21 +291,21 @@ async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirec
       const memberKey = tierMemberKey(member);
       if (isUnhealthy(member.providerId, member.modelId)) {
         attemptedMemberKeys.add(memberKey);
-        member = failoverDisabled ? null : findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+        member = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
         continue;
       }
       const memberIndex = members.findIndex((candidate) => tierMemberKey(candidate) === memberKey);
       attemptedMemberKeys.add(memberKey);
-      const nextMember = failoverDisabled ? null
-        : findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+      const nextMember = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+      const resolveNextMember = () => selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
       attemptedAny = true;
       const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
-        member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+        member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
         systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
       });
       if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
       if (result.settled) return result.execution;
-      member = findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+      member = result.nextMember ?? selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
     }
     if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
     if (!attemptedAny) throw createTierCooldownUnavailableError(tierId, tierName);

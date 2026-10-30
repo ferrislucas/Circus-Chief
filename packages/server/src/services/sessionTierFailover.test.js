@@ -235,6 +235,31 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
   });
 
+  it('reports the cooldown-expired successor that it actually dispatches', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    markUnhealthy(providerB.id, 'model-b', 10);
+    // Let B's cooldown expire while A's first provider call is in flight.
+    // eslint-disable-next-line require-yield -- startup failure after a controlled delay
+    mockQuery.mockImplementationOnce(async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-b']);
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
+  });
+
   it('fails over when a retryable provider failure arrives as result:error', async () => {
     mockQuery.mockImplementationOnce(async function* () {
       yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };

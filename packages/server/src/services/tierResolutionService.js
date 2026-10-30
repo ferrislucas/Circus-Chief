@@ -8,6 +8,7 @@ import { getProvidersByIds, evaluateTierMembers } from '../db/providerModelOpera
 // db/session-helpers.js.
 export { evaluateTierMembers };
 import { validateExactTierMember } from './tierIdentity.js';
+import { isTierFailoverLiftable } from './sessionAgentGuard.js';
 
 /**
  * Process-local member cooldown store. Maps "providerId::modelId" → expiry
@@ -262,9 +263,10 @@ export function resolveAnyMember(modelOrRef, context = {}) {
  * @param {Array<{ providerId: string, modelId: string, position: number }>} members
  * @param {{ modelId: string, providerId: string }} origin
  * @param {Set<string>} [excludedMemberKeys]
+ * @param {(member: { providerId: string, modelId: string, position: number }) => boolean} [isEligible]
  * @returns {{ providerId: string, modelId: string, position: number }|null}
  */
-export function findNextHealthyTierMemberInSnapshot(members, origin, excludedMemberKeys = new Set()) {
+export function findNextHealthyTierMemberInSnapshot(members, origin, excludedMemberKeys = new Set(), isEligible = () => true) {
   const originIndex = members.findIndex(
     (member) => member.providerId === origin.providerId && member.modelId === origin.modelId
   );
@@ -273,6 +275,7 @@ export function findNextHealthyTierMemberInSnapshot(members, origin, excludedMem
   for (let offset = 1; offset < members.length; offset++) {
     const candidate = members[(originIndex + offset) % members.length];
     if (excludedMemberKeys.has(tierMemberKey(candidate))) continue;
+    if (!isEligible(candidate)) continue;
     if (!isUnhealthy(candidate.providerId, candidate.modelId)) return candidate;
   }
   return null;
@@ -290,14 +293,15 @@ export function tierMemberKey(member) {
  * @param {string} tierRef - Tier ref sentinel string.
  * @param {{ modelId: string, providerId: string }} failedMember - The member that just failed.
  * @param {Set<string>} [excludedMemberKeys] exact provider/model identities
+ * @param {(member: { providerId: string, modelId: string, position: number }) => boolean} [isEligible]
  * @returns {{ providerId: string, modelId: string, position: number }|null}
  */
-export function findNextHealthyTierMember(tierRef, failedMember, excludedMemberKeys = new Set()) {
+export function findNextHealthyTierMember(tierRef, failedMember, excludedMemberKeys = new Set(), isEligible = () => true) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) return null;
 
   const members = getTierMembersResolved(tierId);
-  return findNextHealthyTierMemberInSnapshot(members, failedMember, excludedMemberKeys);
+  return findNextHealthyTierMemberInSnapshot(members, failedMember, excludedMemberKeys, isEligible);
 }
 
 /**
@@ -419,20 +423,36 @@ function isValidCooledSnapshot(session) {
   return isUnhealthy(session.resolvedProviderId, session.resolvedModel);
 }
 
+function isContinuationEligible(session, member) {
+  return isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
+}
+
 function resolveCooledSnapshotAdvance(session) {
   if (!session.resolvedModel || !session.resolvedProviderId) return null;
   const tierId = parseTierRef(session.model);
   if (!tierId || isFlagOffTier(tierId)) return null;
   if (!isValidCooledSnapshot(session)) return null;
-  const live = findNextHealthyTierMember(session.model, {
+  const origin = {
     modelId: session.resolvedModel,
     providerId: session.resolvedProviderId,
-  });
-  if (!live) return null;
+  };
+  const members = getTierMembersResolved(tierId);
+  const live = findNextHealthyTierMemberInSnapshot(members, origin, new Set(), (member) => (
+    isContinuationEligible(session, member)
+  ));
+  // A catalog-valid pin can outlive its membership. It is still unsafe to
+  // advance an invalid identity, but a cooled, removed pin should not force
+  // every follow-up back to the provider that is known to be unavailable.
+  // Select from the current live tier in that narrow case.
+  const replacement = live || (!members.some((member) => tierMemberKey(member) === tierMemberKey(origin))
+    ? members.find((member) => !isUnhealthy(member.providerId, member.modelId)
+      && isContinuationEligible(session, member))
+    : null);
+  if (!replacement) return null;
   return {
-    effectiveModel: live.modelId,
-    providerIdHint: live.providerId,
-    persist: { resolvedModel: live.modelId, resolvedProviderId: live.providerId },
+    effectiveModel: replacement.modelId,
+    providerIdHint: replacement.providerId,
+    persist: { resolvedModel: replacement.modelId, resolvedProviderId: replacement.providerId },
   };
 }
 

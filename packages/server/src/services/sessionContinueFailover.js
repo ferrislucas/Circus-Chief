@@ -32,12 +32,12 @@ export function buildContinueTierContext(session, effectiveModel, authorizeFailo
   if (!health || !authorizeFailover || !effectiveModel) return health;
   const tier = modelTiers.getById(parseTierRef(session.model));
   if (tier && tier.autoFailoverEnabled === false) return health;
+  const eligible = (member) => isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
   const nextMember = findNextHealthyTierMember(session.model, {
     modelId: effectiveModel,
     providerId: health.currentMemberProviderId,
-  });
+  }, new Set(), eligible);
   if (!nextMember) return health;
-  if (!isTierFailoverLiftable(session.agentType, nextMember.modelId, nextMember.providerId)) return health;
   return { ...health, allowFailover: true, allowFailoverAfterActivity: true, nextMember };
 }
 
@@ -60,9 +60,13 @@ export function considerContinueFailoverRetry({ sessionId, error, tierContext, c
     providerId: tierContext.currentMemberProviderId,
   };
   if (!fromMember.modelId || !fromMember.providerId) return null;
-  const nextMember = findNextHealthyTierMember(session.model, fromMember);
+  const nextMember = findNextHealthyTierMember(
+    session.model,
+    fromMember,
+    new Set(),
+    (member) => isTierFailoverLiftable(session.agentType, member.modelId, member.providerId)
+  );
   if (!nextMember) return null;
-  if (!isTierFailoverLiftable(session.agentType, nextMember.modelId, nextMember.providerId)) return null;
   return { fromMember, nextMember, error };
 }
 
