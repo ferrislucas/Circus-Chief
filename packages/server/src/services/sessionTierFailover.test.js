@@ -354,6 +354,50 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(rows.at(-1).metadata).toMatchObject({ fromModel: 'model-a', toModel: 'model-c' });
   });
 
+  it('settles cooldown exhaustion when the only member cools at the dispatch fence', async () => {
+    const singleMemberTier = modelTiers.create({
+      name: 'Fence-only Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(singleMemberTier.id) });
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => markUnhealthy(providerA.id, 'model-a'),
+    }).then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({ code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE' });
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(sessionRepo.getById(session.id).status).toBe('error');
+  });
+
+  it('settles cooldown exhaustion when every candidate cools at its dispatch fence', async () => {
+    const providerC = modelProviders.create({ name: 'Fence Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    const membersInOrder = [
+      [providerA, 'model-a'], [providerB, 'model-b'], [providerC, 'model-c'],
+    ];
+    let fenceCalls = 0;
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => {
+        const [provider, model] = membersInOrder[fenceCalls++];
+        markUnhealthy(provider.id, model);
+      },
+    }).then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({ code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE' });
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(sessionRepo.getById(session.id).status).toBe('error');
+  });
+
   it('fails over when a retryable provider failure arrives as result:error', async () => {
     mockQuery.mockImplementationOnce(async function* () {
       yield { type: 'system', subtype: 'init', session_id: 'failed-stream', model: 'model-a', slash_commands: [] };
@@ -733,6 +777,60 @@ describe('runSessionCore tier failover (integration)', () => {
       .toHaveLength(failoverCountBefore);
     // The failed member still cools so future sessions skip it.
     expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+  });
+
+  it('uses the first healthy configured member, not a healthy saved pin, when automatic failover is disabled', async () => {
+    const providerC = modelProviders.create({ name: 'Flag Off Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const flagOffTier = modelTiers.create({
+      name: 'Flag Off Configured Order Tier',
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(flagOffTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-a');
+  });
+
+  it('starts on healthy A when saved B is cooling and disabled failover never dispatches a successor', async () => {
+    const providerC = modelProviders.create({ name: 'Flag Off Cooled Pin Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const flagOffTier = modelTiers.create({
+      name: 'Flag Off Cooled Pin Tier',
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(flagOffTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+    markUnhealthy(providerB.id, 'model-b');
+    // eslint-disable-next-line require-yield -- simulates a startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(runSession(session.id, 'Initial prompt', tempDir, { model: null })).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-a');
+    expect(isUnhealthy(providerC.id, 'model-c')).toBe(false);
   });
 
   it('keeps a genuinely empty tier distinct from cooldown exhaustion', async () => {
