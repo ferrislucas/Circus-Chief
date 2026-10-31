@@ -14,7 +14,8 @@ import { startedSessionExecution } from './sessionStartResult.js';
 import { isUserStopAbort } from './sessionAbort.js';
 import {
   armContinueFailoverRetry, buildContinueTierContext, considerContinueFailoverRetry,
-  emitContinueFailoverDispatched, resolvesToFailedMember, settleUnsettledContinueError,
+  emitContinueFailoverDispatched, findHealthyContinueRetryMember, resolveFrozenContinueRetryMember,
+  resolvesToFailedMember, settleUnsettledContinueError,
 } from './sessionContinueFailover.js';
 import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
 
@@ -42,13 +43,20 @@ export function isSameBindingSelection(session, model, providerId) {
  * ONE resolution/persistence contract. That helper guarantees a raw
  * `tier::<id>` sentinel is never forwarded to the agent.
  */
-export function buildContinueModelAndEnv(session, sessionId, model, { providerId = null, suppressAdvanceNotice = false } = {}) {
+export function buildContinueModelAndEnv(session, sessionId, model, {
+  providerId = null, suppressAdvanceNotice = false, retryMember = null,
+} = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
   // matching the start path's `_runTierBoundSession` behavior.
-  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
-    sessionId, session, model, providerId
-  );
+  // The second dispatch of a same-turn failover is bound to the member chosen
+  // from that turn's frozen membership snapshot. Validate its live identity,
+  // but do not reload/reorder the tier or turn the tier binding into a
+  // concrete user selection.
+  const resolution = retryMember
+    ? resolveFrozenContinueRetryMember(retryMember)
+    : resolveTierRefForContinueWithStaleFallback(sessionId, session, model, providerId);
+  const { effectiveModel, providerIdHint, persist } = resolution;
 
   // Enforce the cross-kind policy on the exact pair about to be dispatched:
   // explicit tier selections and own-binding live resolutions after catalog
@@ -106,7 +114,7 @@ export function buildContinueModelAndEnv(session, sessionId, model, { providerId
   // into a move). The failover machinery uses this to run the attempt
   // tier-free (review #1), so a same-turn retry can never silently replace an
   // explicit provider choice with a tier successor (PR Review.md Fix #4).
-  const explicitOffBindingMove = model != null && !isSameBindingSelection(session, model, providerId);
+  const explicitOffBindingMove = !retryMember && model != null && !isSameBindingSelection(session, model, providerId);
 
   return { effectiveModel, providerIdHint, sessionEnv, commitAttributionOverride, modelChanged, session: updatedSession, dispatchedPair, explicitOffBindingMove };
 }
@@ -188,6 +196,14 @@ async function prepareContinueDispatch({
   return { tierContext, agentType, agent, queryParams, agentCallMeta, dispatchedPair: modelEnv.dispatchedPair };
 }
 
+/** Resolve the retry's selected member from its frozen cycle snapshot. */
+function resolveRetryMemberForAttempt(turn, firstAttempt) {
+  if (firstAttempt) return null;
+  const retryMember = findHealthyContinueRetryMember(turn.session, turn.retry);
+  if (!retryMember) throw turn.unsettledError.error;
+  return retryMember;
+}
+
 /**
  * Prepare one continuation attempt: resolve, then build the dispatch. A
  * retry that resolves back onto the failed member (concurrent tier edit
@@ -199,9 +215,14 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
   const { model, providerId, systemPrompt, activeConversation, promptWithAttachments,
     workingDirectory, controller, callbacks, interactive, firstAttempt } = opts;
   try {
+    const retryMember = resolveRetryMemberForAttempt(turn, firstAttempt);
     const modelEnv = buildContinueModelAndEnv(
       turn.session, sessionId, firstAttempt ? model : null,
-      { providerId: firstAttempt ? providerId : null, suppressAdvanceNotice: !firstAttempt }
+      {
+        providerId: firstAttempt ? providerId : null,
+        suppressAdvanceNotice: !firstAttempt,
+        retryMember,
+      }
     );
     if (!firstAttempt && resolvesToFailedMember(modelEnv, turn.unsettledError)) {
       throw turn.unsettledError.error;

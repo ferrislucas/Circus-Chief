@@ -41,6 +41,8 @@ async function loadBranchFailoverDeps() {
     buildContinueTierContext: failover.buildContinueTierContext,
     considerContinueFailoverRetry: failover.considerContinueFailoverRetry,
     armContinueFailoverRetry: failover.armContinueFailoverRetry,
+    findHealthyContinueRetryMember: failover.findHealthyContinueRetryMember,
+    resolveFrozenContinueRetryMember: failover.resolveFrozenContinueRetryMember,
     emitContinueFailoverDispatched: failover.emitContinueFailoverDispatched,
     resolvesToFailedMember: failover.resolvesToFailedMember,
     settleUnsettledContinueError: failover.settleUnsettledContinueError,
@@ -82,13 +84,16 @@ function buildContextForType(conversationId, contextType) {
   return '';
 }
 
-function buildModelAndProvider(session, sessionId, model, { providerId = null, suppressAdvanceNotice = false } = {}) {
+function buildModelAndProvider(session, sessionId, model, {
+  providerId = null, suppressAdvanceNotice = false, retryMember = null, retryResolution = null,
+} = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
   // matching the start path's `_runTierBoundSession` behavior.
-  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinueWithStaleFallback(
-    sessionId, session, model, providerId
-  );
+  const resolution = retryMember
+    ? retryResolution
+    : resolveTierRefForContinueWithStaleFallback(sessionId, session, model, providerId);
+  const { effectiveModel, providerIdHint, persist } = resolution;
 
   // Enforce the cross-kind policy on the exact pair about to be dispatched —
   // shared contract with `sessionContinuation.buildContinueModelAndEnv`
@@ -236,7 +241,7 @@ function buildExistingMessageQueryParams({
  * takes over, so a setup failure can never wedge the session.
  * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object }}
  */
-function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller, failoverDeps, authorizeFailover = false, failoverBoundary = null, skipClaim = false, settleArmedError = false, suppressAdvanceNotice = false }) {
+function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller, failoverDeps, authorizeFailover = false, failoverBoundary = null, skipClaim = false, settleArmedError = false, suppressAdvanceNotice = false, retryMember = null, retryResolution = null }) {
   const { systemPrompt = null, model = null, providerId = null } = options;
   // Fail closed on cross-kind model overrides (FR9): the branch-continue
   // path never re-derives the kind, so a kind change here would strand
@@ -272,7 +277,9 @@ function prepareBranchContinueTurn({ session, sessionId, conversationId, convers
     // agent: for a tier-bound draft, `buildModelAndProvider` may reconcile
     // and persist a new `session.agentType`. Creating the agent from the
     // stale pre-reconciliation agentType would dispatch the wrong adapter.
-    const modelEnv = buildModelAndProvider(session, sessionId, model, { providerId, suppressAdvanceNotice });
+    const modelEnv = buildModelAndProvider(session, sessionId, model, {
+      providerId, suppressAdvanceNotice, retryMember, retryResolution,
+    });
     const updatedSession = modelEnv.session;
 
     // Tier context for this attempt, built AFTER resolution so a backfilled
@@ -283,7 +290,8 @@ function prepareBranchContinueTurn({ session, sessionId, conversationId, convers
     // a lagging snapshot), and an explicit move off the own binding runs
     // tier-free — the shared contract with the new-message path, so a
     // same-turn retry can never silently replace an explicit choice.
-    const explicitOffBindingMove = model != null && !failoverDeps.isSameBindingSelection(session, model, providerId);
+    const explicitOffBindingMove = !retryMember
+      && model != null && !failoverDeps.isSameBindingSelection(session, model, providerId);
     const tierContext = failoverDeps.buildContinueTierContext(updatedSession, modelEnv.effectiveModel, authorizeFailover, {
       dispatchedPair: modelEnv.dispatchedPair,
       explicitOffBindingMove,
@@ -314,7 +322,6 @@ function prepareBranchContinueTurn({ session, sessionId, conversationId, convers
     handlePreparationFailure({ sessionId, controller, error, includeConversationId: true });
   }
 }
-
 /**
  * Prepare one branch-continuation attempt: resolve, then build the dispatch.
  * A retry that resolves back onto the failed member (concurrent tier edit
@@ -327,6 +334,9 @@ async function prepareBranchContinueAttempt(sessionId, turn, opts) {
   const { conversationId, conversation, lastUserMessage, workingDirectory, controller,
     options, callbacks, interactive, firstAttempt, failoverDeps } = opts;
   try {
+    const retryMember = firstAttempt ? null : failoverDeps.findHealthyContinueRetryMember(turn.session, turn.retry);
+    if (!firstAttempt && !retryMember) throw turn.unsettledError.error;
+    const retryResolution = retryMember ? failoverDeps.resolveFrozenContinueRetryMember(retryMember) : null;
     const prepared = await prepareBranchContinueTurn({
       session: turn.session, sessionId, conversationId, conversation, lastUserMessage,
       workingDirectory, options, controller, failoverDeps,
@@ -335,6 +345,8 @@ async function prepareBranchContinueAttempt(sessionId, turn, opts) {
       skipClaim: !firstAttempt,
       settleArmedError: !firstAttempt,
       suppressAdvanceNotice: !firstAttempt,
+      retryMember,
+      retryResolution,
     });
     if (!firstAttempt && turn.unsettledError && failoverDeps.resolvesToFailedMember(
       { effectiveModel: prepared.modelEnv.effectiveModel, providerIdHint: prepared.modelEnv.providerIdHint },
@@ -397,7 +409,11 @@ async function executeBranchContinueAttempt(sessionId, turn, dispatch, opts) {
     // Arm the turn for its single retry: cool the failed member, persist the
     // boundary marker, and re-arm running status.
     const armed = failoverDeps.armContinueFailoverRetry(sessionId, { retry, error, activeConversation: { id: conversationId }, controller });
-    Object.assign(turn, { failoverBoundary: armed.failoverBoundary, unsettledError: armed.unsettledError });
+    Object.assign(turn, {
+      failoverBoundary: armed.failoverBoundary,
+      unsettledError: armed.unsettledError,
+      retry: armed.retry,
+    });
     return { completed: false };
   }
 }
@@ -442,4 +458,3 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   }
   throw new Error('Continue session retry loop exited without dispatching');
 }
-

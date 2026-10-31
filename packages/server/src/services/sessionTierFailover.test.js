@@ -157,6 +157,44 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(failoverBroadcast[2].sessionId).toBe(session.id);
   });
 
+  it('wraps a cycle from C to A without dispatching a member twice', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const threeMemberTier = modelTiers.create({
+      name: 'Circular Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(threeMemberTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+
+    // Begin the fresh cycle at the session's current B binding. B and C fail
+    // before activity; the only untried healthy successor of C is wrapped A.
+    // eslint-disable-next-line require-yield -- simulates startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    // eslint-disable-next-line require-yield -- simulates startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model))
+      .toEqual(['model-b', 'model-c', 'model-a']);
+    const events = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(events.slice(-2).map(([, , payload]) => [payload.fromModel, payload.toModel]))
+      .toEqual([['model-b', 'model-c'], ['model-c', 'model-a']]);
+  });
+
   it('never broadcasts raw credentials from the failing member error', async () => {
     const sentinel = 'sentinel-3f9b-broadcast-secret';
     // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
@@ -195,6 +233,169 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(mockQuery.mock.calls[1][0].options.model).toBe('model-b');
     const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
     expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
+  });
+
+  it('reports the cooldown-expired successor that it actually dispatches', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    markUnhealthy(providerB.id, 'model-b', 10);
+    // Let B's cooldown expire while A's first provider call is in flight.
+    // eslint-disable-next-line require-yield -- startup failure after a controlled delay
+    mockQuery.mockImplementationOnce(async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw Object.assign(new Error('Error: 529 Service overloaded'), { status: 529 });
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-b']);
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-b' });
+  });
+
+  it('uses a successor that recovers during a failed call instead of rescheduling', async () => {
+    // B is the only possible successor. It is unavailable at A's initial
+    // selection, but recovers before A reports its eligible failure.
+    markUnhealthy(providerB.id, 'model-b', 10);
+    sessionRepo.update(session.id, {
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+    // eslint-disable-next-line require-yield -- startup failure after cooldown expiry
+    mockQuery.mockImplementationOnce(async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-b']);
+    expect(sessionRepo.getById(session.id).status).not.toBe('scheduled');
+  });
+
+  it('does not reuse a stale successor that becomes unhealthy during a failed call', async () => {
+    sessionRepo.update(session.id, {
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+    const failoverCountBefore = broadcastToSession.mock.calls
+      .filter((call) => call[1] === 'tier:failover').length;
+    // eslint-disable-next-line require-yield -- A fails after B becomes unavailable
+    mockQuery.mockImplementationOnce(async function* () {
+      markUnhealthy(providerB.id, 'model-b');
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(sessionRepo.getById(session.id).status).toBe('scheduled');
+    expect(broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover'))
+      .toHaveLength(failoverCountBefore);
+  });
+
+  it('keeps a cooled current member as the circular origin for a fresh cycle', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const threeMemberTier = modelTiers.create({
+      name: 'Cooled Origin Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(threeMemberTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+    markUnhealthy(providerB.id, 'model-b');
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-c']);
+  });
+
+  it('does not announce a successor that cools at the provider dispatch fence', async () => {
+    const providerC = modelProviders.create({ name: 'Tier Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    // eslint-disable-next-line require-yield -- A fails before activity
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    let dispatches = 0;
+    await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => {
+        dispatches += 1;
+        if (dispatches === 2) markUnhealthy(providerB.id, 'model-b');
+      },
+    });
+
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-a', 'model-c']);
+    const failoverEvents = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(failoverEvents.at(-1)[2]).toMatchObject({ fromModel: 'model-a', toModel: 'model-c' });
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows.at(-1).metadata).toMatchObject({ fromModel: 'model-a', toModel: 'model-c' });
+  });
+
+  it('settles cooldown exhaustion when the only member cools at the dispatch fence', async () => {
+    const singleMemberTier = modelTiers.create({
+      name: 'Fence-only Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(singleMemberTier.id) });
+
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => markUnhealthy(providerA.id, 'model-a'),
+    }).then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({ code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE' });
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(sessionRepo.getById(session.id).status).toBe('error');
+  });
+
+  it('settles cooldown exhaustion when every candidate cools at its dispatch fence', async () => {
+    const providerC = modelProviders.create({ name: 'Fence Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    modelTiers.update(tier.id, {
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    const membersInOrder = [
+      [providerA, 'model-a'], [providerB, 'model-b'], [providerC, 'model-c'],
+    ];
+    let fenceCalls = 0;
+    const failure = await runSession(session.id, 'Initial prompt', tempDir, {
+      model: null,
+      beforeProviderExecute: () => {
+        const [provider, model] = membersInOrder[fenceCalls++];
+        markUnhealthy(provider.id, model);
+      },
+    }).then(() => null, (error) => error);
+
+    expect(failure).toMatchObject({ code: 'MODEL_TIER_COOLDOWN_UNAVAILABLE' });
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(sessionRepo.getById(session.id).status).toBe('error');
   });
 
   it('fails over when a retryable provider failure arrives as result:error', async () => {
@@ -576,6 +777,60 @@ describe('runSessionCore tier failover (integration)', () => {
       .toHaveLength(failoverCountBefore);
     // The failed member still cools so future sessions skip it.
     expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+  });
+
+  it('uses the first healthy configured member, not a healthy saved pin, when automatic failover is disabled', async () => {
+    const providerC = modelProviders.create({ name: 'Flag Off Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const flagOffTier = modelTiers.create({
+      name: 'Flag Off Configured Order Tier',
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(flagOffTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-a');
+  });
+
+  it('starts on healthy A when saved B is cooling and disabled failover never dispatches a successor', async () => {
+    const providerC = modelProviders.create({ name: 'Flag Off Cooled Pin Provider C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const flagOffTier = modelTiers.create({
+      name: 'Flag Off Cooled Pin Tier',
+      autoFailoverEnabled: false,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, {
+      model: buildTierRef(flagOffTier.id),
+      resolvedModel: 'model-b',
+      resolvedProviderId: providerB.id,
+    });
+    markUnhealthy(providerB.id, 'model-b');
+    // eslint-disable-next-line require-yield -- simulates a startup failure before provider output
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(runSession(session.id, 'Initial prompt', tempDir, { model: null })).rejects.toThrow(/529/);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-a');
+    expect(isUnhealthy(providerC.id, 'model-c')).toBe(false);
   });
 
   it('keeps a genuinely empty tier distinct from cooldown exhaustion', async () => {
