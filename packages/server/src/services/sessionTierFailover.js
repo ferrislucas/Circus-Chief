@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- this loop and its start-path lifecycle share one failover boundary. */
 import { sessions, modelTiers } from '../database.js';
 import {
   reconcileAgentTypeForRun,
@@ -7,7 +8,9 @@ import {
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import {
   getTierMembersResolved,
+  findNextHealthyTierMemberInSnapshot,
   isUnhealthy,
+  tierMemberKey,
 } from './tierResolutionService.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
@@ -32,11 +35,19 @@ import {
 import {
   ModelTierExhaustedError,
   classifyAttemptFailure,
+  emitTierFailoverEvent,
   throwTerminalStreamFailure,
 } from './tierAttemptOutcome.js';
 
 export { sanitizeTierFailureReason } from './tierFailureReason.js';
 export { ModelTierExhaustedError } from './tierAttemptOutcome.js';
+
+class TierMemberUnavailableAtDispatchError extends Error {
+  constructor() {
+    super('Tier member became unavailable before provider dispatch');
+    this.code = 'TIER_MEMBER_UNAVAILABLE_AT_DISPATCH';
+  }
+}
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -118,15 +129,10 @@ async function attemptRunWithModel(
   });
 }
 
-function resolveAttemptableTierMembers(tierId, tierName) {
+function resolveTierMemberSnapshot(tierId, tierName) {
   const configuredMembers = getTierMembersResolved(tierId);
   if (configuredMembers.length === 0) throw new Error(`No members configured for tier "${tierName}" — cannot start session`);
-
-  const attemptableMembers = configuredMembers.filter((member) => !isUnhealthy(member.providerId, member.modelId));
-  if (attemptableMembers.length === 0) {
-    throw createTierCooldownUnavailableError(tierId, tierName);
-  }
-  return attemptableMembers;
+  return configuredMembers;
 }
 /**
  * Snapshot the member whose turn succeeded (Fix 5 / Fix 3).
@@ -176,9 +182,9 @@ function snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken) {
  * propagate.
  */
 async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
-  member, nextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+  member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
   systemPrompt, activeConversation, callbacks,
-  beforeProviderExecute = null, onProviderDispatchInitiated = null,
+  beforeProviderExecute = null, onProviderDispatchInitiated = null, onFailoverDispatch = null,
 }) {
   // Finding 12: user cancellation takes precedence over startup failover —
   // never (re-)register active ownership or dispatch a successor adapter
@@ -194,6 +200,7 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
     currentMemberProviderId: member.providerId,
     currentMemberIndex: memberIndex,
     nextMember,
+    resolveNextMember,
     // Explicit failover authorization: ONLY the startup loop may advance to
     // another member. A context without this flag (see
     // buildTierHealthContext) reports member health but can never trigger
@@ -218,6 +225,7 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
   const attemptToken = registerTierAttemptMember(sessionId, member, { tierRef });
 
   const wasPreActivity = sessionHasNoObservableAgentActivity(sessionId);
+  let dispatched = false;
   try {
     const execution = await attemptRunWithModel(sessionId, promptWithAttachments, workingDirectory, {
       systemPrompt,
@@ -225,25 +233,37 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       controller,
       callbacks,
       tierContext,
-      beforeProviderExecute,
-      onProviderDispatchInitiated,
+      beforeProviderExecute: async () => {
+        await beforeProviderExecute?.();
+        // The health check at loop selection is necessarily optimistic. Check
+        // once more immediately before the adapter call so a notice can never
+        // name a cooled member that was skipped at the dispatch fence.
+        if (isUnhealthy(member.providerId, member.modelId)) {
+          throw new TierMemberUnavailableAtDispatchError();
+        }
+      },
+      onProviderDispatchInitiated: () => {
+        dispatched = true;
+        onFailoverDispatch?.();
+        onProviderDispatchInitiated?.();
+      },
     });
 
     // A rejected dispatch (e.g. lane-run ownership lost before the provider
     // call) never reached this member's provider, so it is neither a success
     // to snapshot nor a failure to fail over from — surface it verbatim.
-    if (execution && !execution.started) return { settled: true, execution, attemptToken };
+    if (execution && !execution.started) return { settled: true, execution, attemptToken, dispatched };
 
     // A provider may close its iterator normally after emitting result:error,
     // and automatic retry scheduling also intentionally returns normally.
     // Neither outcome is a successful member resolution. A reschedule ends
     // this start without a snapshot; a terminal stream failure enters the
     // same classification/exhaustion path as an iterator rejection.
-    if (execution?.outcome === 'rescheduled') return { settled: true, execution, attemptToken };
+    if (execution?.outcome === 'rescheduled') return { settled: true, execution, attemptToken, dispatched };
     throwTerminalStreamFailure(execution);
 
     snapshotSuccessfulMember(sessionId, tierRef, member, attemptToken);
-    return { settled: true, execution, attemptToken }; // done
+    return { settled: true, execution, attemptToken, dispatched }; // done
   } catch (error) {
     // Finding 12: settle user cancellation before failover classification,
     // member-health reporting, or successor dispatch — including the
@@ -255,16 +275,109 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
       clearTierAttemptMember(sessionId, attemptToken);
       throw error;
     }
-    classifyAttemptFailure(error, {
+    if (error?.code === 'TIER_MEMBER_UNAVAILABLE_AT_DISPATCH') {
+      return { settled: false, attemptToken, dispatched, nextMember: resolveNextMember() };
+    }
+    const selectedNextMember = classifyAttemptFailure(error, {
       sessionId, member, nextMember, tierRef, tierId, tierName, attempts, wasPreActivity,
+      resolveNextMember,
     });
+    return { settled: false, attemptToken, dispatched, error, nextMember: selectedNextMember };
   }
-  return { settled: false, attemptToken }; // advance to the next member
+}
+
+function selectInitialCycleMember(sessionId, members, failoverDisabled) {
+  // FR0: without automatic failover, startup retains its original configured
+  // ordering. A saved resolved member is only the circular origin for an
+  // enabled failover cycle.
+  if (failoverDisabled) {
+    return members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+  }
+  const currentSession = sessions.getById(sessionId);
+  const pinnedMember = members.find((candidate) => (
+    candidate.modelId === currentSession?.resolvedModel
+    && candidate.providerId === currentSession?.resolvedProviderId
+  ));
+  // The configured current member remains this cycle's circular origin even
+  // while cooling. The loop below applies health eligibility as it scans
+  // forward, so B-cooling in [A,B,C] starts at C rather than resetting to A.
+  return pinnedMember
+    ? pinnedMember
+    : members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+}
+
+function selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled) {
+  if (failoverDisabled) return null;
+  return findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+}
+
+function throwCycleTerminalOutcome({ attempts, attemptedAny, dispatchedAny, tierId, tierName }) {
+  if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
+  // A dispatch-fence skip has entered an attempt but has not handed work to
+  // a provider. Treat a cycle containing only those skips exactly like an
+  // initially cooled tier so the start boundary settles it as an error
+  // rather than fabricating a successful start receipt.
+  if (!attemptedAny || !dispatchedAny) throw createTierCooldownUnavailableError(tierId, tierName);
+}
+
+// eslint-disable-next-line max-statements, sonarjs/cognitive-complexity -- cycle membership, health, and dispatch remain one atomic loop.
+async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
+  members, failoverDisabled, controller, tierRef, tierId, tierName,
+  systemPrompt, activeConversation, callbacks,
+  beforeProviderExecute, onProviderDispatchInitiated,
+}) {
+  const attempts = [];
+  let attemptedAny = false;
+  let dispatchedAny = false;
+  const attemptedMemberKeys = new Set();
+  let latestAttemptToken = null;
+  let pendingFailover = null;
+  let member = selectInitialCycleMember(sessionId, members, failoverDisabled);
+  try {
+    while (member && attemptedMemberKeys.size < members.length) {
+      const memberKey = tierMemberKey(member);
+      if (isUnhealthy(member.providerId, member.modelId)) {
+        attemptedMemberKeys.add(memberKey);
+        member = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+        continue;
+      }
+      const memberIndex = members.findIndex((candidate) => tierMemberKey(candidate) === memberKey);
+      attemptedMemberKeys.add(memberKey);
+      const nextMember = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+      const resolveNextMember = () => selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+      attemptedAny = true;
+      const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
+        member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
+        systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
+        onFailoverDispatch: pendingFailover
+          ? () => emitTierFailoverEvent(pendingFailover.error, {
+            sessionId,
+            member: pendingFailover.member,
+            tierRef,
+            tierName,
+            nextMember: member,
+          })
+          : null,
+      });
+      if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
+      dispatchedAny ||= result.dispatched;
+      if (result.settled) return result.execution;
+      // A dispatch-fence skip is not a new provider failure. Retain the
+      // original failed member so the eventual concrete dispatch is reported
+      // as that failure's replacement, rather than inventing B → C.
+      if (result.error) pendingFailover = { error: result.error, member };
+      member = result.nextMember ?? selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+    }
+    throwCycleTerminalOutcome({ attempts, attemptedAny, dispatchedAny, tierId, tierName });
+  } finally {
+    clearTierAttemptMember(sessionId, latestAttemptToken ?? undefined);
+  }
 }
 
 /**
  * Tier failover loop for `runSessionCore`.
- * Iterates healthy tier members in position order, retrying on eligible start failures.
+ * Starts at the first healthy configured member then advances through a
+ * cycle-local, circular snapshot on eligible start failures.
  */
 export async function runSessionWithTierFailover(
   sessionId,
@@ -284,7 +397,7 @@ export async function runSessionWithTierFailover(
   // empty configuration and a temporarily exhausted configuration are
   // different user-visible conditions.
   const tierName = _getTierName(tierId);
-  const attemptableMembers = resolveAttemptableTierMembers(tierId, tierName);
+  const members = resolveTierMemberSnapshot(tierId, tierName);
 
   // FR0: a tier with automatic failover disabled never advances to a
   // successor at start — attempt only the resolved (first healthy) member
@@ -294,65 +407,13 @@ export async function runSessionWithTierFailover(
   // Mirrors the mid-session gates (sessionAgentGuard, tierResolutionService,
   // sessionContinueFailover), which already consult this flag.
   const failoverDisabled = modelTiers.getById(tierId)?.autoFailoverEnabled === false;
-  const membersToAttempt = failoverDisabled ? attemptableMembers.slice(0, 1) : attemptableMembers;
-
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
-  const attempts = [];
-  let attemptedAny = false;
-  // Finding 11: the token of the most recent attempt registration. The loop
-  // exit clears only that registration — a stale outer `finally` unwinding
-  // after a successor (auto-send continuation, newer execution) registered
-  // itself must never wipe the successor's ownership.
-  let latestAttemptToken = null;
-  try {
-    for (let memberIndex = 0; memberIndex < membersToAttempt.length; memberIndex++) {
-      const member = membersToAttempt[memberIndex];
-      // Re-check cooldown before every attempt against the frozen member
-      // list (the list itself never re-reads live configuration mid-run):
-      // a member cooled after the loop-start snapshot — by a concurrent
-      // session, or by an earlier attempt's attribution — must be skipped,
-      // never hammered. The successor handed to the reschedule decision and
-      // the failover event is likewise the next STILL-HEALTHY member, so a
-      // cooled successor can neither suppress rescheduling nor be announced.
-      if (isUnhealthy(member.providerId, member.modelId)) continue;
-      const nextMember = membersToAttempt
-        .slice(memberIndex + 1)
-        .find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
-
-      attemptedAny = true;
-      const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
-        member,
-        nextMember,
-        memberIndex,
-        controller,
-        tierRef,
-        tierId,
-        tierName,
-        attempts,
-        systemPrompt,
-        activeConversation,
-        callbacks,
-        beforeProviderExecute,
-        onProviderDispatchInitiated,
-      });
-      if (result.attemptToken !== undefined) latestAttemptToken = result.attemptToken;
-      if (result.settled) return result.execution;
-    }
-
-    if (attempts.length) throw new ModelTierExhaustedError({ tierId, tierName, attempts });
-    if (!attemptedAny) {
-      // Every frozen member was cooled before its attempt: the tier is
-      // temporarily exhausted, exactly as if the loop-start snapshot had
-      // found nothing attemptable.
-      throw createTierCooldownUnavailableError(tierId, tierName);
-    }
-  } finally {
-    // Late events from an unwinding stream must never pin the session to a
-    // member that is no longer running.
-    clearTierAttemptMember(sessionId, latestAttemptToken ?? undefined);
-  }
+  return runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
+    members, failoverDisabled, controller, tierRef, tierId, tierName,
+    systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
+  });
 }
 
 function _getTierName(tierId) {

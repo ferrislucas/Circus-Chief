@@ -145,7 +145,7 @@ describe('tierResolutionService', () => {
     });
   });
 
-  describe('findNextHealthyTierMember (Fix 5)', () => {
+  describe('findNextHealthyTierMember', () => {
     let providerC;
 
     beforeEach(() => {
@@ -164,13 +164,11 @@ describe('tierResolutionService', () => {
       });
     }
 
-    it('names C when B fails, even though A (an earlier position) is healthy again', () => {
+    it('names C when B fails before wrapping to an earlier healthy A', () => {
       const tier = buildAbcTier();
       const tierRef = buildTierRef(tier.id);
 
-      // A failed earlier in this run and was cooled, but has since recovered
-      // (cooldown cleared) — it must NOT be reconsidered once the loop has
-      // moved past its position.
+      // A is healthy, but C comes first in circular configured order.
       clearUnhealthy(providerA.id, 'model-a');
 
       const next = findNextHealthyTierMember(tierRef, { modelId: 'model-b', providerId: providerB.id });
@@ -187,12 +185,24 @@ describe('tierResolutionService', () => {
       expect(next).toMatchObject({ providerId: providerC.id, modelId: 'model-c', position: 2 });
     });
 
-    it('returns null when no member exists after the failed position', () => {
+    it('wraps from the final member to the first healthy member', () => {
       const tier = buildAbcTier();
       const tierRef = buildTierRef(tier.id);
 
       const next = findNextHealthyTierMember(tierRef, { modelId: 'model-c', providerId: providerC.id });
-      expect(next).toBeNull();
+      expect(next).toMatchObject({ providerId: providerA.id, modelId: 'model-a', position: 0 });
+    });
+
+    it('never returns an attempted member or the origin during a cycle', () => {
+      const tier = buildAbcTier();
+      const tierRef = buildTierRef(tier.id);
+      const excluded = new Set([`${providerA.id}::model-a`, `${providerB.id}::model-b`]);
+
+      expect(findNextHealthyTierMember(
+        tierRef,
+        { modelId: 'model-c', providerId: providerC.id },
+        excluded
+      )).toBeNull();
     });
 
     it('returns null for an invalid tier ref or an unrecognized failed member', () => {
@@ -782,6 +792,54 @@ describe('tierResolutionService', () => {
         });
       } finally {
         clearUnhealthy(providerA.id, 'dupe-model');
+      }
+    });
+
+    it('skips an incompatible member while advancing a cooled continuation pin', () => {
+      const providerBClaude = modelProviders.create({ name: 'Provider B Claude', kind: 'anthropic' });
+      const providerCGemini = modelProviders.create({ name: 'Provider C Gemini', kind: 'google' });
+      modelProviders.addModel(providerBClaude.id, { modelId: 'model-b-claude', displayName: 'Model B Claude' });
+      modelProviders.addModel(providerCGemini.id, { modelId: 'model-c-gemini', displayName: 'Model C Gemini' });
+      const tier = modelTiers.create({
+        name: 'Compatible Advance Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerBClaude.id, modelId: 'model-b-claude', position: 1 },
+          { providerId: providerCGemini.id, modelId: 'model-c-gemini', position: 2 },
+        ],
+      });
+      const session = {
+        model: buildTierRef(tier.id),
+        agentType: 'claude-code',
+        resolvedModel: 'model-b-claude',
+        resolvedProviderId: providerBClaude.id,
+      };
+      markUnhealthy(providerBClaude.id, 'model-b-claude');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toMatchObject({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+        });
+      } finally {
+        clearUnhealthy(providerBClaude.id, 'model-b-claude');
+      }
+    });
+
+    it('recovers through a live member when a cooled catalog-valid pin was removed from the tier', () => {
+      const { tier, tierRef } = buildAdvanceTier();
+      const session = { model: tierRef, agentType: 'claude-code', resolvedModel: 'model-b', resolvedProviderId: providerB.id };
+      modelTiers.update(tier.id, {
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      markUnhealthy(providerB.id, 'model-b');
+      try {
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: { resolvedModel: 'model-a', resolvedProviderId: providerA.id },
+        });
+      } finally {
+        clearUnhealthy(providerB.id, 'model-b');
       }
     });
   });

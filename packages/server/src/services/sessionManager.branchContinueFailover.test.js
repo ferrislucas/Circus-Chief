@@ -106,6 +106,7 @@ describe('branch-continue immediate failover (checked tier)', () => {
   let project;
   let providerA;
   let providerB;
+  let providerD;
   let tempDir;
 
   beforeEach(() => {
@@ -121,6 +122,8 @@ describe('branch-continue immediate failover (checked tier)', () => {
     modelProviders.addModel(providerA.id, { modelId: 'branch-a', displayName: 'Branch A' });
     providerB = modelProviders.create({ name: 'Branch Provider B', kind: 'anthropic' });
     modelProviders.addModel(providerB.id, { modelId: 'branch-b', displayName: 'Branch B' });
+    providerD = modelProviders.create({ name: 'Branch Provider D', kind: 'anthropic' });
+    modelProviders.addModel(providerD.id, { modelId: 'branch-d', displayName: 'Branch D' });
   });
 
   afterEach(() => {
@@ -242,6 +245,7 @@ describe('branch-continue failover edges (checked tier)', () => {
   let project;
   let providerA;
   let providerB;
+  let providerD;
   let tempDir;
 
   beforeEach(() => {
@@ -257,6 +261,8 @@ describe('branch-continue failover edges (checked tier)', () => {
     modelProviders.addModel(providerA.id, { modelId: 'branch-a', displayName: 'Branch A' });
     providerB = modelProviders.create({ name: 'Branch Edge Provider B', kind: 'anthropic' });
     modelProviders.addModel(providerB.id, { modelId: 'branch-b', displayName: 'Branch B' });
+    providerD = modelProviders.create({ name: 'Branch Edge Provider D', kind: 'anthropic' });
+    modelProviders.addModel(providerD.id, { modelId: 'branch-d', displayName: 'Branch D' });
   });
 
   afterEach(() => {
@@ -469,22 +475,23 @@ describe('branch-continue failover edges (checked tier)', () => {
     }
   });
 
-  it('mid-turn tier edit: retry that cannot re-resolve settles instead of wedging', async () => {
+  it('mid-turn tier edit: retry keeps the original snapshot rather than using a newly inserted member', async () => {
     const { tier, session, conversationId } = createSession(
       twoMembers(), { modelId: 'branch-a', providerId: providerA.id }
     );
     mockQuery.mockImplementationOnce(quotaFailureScript());
 
-    // Structural tier edit landing strictly between arming the retry and the
-    // second attempt's live re-resolution: member 1 is removed while member 0
-    // is freshly cooled, so the retry cannot land anywhere healthy. Hooked on
-    // the arm-time running-status broadcast — the same seam the new-message
-    // mid-turn-edit test uses.
+    // Insert a new first member while the first provider call is in flight.
+    // The retry must continue to use the original [A, B] snapshot.
     let runningBroadcasts = 0;
     vi.mocked(broadcastSessionStatus).mockImplementation((...args) => {
       if (args[0] === session.id && args[1] === 'running' && ++runningBroadcasts === 2) {
         modelTiers.update(tier.id, {
-          members: [{ providerId: providerA.id, modelId: 'branch-a', position: 0 }],
+          members: [
+            { providerId: providerD.id, modelId: 'branch-d', position: 0 },
+            { providerId: providerA.id, modelId: 'branch-a', position: 1 },
+            { providerId: providerB.id, modelId: 'branch-b', position: 2 },
+          ],
         });
       }
     });
@@ -492,12 +499,12 @@ describe('branch-continue failover edges (checked tier)', () => {
     try {
       const result = await continueSessionWithExistingMessage(session.id, conversationId, tempDir, {});
 
-      // The turn ends visibly through the normal failure path: exactly one
-      // provider dispatch, one reschedule decision, no failover event.
-      expect(mockQuery).toHaveBeenCalledTimes(1);
-      expect(mockRescheduleSession).toHaveBeenCalledTimes(1);
-      expect(failoverEvents()).toHaveLength(0);
-      expect(result).toMatchObject({ outcome: 'rescheduled' });
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      expect(mockQuery.mock.calls.map(([params]) => params.options?.model)).toEqual(['branch-a', 'branch-b']);
+      expect(mockRescheduleSession).not.toHaveBeenCalled();
+      expect(failoverEvents()).toHaveLength(1);
+      expect(failoverEvents()[0][2]).toMatchObject({ fromModel: 'branch-a', toModel: 'branch-b' });
+      expect(result).toMatchObject({ started: true });
       expect(isUnhealthy(providerA.id, 'branch-a')).toBe(true);
     } finally {
       vi.mocked(broadcastSessionStatus).mockReset();

@@ -8,6 +8,7 @@ import { getProvidersByIds, evaluateTierMembers } from '../db/providerModelOpera
 // db/session-helpers.js.
 export { evaluateTierMembers };
 import { validateExactTierMember } from './tierIdentity.js';
+import { isTierFailoverLiftable } from './sessionAgentGuard.js';
 
 /**
  * Process-local member cooldown store. Maps "providerId::modelId" → expiry
@@ -254,34 +255,53 @@ export function resolveAnyMember(modelOrRef, context = {}) {
  * failover notice/log payload — one ordered scan shared by both so they can
  * never disagree (Fix 5).
  *
- * A pure forward-only, cooldown-aware scan: only considers members strictly
- * AFTER `failedMember`'s position and skips members currently in cooldown.
- * The tier is exhausted before failure — there is no attempt cap. The loop
- * that calls this (`runSessionWithTierFailover`) iterates a finite,
- * DB-ordered, de-duplicated member list with no re-entry path that could
- * revisit a member, so `members.length` is itself the termination bound.
+ * Select the next healthy member from an already-resolved tier snapshot.
+ * Selection is circular, but bounded: it visits every member after `origin`
+ * once and never returns `origin`. `excludedMemberKeys` is cycle-local state
+ * owned by the caller, so a start cycle cannot make a second revolution.
+ *
+ * @param {Array<{ providerId: string, modelId: string, position: number }>} members
+ * @param {{ modelId: string, providerId: string }} origin
+ * @param {Set<string>} [excludedMemberKeys]
+ * @param {(member: { providerId: string, modelId: string, position: number }) => boolean} [isEligible]
+ * @returns {{ providerId: string, modelId: string, position: number }|null}
+ */
+export function findNextHealthyTierMemberInSnapshot(members, origin, excludedMemberKeys = new Set(), isEligible = () => true) {
+  const originIndex = members.findIndex(
+    (member) => member.providerId === origin.providerId && member.modelId === origin.modelId
+  );
+  if (originIndex === -1 || members.length < 2) return null;
+
+  for (let offset = 1; offset < members.length; offset++) {
+    const candidate = members[(originIndex + offset) % members.length];
+    if (excludedMemberKeys.has(tierMemberKey(candidate))) continue;
+    if (!isEligible(candidate)) continue;
+    if (!isUnhealthy(candidate.providerId, candidate.modelId)) return candidate;
+  }
+  return null;
+}
+
+/** @param {{ providerId: string, modelId: string }} member */
+export function tierMemberKey(member) {
+  return `${member.providerId}::${member.modelId}`;
+}
+
+/**
+ * Find the next healthy member in circular configured order. This resolves a
+ * fresh snapshot for callers that do not already hold one (continuations).
  *
  * @param {string} tierRef - Tier ref sentinel string.
  * @param {{ modelId: string, providerId: string }} failedMember - The member that just failed.
+ * @param {Set<string>} [excludedMemberKeys] exact provider/model identities
+ * @param {(member: { providerId: string, modelId: string, position: number }) => boolean} [isEligible]
  * @returns {{ providerId: string, modelId: string, position: number }|null}
  */
-export function findNextHealthyTierMember(tierRef, failedMember) {
+export function findNextHealthyTierMember(tierRef, failedMember, excludedMemberKeys = new Set(), isEligible = () => true) {
   const tierId = parseTierRef(tierRef);
   if (!tierId) return null;
 
   const members = getTierMembersResolved(tierId);
-  const failedIndex = members.findIndex(
-    (m) => m.providerId === failedMember.providerId && m.modelId === failedMember.modelId
-  );
-  if (failedIndex === -1) return null;
-
-  for (let i = failedIndex + 1; i < members.length; i++) {
-    const candidate = members[i];
-    if (!isUnhealthy(candidate.providerId, candidate.modelId)) {
-      return candidate;
-    }
-  }
-  return null;
+  return findNextHealthyTierMemberInSnapshot(members, failedMember, excludedMemberKeys, isEligible);
 }
 
 /**
@@ -403,19 +423,36 @@ function isValidCooledSnapshot(session) {
   return isUnhealthy(session.resolvedProviderId, session.resolvedModel);
 }
 
+function isContinuationEligible(session, member) {
+  return isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
+}
+
 function resolveCooledSnapshotAdvance(session) {
   if (!session.resolvedModel || !session.resolvedProviderId) return null;
   const tierId = parseTierRef(session.model);
   if (!tierId || isFlagOffTier(tierId)) return null;
   if (!isValidCooledSnapshot(session)) return null;
-  const live = resolveActiveModel(session.model, {});
-  if (!live) return null;
-  if (live.model === session.resolvedModel
-    && (live.providerId ?? null) === (session.resolvedProviderId ?? null)) return null;
+  const origin = {
+    modelId: session.resolvedModel,
+    providerId: session.resolvedProviderId,
+  };
+  const members = getTierMembersResolved(tierId);
+  const live = findNextHealthyTierMemberInSnapshot(members, origin, new Set(), (member) => (
+    isContinuationEligible(session, member)
+  ));
+  // A catalog-valid pin can outlive its membership. It is still unsafe to
+  // advance an invalid identity, but a cooled, removed pin should not force
+  // every follow-up back to the provider that is known to be unavailable.
+  // Select from the current live tier in that narrow case.
+  const replacement = live || (!members.some((member) => tierMemberKey(member) === tierMemberKey(origin))
+    ? members.find((member) => !isUnhealthy(member.providerId, member.modelId)
+      && isContinuationEligible(session, member))
+    : null);
+  if (!replacement) return null;
   return {
-    effectiveModel: live.model,
-    providerIdHint: live.providerId,
-    persist: { resolvedModel: live.model, resolvedProviderId: live.providerId },
+    effectiveModel: replacement.modelId,
+    providerIdHint: replacement.providerId,
+    persist: { resolvedModel: replacement.modelId, resolvedProviderId: replacement.providerId },
   };
 }
 
