@@ -65,6 +65,12 @@ function createPeer() {
       send({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'end_turn', _meta: { inputTokens: 1, outputTokens: 1 } } });
     } else if (message.method === 'session/load') {
       send({ jsonrpc: '2.0', id: message.id, result: { configOptions: [] } });
+    } else if (message.method === '_x.ai/billing') {
+      send({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: { config: { creditUsagePercent: 20, currentPeriod: { end: '2026-06-01T00:00:00.000Z' } } },
+      });
     }
   }
   return { inbound, spawn: () => child };
@@ -80,16 +86,22 @@ describe('GrokBuildAcpAdapter', () => {
   it('runs a first turn in the Circus worktree and streams text once', async () => {
     const peer = createPeer();
     const seen = [];
-    const agent = new GrokBuildAcpAdapter({ spawnImpl: peer.spawn, rememberModels: (ids) => seen.push(...ids) });
+    const billed = [];
+    const agent = new GrokBuildAcpAdapter({
+      spawnImpl: peer.spawn,
+      rememberModels: (ids) => seen.push(...ids),
+      allowanceObserver: (candidate) => billed.push(candidate),
+    });
     const events = await collect(agent.execute({
       prompt: 'Hello',
-      options: { cwd: '/work/tree', model: 'grok-build', effortLevel: 'high', env: {} },
+      options: { cwd: '/work/tree', model: 'grok-build', effortLevel: 'high', env: {}, providerId: 'xai-default' },
     }));
     expect(seen).toEqual(['grok-build']);
     expect(events.map((event) => event.type)).toEqual(['system', 'stream_event', 'assistant', 'result']);
     expect(events[0]).toMatchObject({ subtype: 'init', session_id: 'sess-1', model: 'grok-build' });
     expect(events[2].message.content[0].text).toBe('Hi');
     expect(events[3].usage).toEqual({ input_tokens: 1, output_tokens: 1 });
+    expect(billed[0]).toMatchObject({ providerId: 'xai-default', providerKind: 'xai', allowances: [{ remainingPercent: 80 }] });
     const prompt = peer.inbound.find((message) => message.method === 'session/prompt');
     expect(prompt.params.prompt[0].text).toContain('Hello');
     expect(peer.inbound.some((message) => message.method === 'session/set_config_option' && message.params.configId === 'reasoning_effort')).toBe(true);

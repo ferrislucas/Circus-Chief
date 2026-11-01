@@ -52,7 +52,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 export function createAgentForSession(agentType = DEFAULT_AGENT_TYPE, config = {}, session = null) {
   // Session-bound allowance sources tap their adapter's stream (Codex headers/
   // rollout tails, Claude rate-limit events); observation is always on.
-  const allowance = ['codex', DEFAULT_AGENT_TYPE].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const allowance = ['codex', DEFAULT_AGENT_TYPE, 'grok-build'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
   const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 

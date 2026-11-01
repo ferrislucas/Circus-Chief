@@ -9,6 +9,7 @@ import {
   modelsFromInitialize,
 } from './grokAcpEventMapper.js';
 import { answerGrokQuestion } from './grokQuestionBridge.js';
+import { observeGrokBilling } from './grokBilling.js';
 import { rememberGrokModels } from '../../services/grokBuildDiscovery.js';
 
 /**
@@ -28,10 +29,12 @@ export class GrokBuildAcpAdapter extends BaseAgent {
     resume: true,
   });
 
-  constructor({ spawnImpl, rememberModels = rememberGrokModels, ...rest } = {}) {
+  constructor({ spawnImpl, rememberModels = rememberGrokModels, allowanceObserver = null, clock = Date, ...rest } = {}) {
     super(rest);
     this._spawnImpl = spawnImpl;
     this._rememberModels = rememberModels;
+    this._allowanceObserver = allowanceObserver;
+    this._clock = clock;
   }
 
   getCapabilities() {
@@ -47,25 +50,8 @@ export class GrokBuildAcpAdapter extends BaseAgent {
     if (!options.cwd) {
       throw codedError('Grok Build requires a working directory.', 'GROK_NO_CWD');
     }
-    const mapper = createGrokAcpEventMapper();
-    const queue = createEventQueue();
-    const client = new GrokAcpClient({
-      spawnImpl: this._spawnImpl,
-      cwd: options.cwd,
-      env: options.env,
-      signal: options.abortController?.signal,
-      onQuestion: (request) => answerGrokQuestion({
-        sessionId: options.sessionId,
-        conversationId: options.conversationId,
-        request,
-        signal: options.abortController?.signal,
-      }),
-    });
-    client.onNotification = (message) => {
-      if (message.method !== 'session/update') return;
-      for (const event of mapper.mapUpdate(message.params)) queue.push(event);
-    };
-
+    const turn = openGrokTurn(this, options);
+    const { mapper, queue, client } = turn;
     let nativeId = null;
     try {
       const init = await client.start();
@@ -85,7 +71,7 @@ export class GrokBuildAcpAdapter extends BaseAgent {
         sessionId: nativeId,
         prompt: [{ type: 'text', text: composeCliPrompt(options.systemPrompt, queryParams.prompt) }],
       }).then((result) => {
-        for (const event of mapper.finish(result)) queue.push(event);
+        for (const event of mapper.finish(result, nativeId)) queue.push(event);
         queue.end();
       }).catch((error) => queue.fail(error));
       yield* queue.events();
@@ -96,10 +82,39 @@ export class GrokBuildAcpAdapter extends BaseAgent {
       }
       throw error;
     } finally {
+      if (!options.abortController?.signal?.aborted) {
+        await observeGrokBilling(client, {
+          observer: this._allowanceObserver,
+          providerId: options.providerId,
+          clock: this._clock,
+        });
+      }
       if (options.abortController?.signal?.aborted) await client.cancelActive(nativeId);
       await client.shutdown();
     }
   }
+}
+
+function openGrokTurn(adapter, options) {
+  const mapper = createGrokAcpEventMapper();
+  const queue = createEventQueue();
+  const client = new GrokAcpClient({
+    spawnImpl: adapter._spawnImpl,
+    cwd: options.cwd,
+    env: options.env,
+    signal: options.abortController?.signal,
+    onQuestion: (request) => answerGrokQuestion({
+      sessionId: options.sessionId,
+      conversationId: options.conversationId,
+      request,
+      signal: options.abortController?.signal,
+    }),
+  });
+  client.onNotification = (message) => {
+    if (message.method !== 'session/update') return;
+    for (const event of mapper.mapUpdate(message.params)) queue.push(event);
+  };
+  return { mapper, queue, client };
 }
 
 async function openSession(client, options, init) {

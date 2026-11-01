@@ -66,7 +66,7 @@ export function buildAgentEnv(sessionEnv, commitAttributionOverride, e2eMeta = n
  */
 export function createAgentForSession(agentType = 'claude-code', config = {}, session = null) {
   // Observe allowance data emitted by the production adapter streams.
-  const allowance = ['codex', 'claude-code'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
+  const allowance = ['codex', 'claude-code', 'grok-build'].includes(agentType) ? { allowanceObserver: getProviderAllowanceObserver() } : {};
   const mergedConfig = { ...buildAgentConfig(agentType, session), ...allowance, ...config };
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 

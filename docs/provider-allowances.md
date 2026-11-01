@@ -15,6 +15,7 @@ validated against real payloads before it is merged.
 | OpenAI / Codex | ChatGPT OAuth subscription | Codex app-server: local JSON-RPC rate-limit meter | `codex-app-server` |
 | Anthropic- or OpenAI-kind provider on a z.ai GLM Coding Plan host | API key | z.ai poll: provider quota endpoint, immediately then every five minutes | `zai-quota-poll` |
 | Meta / Muse | Meta login (`muse login`) | Muse usage probe: a short-lived `muse serve --no-session-log` micro-turn captures `usage/changed` (falling back to `usage/read`) | `provider` |
+| xAI / Grok Build | Host `grok login` (`cached_token`) | Grok billing read: `_x.ai/billing` on the session's ACP child after the turn | `provider` |
 | OpenAI-compatible provider | API key | OpenAI headers: documented `x-ratelimit-limit-*`, `x-ratelimit-remaining-*`, and `x-ratelimit-reset-*` response headers | `observed-header` |
 
 The OpenAI direct API adapter is a best-effort header observation path for
@@ -38,6 +39,14 @@ otherwise. Each probe spends one micro-turn of subscription quota on the
 configured probe model (default `muse-spark-1.3`); observations carry the
 stream freshness window. Validated against `muse` 1.4.2 with sanitized
 `SubscriptionUsage` fixtures checked in as mapper tests.
+
+The Grok billing read runs on the child that just finished the turn. It does
+not read `~/.grok/auth.json`, does not send an API key, and does not spend a
+prompt. Accepted payloads are `config.creditUsagePercent` (percentage only)
+and `usage.includedUsed` or `usage.totalUsed` against `monthlyLimit` (credits).
+Anything else leaves the indicator `unknown`. The checked-in fixtures are the
+published billing shapes; a live capture from the installed `grok` can tighten
+the parser, but an unrecognized response is never guessed.
 
 ## Configuration
 

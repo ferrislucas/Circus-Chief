@@ -1,3 +1,5 @@
+import { usageFromGrokPrompt } from './grokUsage.js';
+
 const GROK_EFFORT = Object.freeze({
   low: 'low',
   medium: 'medium',
@@ -29,7 +31,7 @@ export function createGrokAcpEventMapper() {
     return [];
   }
 
-  function finish(result) {
+  function finish(result, sessionKey) {
     if (state.terminated) return [];
     state.terminated = true;
     const events = [];
@@ -41,7 +43,7 @@ export function createGrokAcpEventMapper() {
     events.push({
       type: 'result',
       subtype: result?.stopReason === 'error' ? 'error' : 'success',
-      usage: usageFrom(result),
+      usage: usageFromGrokPrompt(result, sessionKey),
     });
     return events;
   }
@@ -109,18 +111,6 @@ function chunkText(update) {
   if (typeof content?.text === 'string') return content.text;
   if (typeof update?.text === 'string') return update.text;
   return '';
-}
-
-function usageFrom(result) {
-  const meta = result?._meta || result || {};
-  return {
-    input_tokens: numberOrZero(meta.inputTokens ?? meta.input_tokens),
-    output_tokens: numberOrZero(meta.outputTokens ?? meta.output_tokens),
-  };
-}
-
-function numberOrZero(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 export function normalizeModelIds(raw) {

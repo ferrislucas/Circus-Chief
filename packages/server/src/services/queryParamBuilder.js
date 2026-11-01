@@ -185,6 +185,7 @@ function buildGrokQueryParams({
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sessionId,
       conversationId,
+      providerId: session?.providerId ?? null,
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
   };
