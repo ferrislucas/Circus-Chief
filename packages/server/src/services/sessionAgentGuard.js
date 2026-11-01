@@ -12,6 +12,7 @@ export const AGENT_TYPE_LABELS = Object.freeze({
   codex: 'Codex',
   gemini: 'Gemini',
   muse: 'Muse',
+  'grok-build': 'Grok Build',
 });
 
 /**

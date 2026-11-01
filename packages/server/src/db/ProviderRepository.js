@@ -19,8 +19,9 @@ import * as modelOps from './providerModelOperations.js';
  *   - 'openai'    → 'codex'
  *   - 'google'    → 'gemini'
  *   - 'meta'      → 'muse'
+ *   - 'xai'       → 'grok-build'
  */
-export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google', 'meta']);
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google', 'meta', 'xai']);
 
 /**
  * Model tier aliases handled directly by the Claude SDK. These are matched
@@ -38,6 +39,7 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   openai: 'codex',
   google: 'gemini',
   meta: 'muse',
+  xai: 'grok-build',
 });
 
 /**

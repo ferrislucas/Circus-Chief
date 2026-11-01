@@ -170,6 +170,26 @@ function buildMuseQueryParams({
   };
 }
 
+function buildGrokQueryParams({
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+  resumeSessionId = null, conversationId = null,
+}) {
+  return {
+    prompt,
+    options: {
+      cwd: workingDirectory,
+      abortController: controller,
+      env: sessionEnv,
+      model,
+      effortLevel: session?.effortLevel && session.effortLevel !== 'auto' ? session.effortLevel : null,
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      sessionId,
+      conversationId,
+      ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+    },
+  };
+}
+
 /**
  * Build query parameters for executing a session via the configured agent.
  * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
@@ -184,7 +204,7 @@ function buildMuseQueryParams({
  * @param {string|null} options.model - Model to use
  * @param {Object} options.sessionEnv - Environment variables for the session
  * @param {string|null} [options.resumeSessionId] - Session ID to resume (null for new session)
- * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini' | 'muse'
+ * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini' | 'muse' | 'grok-build'
  * @returns {Object} Query parameters for agent.execute()
  */
 export function buildQueryParams(options) {
@@ -197,6 +217,9 @@ export function buildQueryParams(options) {
   }
   if (agentType === 'muse') {
     return buildMuseQueryParams(options);
+  }
+  if (agentType === 'grok-build') {
+    return buildGrokQueryParams(options);
   }
   return buildClaudeCodeQueryParams(options);
 }

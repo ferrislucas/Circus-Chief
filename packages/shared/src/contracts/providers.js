@@ -66,7 +66,7 @@ const CommitAttributionOverride = z
  * Kind is **immutable after create**; switching kind invalidates the provider's
  * registered models.
  */
-export const ProviderKind = z.enum(['anthropic', 'openai', 'google', 'meta']);
+export const ProviderKind = z.enum(['anthropic', 'openai', 'google', 'meta', 'xai']);
 
 export const CreateProviderRequest = z.object({
   name: z.string().min(1).max(100),

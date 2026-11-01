@@ -35,7 +35,7 @@ describe('AgentGateway', () => {
   it('throws descriptive error for unknown agent type', () => {
     const gateway = new AgentGateway();
     expect(() => gateway.createAgent('nonexistent')).toThrow(
-      'Unknown agent type: "nonexistent". Available: claude-code, codex, gemini, muse'
+      'Unknown agent type: "nonexistent". Available: claude-code, codex, gemini, grok-build, muse'
     );
   });
 
@@ -54,11 +54,11 @@ describe('AgentGateway', () => {
 
   it('lists all registered agent types', () => {
     const gateway = new AgentGateway();
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'grok-build', 'muse']);
 
     class FakeAdapter extends BaseAgent {}
     gateway.registerAdapter('fake', FakeAdapter);
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse', 'fake']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'grok-build', 'muse', 'fake']);
   });
 
   it('returns capabilities for registered agent types', () => {
@@ -120,7 +120,7 @@ describe('AgentGateway', () => {
     it('getAllAgentCapabilities() returns entries for every registered adapter', () => {
       const gateway = new AgentGateway();
       const all = gateway.getAllAgentCapabilities();
-      expect(all).toHaveLength(4);
+      expect(all).toHaveLength(5);
       const byType = Object.fromEntries(all.map((e) => [e.agentType, e.capabilities]));
       expect(byType['claude-code']).toEqual({
         streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true,
@@ -136,9 +136,9 @@ describe('AgentGateway', () => {
       });
     });
 
-    it('getAvailableAgents() includes claude-code, codex, gemini, and muse', () => {
+    it('getAvailableAgents() includes claude-code, codex, gemini, grok-build, and muse', () => {
       const gateway = new AgentGateway();
-      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'muse']);
+      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'grok-build', 'muse']);
     });
   });
 

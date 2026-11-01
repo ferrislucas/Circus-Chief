@@ -1,5 +1,6 @@
 import { modelProviders } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import { logProviderEnv } from './providerEnvLog.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveActiveModel } from './tierResolutionService.js';
 import { validateExactTierMember } from './tierIdentity.js';
@@ -171,6 +172,7 @@ export function resolveCommitAttributionOverrideForModel(modelOrRef) {
  *   - openai    → codex
  *   - google    → gemini
  *   - meta      → muse
+ *   - xai       → grok-build
  * Falls back to 'claude-code' for null / unknown / tier-name inputs.
  *
  * Provider-aware (Fix 1): when `providerId` is supplied and owns `modelId`,
@@ -178,7 +180,7 @@ export function resolveCommitAttributionOverrideForModel(modelOrRef) {
  * members can cross Anthropic/OpenAI/Google with a duplicate `modelId`.
  * @param {string|null} modelId
  * @param {string|null} [providerId] - Optional explicit provider hint
- * @returns {string} 'claude-code' | 'codex' | 'gemini' | 'muse'
+ * @returns {string} 'claude-code' | 'codex' | 'gemini' | 'muse' | 'grok-build'
  */
 export function resolveAgentTypeFromModel(modelId, providerId = null) {
   if (!modelId) return 'claude-code';
@@ -193,6 +195,7 @@ export function resolveAgentTypeFromModel(modelId, providerId = null) {
   if (provider.kind === 'openai') return 'codex';
   if (provider.kind === 'google') return 'gemini';
   if (provider.kind === 'meta') return 'muse';
+  if (provider.kind === 'xai') return 'grok-build';
   return 'claude-code';
 }
 
@@ -218,7 +221,9 @@ export function buildProviderEnv(provider) {
       ? buildGoogleProviderEnv(provider)
       : kind === 'meta'
         ? buildMetaProviderEnv(provider)
-        : buildAnthropicProviderEnv(provider);
+        : kind === 'xai'
+          ? buildXaiProviderEnv(provider)
+          : buildAnthropicProviderEnv(provider);
 
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
@@ -260,6 +265,20 @@ function buildMetaProviderEnv(provider) {
   return {};
 }
 
+/**
+ * xAI-kind provider env. Grok Build authenticates with the host CLI's
+ * cached login. Circus Chief must not inject XAI_API_KEY or copy tokens.
+ */
+function buildXaiProviderEnv(provider) {
+  const ignored = ['authToken', 'baseUrl'].filter((key) => provider?.[key]);
+  if (ignored.length > 0) {
+    console.warn(
+      `[SessionManager] buildProviderEnv: Provider "${provider.name}" (xai) sets ${ignored.join(' and ')} which is ignored — Grok Build authenticates with the host's own grok login.`,
+    );
+  }
+  return {};
+}
+
 function buildOpenAIProviderEnv(provider) {
   const env = {};
   if (provider.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
@@ -293,44 +312,6 @@ function addAnthropicModelEnv(env, models) {
   }
 }
 
-function logProviderEnv(provider, kind, env) {
-  if (kind === 'openai') {
-    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (openai) env vars:`, {
-      OPENAI_BASE_URL: env.OPENAI_BASE_URL,
-      OPENAI_API_KEY: env.OPENAI_API_KEY ? '[SET]' : '[NOT SET]',
-      API_TIMEOUT_MS: env.API_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  if (kind === 'google') {
-    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (google) env vars:`, {
-      GEMINI_API_KEY: env.GEMINI_API_KEY ? '[SET]' : '[NOT SET]',
-      API_TIMEOUT_MS: env.API_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  if (kind === 'meta') {
-    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (meta) uses host muse auth credentials.`, {
-      authToken: provider.authToken ? '[SET, IGNORED]' : '[NOT SET]',
-      baseUrl: provider.baseUrl || '[NOT SET]',
-      API_TIMEOUT_MS: env.API_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (anthropic) env vars:`, {
-    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
-    ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? '[SET]' : '[NOT SET]',
-    ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[NOT SET]',
-    ANTHROPIC_DEFAULT_FABLE_MODEL: env.ANTHROPIC_DEFAULT_FABLE_MODEL,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: env.ANTHROPIC_DEFAULT_SONNET_MODEL,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-  });
-}
-
 /**
  * A validated built-in Anthropic tier member (Official Anthropic) runs with
  * SDK-default credentials/endpoints — exactly like the same model selected
@@ -349,7 +330,7 @@ function isSdkDefaultBuiltInAnthropic(provider) {
  * SDK-default strip (null provider, or a validated built-in Anthropic tier
  * member), or the per-kind policy for a configured provider.
  * @param {Object|null} provider - Provider object or null for agent defaults
- * @returns {string} 'sdk-default' | 'openai' | 'google' | 'meta' | 'anthropic'
+ * @returns {string} 'sdk-default' | 'openai' | 'google' | 'meta' | 'xai' | 'anthropic'
  */
 function resolveSessionEnvPolicy(provider) {
   if (!provider || isSdkDefaultBuiltInAnthropic(provider)) return 'sdk-default';
@@ -357,6 +338,7 @@ function resolveSessionEnvPolicy(provider) {
   if (kind === 'openai') return 'openai';
   if (kind === 'google') return 'google';
   if (kind === 'meta') return 'meta';
+  if (kind === 'xai') return 'xai';
   return 'anthropic';
 }
 
@@ -409,6 +391,8 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
     applyGoogleSessionEnv(sessionEnv, providerEnv);
   } else if (policy === 'meta') {
     applyMetaSessionEnv(sessionEnv, providerEnv);
+  } else if (policy === 'xai') {
+    applyXaiSessionEnv(sessionEnv, providerEnv);
   } else {
     stripOpenAIHostEnv(sessionEnv);
     stripGoogleHostEnv(sessionEnv);
@@ -458,6 +442,15 @@ function applyMetaSessionEnv(sessionEnv, providerEnv) {
   stripOpenAIHostEnv(sessionEnv);
   stripGoogleHostEnv(sessionEnv);
   // Apply provider-specific env vars (additionalEnvVars escape hatch)
+  Object.assign(sessionEnv, providerEnv);
+}
+
+function applyXaiSessionEnv(sessionEnv, providerEnv) {
+  stripAnthropicHostEnv(sessionEnv);
+  stripOpenAIHostEnv(sessionEnv);
+  stripGoogleHostEnv(sessionEnv);
+  const target = sessionEnv;
+  delete target.XAI_API_KEY;
   Object.assign(sessionEnv, providerEnv);
 }
 

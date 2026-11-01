@@ -6,6 +6,7 @@ import {
   seedBuiltInFable5,
   seedBuiltInGoogleProvider,
   seedBuiltInMetaProvider,
+  seedBuiltInXaiProvider,
   seedBuiltInOpenAIProvider,
   seedBuiltInProviders,
   syncBuiltInModelCatalogs,
@@ -182,6 +183,18 @@ export const providerMigrations = [
   {
     name: 'providers-seed-built-in-meta',
     up(db) { seedBuiltInMetaProvider(db); },
+  },
+  {
+    name: 'providers-widen-kind-check-xai',
+    up(db) {
+      const existingSql = getTableSql(db, 'providers') || '';
+      if (existingSql.includes("'xai'")) return;
+      widenProvidersKindCheck(db, ['anthropic', 'openai', 'google', 'meta', 'xai']);
+    },
+  },
+  {
+    name: 'providers-seed-built-in-xai',
+    up(db) { seedBuiltInXaiProvider(db); },
   },
   {
     name: 'providers-update-gemini-flash-lite-model',

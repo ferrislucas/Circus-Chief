@@ -89,14 +89,15 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
-  // Note: Google and Meta providers and models are NOT seeded here because
+  // Note: Google, Meta, and xAI providers are NOT seeded here because
   // seedBaselineData runs before migrations. On existing databases the
   // providers table still has an older CHECK(kind IN (...)) without the newer
-  // kinds, so an INSERT with kind='google'/'meta' would be silently ignored by
-  // INSERT OR IGNORE, and the subsequent model inserts would fail with a
-  // FOREIGN KEY constraint. The 'providers-seed-built-in-google' and
-  // 'providers-seed-built-in-meta' migrations handle seeding for both fresh
-  // and existing databases after their widen-kind-check migrations run.
+  // kinds, so an INSERT with kind='google'/'meta'/'xai' would be silently ignored by
+  // INSERT OR IGNORE. The 'providers-seed-built-in-google',
+  // 'providers-seed-built-in-meta', and 'providers-seed-built-in-xai' migrations
+  // handle seeding for both fresh and existing databases after their
+  // widen-kind-check migrations run. xAI is seeded with zero models; ids come
+  // from the local grok CLI.
   for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
     insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, model.tier, now);
   }

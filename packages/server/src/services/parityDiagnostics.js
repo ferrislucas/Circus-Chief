@@ -169,6 +169,7 @@ function gitconfigHasIdentity(home) {
 function binarySignals(env) {
   const specs = [
     ['muse-bin', env?.MUSE_BIN || 'muse', 'Install Muse Code and ensure `muse` is on PATH (or set MUSE_BIN).'],
+    ['grok-bin', 'grok', 'Install Grok Build and ensure `grok` is on PATH.'],
     ['git-bin', 'git', 'Install git and ensure it is on the login-shell PATH.'],
     ['gh-bin', 'gh', 'Install the GitHub CLI and ensure it is on the login-shell PATH.'],
   ];

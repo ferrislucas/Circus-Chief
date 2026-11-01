@@ -51,6 +51,9 @@
         :label="`${agentLabelFor(provider)} · ${provider.name}`"
         :data-agent-type="agentTypeFor(provider)"
       >
+        <option v-if="!provider.models?.length && provider.kind === 'xai'" disabled value="">
+          Install Grok Build and run grok login
+        </option>
         <option
           v-for="model in provider.models"
           :key="`${provider.id}:${model.id}`"
@@ -203,6 +206,7 @@ function agentTypeFor(provider) {
   if (provider?.kind === 'openai') return 'codex';
   if (provider?.kind === 'google') return 'gemini';
   if (provider?.kind === 'meta') return 'muse';
+  if (provider?.kind === 'xai') return 'grok-build';
   return 'claude-code';
 }
 
@@ -211,6 +215,7 @@ function agentLabelFor(provider) {
   if (type === 'codex') return 'Codex';
   if (type === 'gemini') return 'Gemini';
   if (type === 'muse') return 'Muse';
+  if (type === 'grok-build') return 'Grok Build';
   return 'Claude Code';
 }
 
@@ -218,7 +223,7 @@ function agentLabelFor(provider) {
 //   1) Agent type: Claude Code first, then Gemini, then Muse, then Codex
 //   2) Built-in before custom within the same agent
 //   3) Alphabetical by name among custom providers
-const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'muse': 2, 'codex': 3 };
+const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'muse': 2, 'grok-build': 3, 'codex': 4 };
 const sortedProviders = computed(() => {
   const list = [...providersStore.providers].filter(
     (p) => p.enabled !== false && (!props.allowedProviderKinds || props.allowedProviderKinds.includes(p.kind || 'anthropic'))
@@ -259,7 +264,7 @@ const visibleProviders = computed(() => {
       return withCustomModelsHidden(provider, customModelIds);
     });
 
-  return withHistoricalEntryMerged(providers).filter((provider) => provider.models?.length);
+  return withHistoricalEntryMerged(providers).filter((provider) => provider.models?.length || provider.kind === 'xai');
 });
 
 // ── Session-scoped historical continuity (disabled OR soft-removed) ────

@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
@@ -77,6 +78,9 @@ export async function testProviderConnection(config, deps = {}) {
   }
   if (kind === 'meta') {
     return testMetaConnection(config, deps);
+  }
+  if (kind === 'xai') {
+    return testXaiConnection(config, deps);
   }
   return testAnthropicConnection(config);
 }
@@ -313,6 +317,45 @@ function describeMissingTerminal(terminal) {
     return `Muse CLI reported ${terminal.outcome}${terminal.reason ? `: ${terminal.reason}` : ''}.`;
   }
   return 'Muse CLI exited without a validated terminal result.';
+}
+
+/**
+ * Confirm the local Grok CLI is installed. This does not log in, read
+ * credentials, or send a prompt.
+ */
+function testXaiConnection(config, deps = {}) {
+  const timeoutMs = config.apiTimeoutMs || 8000;
+  const spawnGrok = deps.spawnGrokProcess || ((options) => spawn(options.command, options.args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  }));
+  let child;
+  try {
+    child = spawnGrok({ command: 'grok', args: ['version'] });
+  } catch (error) {
+    return Promise.resolve(failureResponse(error?.code === 'ENOENT'
+      ? Object.assign(new Error('Install Grok Build and ensure grok is on PATH.'), { code: 'GROK_CLI_NOT_FOUND' })
+      : error));
+  }
+  return new Promise((resolve) => {
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      resolve(failureResponse(new Error(`Grok Build timed out after ${timeoutMs}ms`)));
+    }, timeoutMs);
+    child.stderr?.on('data', (chunk) => { stderr = `${stderr}${chunk.toString('utf8')}`.slice(-2000); });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve(failureResponse(error?.code === 'ENOENT'
+        ? Object.assign(new Error('Install Grok Build and ensure grok is on PATH.'), { code: 'GROK_CLI_NOT_FOUND' })
+        : error));
+    });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(connectionSuccess({ model: null }));
+      else resolve(failureResponse(new Error(stderr.trim() || `Grok Build exited with code ${code}`)));
+    });
+  });
 }
 
 function connectionSuccess(details) {

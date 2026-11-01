@@ -268,6 +268,8 @@ export const allMigrations = validateMigrations([
 
   // --- Seed built-in Meta provider + Muse models ---
   pr.get('providers-seed-built-in-meta'),
+  pr.get('providers-widen-kind-check-xai'),
+  pr.get('providers-seed-built-in-xai'),
 
   // --- Update expired Gemini Flash Lite preview model to stable GA ---
   pr.get('providers-update-gemini-flash-lite-model'),
