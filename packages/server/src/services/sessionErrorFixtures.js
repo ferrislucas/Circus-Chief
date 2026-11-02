@@ -75,7 +75,7 @@ const srcOutcome = (type, note) => `e2eSpawnOutcomes.js OUTCOME_MESSAGES.${type}
 const row = (message, kind, source, overrides = {}) => {
   const [failoverEligible, rescheduleTrigger] = POLICY_MATRIX[kind];
   return {
-    // 'anthropic' | 'openai' | 'google' | null (null = provider-agnostic /
+    // 'anthropic' | 'openai' | 'google' | 'xai' | null (null = provider-agnostic /
     // synthetic-but-shipped wording).
     providerKind: overrides.providerKind ?? null,
     source,
@@ -189,6 +189,58 @@ export const SESSION_ERROR_FIXTURES = [
   row('Command failed with exit code 1', 'terminal', `${SRC_TESTS} — process exit error`),
   row('ECONNREFUSED', 'terminal', `${SRC_TESTS} — network refusal (not a capacity error)`),
   row('permission denied', 'terminal', `${SRC_TESTS} — permission error`),
+
+  // Harvested Grok Build strings. Verdicts are what the matchers do today.
+  // A row that is terminal is a real limit-shaped failure the gates do not
+  // recognize; do not retarget the row without changing the matcher on purpose.
+  row(
+    'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+    'terminal',
+    'jcode#937 (2026-08-14) — `grok -p` stderr for a logged-in account whose balance is gone. "balance exhausted" matches neither gate.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'You hit your weekly limit.',
+    'weak-signal',
+    'cli-agent-orchestrator grok-cli.md — Grok Build 1.0.13 TUI picker. Bare "limit" reschedules; "weekly limit" is not a tight-gate phrase.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'usage_limit_reached',
+    'weak-signal',
+    'ACP sessionUpdate seen by hosts of `grok agent stdio`. The underscore form matches bare "limit" only.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'Usage limit reached',
+    'quota',
+    'grok-build-vscode#57 — host wording for ACP JSON-RPC -32003. The words "usage limit" already satisfy both gates; the numeric code is not in this string.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'Grok Build exited (1)',
+    'terminal',
+    'GrokAcpClient exit wrapper with empty stderr. A dead process is not a service-outage phrase.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'Failed to fetch billing data: connect ECONNREFUSED',
+    'terminal',
+    'grok-build billing.rs upstream failure. ECONNREFUSED stays terminal; the sentence adds no outage phrase.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    'Grok Build is not supported in Legacy (no storage). Switch to Privacy Mode to use Grok Build.',
+    'terminal',
+    't3code#28094 — HTTP 403 privacy-mode rejection. Not a quota and not an outage.',
+    { providerKind: 'xai' },
+  ),
+  row(
+    "Authentication required to fetch billing data. Run 'grok login' to authenticate.",
+    'terminal',
+    'QuotaKit grok.md — billing auth error. A skipped login is not retryable.',
+    { providerKind: 'xai' },
+  ),
 
   // ── Weak signals: reschedule yes, fail over NO (deliberate precision
   //    difference between the two policies — pinned explicitly) ────────────

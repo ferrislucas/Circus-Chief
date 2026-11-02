@@ -817,6 +817,64 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
         expect(matchesStartFailoverEligibleError(message.toLowerCase())).toBe(false);
       });
     });
+
+    describe('harvested Grok Build failures through the retry gates', () => {
+      const tierSession = {
+        model: 'tier::grok',
+        autoRescheduleEnabled: true,
+        rescheduleOnTokenLimit: true,
+        rescheduleOnServiceError: true,
+      };
+      const startLoop = {
+        allowFailover: true,
+        nextMember: { providerId: 'anthropic-default', modelId: 'claude-sonnet-5' },
+      };
+
+      beforeEach(() => {
+        agentGuardMock.noObservableActivity = true;
+        messages.getBySessionId.mockReturnValue([]);
+      });
+
+      it('does not switch models or reschedule a 402 balance failure', () => {
+        const error = Object.assign(
+          new Error('API error (status 402 Payment Required): Grok Build usage balance exhausted'),
+          { code: 402 },
+        );
+        expect(isTierFailoverEligibleError(tierSession, error, 'sess-grok', startLoop)).toBe(false);
+        expect(shouldRescheduleOnError(tierSession, error, 'sess-grok', startLoop)).toBe(false);
+      });
+
+      it('reschedules a weekly-limit picker and does not switch models', () => {
+        const error = new Error('You hit your weekly limit.');
+        expect(isTierFailoverEligibleError(tierSession, error, 'sess-grok', startLoop)).toBe(false);
+        expect(shouldRescheduleOnError(tierSession, error, 'sess-grok', startLoop)).toBe(true);
+      });
+
+      it('switches on the usage-limit sentence and ignores a bare -32003 code', () => {
+        const codedOnly = Object.assign(new Error('Internal error'), { code: -32003 });
+        expect(isTierFailoverEligibleError(tierSession, codedOnly, 'sess-grok', startLoop)).toBe(false);
+        expect(shouldRescheduleOnError(tierSession, codedOnly, 'sess-grok', startLoop)).toBe(false);
+
+        const worded = Object.assign(new Error('Usage limit reached'), { code: -32003 });
+        expect(isTierFailoverEligibleError(tierSession, worded, 'sess-grok', startLoop)).toBe(true);
+        // Failover wins: the same-model retry is suppressed so the tier can advance.
+        expect(shouldRescheduleOnError(tierSession, worded, 'sess-grok', startLoop)).toBe(false);
+      });
+
+      it('does not retry a privacy-mode rejection, a skipped login, or a dead process', () => {
+        const samples = [
+          'Grok Build is not supported in Legacy (no storage). Switch to Privacy Mode to use Grok Build.',
+          "Authentication required to fetch billing data. Run 'grok login' to authenticate.",
+          'Grok Build exited (1)',
+          'Failed to fetch billing data: connect ECONNREFUSED',
+        ];
+        for (const sample of samples) {
+          const error = new Error(sample);
+          expect(isTierFailoverEligibleError(tierSession, error, 'sess-grok', startLoop)).toBe(false);
+          expect(shouldRescheduleOnError(tierSession, error, 'sess-grok', startLoop)).toBe(false);
+        }
+      });
+    });
   });
 });
 

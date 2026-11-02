@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { describe, expect, it } from 'vitest';
 import { GrokBuildAcpAdapter } from './GrokBuildAcpAdapter.js';
 
-function createPeer() {
+function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1' } = {}) {
   const stdout = new EventEmitter();
   const child = new EventEmitter();
   let buffer = '';
@@ -38,7 +38,7 @@ function createPeer() {
         id: message.id,
         result: {
           protocolVersion: 1,
-          agentCapabilities: { loadSession: true },
+          agentCapabilities: { loadSession },
           authMethods: [{ id: 'cached_token' }],
           _meta: { modelState: { currentModelId: 'grok-build', availableModels: ['grok-build'] } },
         },
@@ -52,11 +52,22 @@ function createPeer() {
       send({
         jsonrpc: '2.0',
         id: message.id,
-        result: { sessionId: 'sess-1', configOptions: [{ id: 'model' }, { id: 'reasoning_effort' }] },
+        result: sessionId
+          ? { sessionId, configOptions: [{ id: 'model' }, { id: 'reasoning_effort' }] }
+          : {},
       });
     } else if (message.method === 'session/set_config_option') {
       send({ jsonrpc: '2.0', id: message.id, result: {} });
     } else if (message.method === 'session/prompt') {
+      if (prompt === 'hold') return;
+      if (prompt === 'limit') {
+        send({ jsonrpc: '2.0', id: message.id, error: { code: -32003, message: 'Usage limit reached' } });
+        return;
+      }
+      if (prompt === 'rate_limit') {
+        send({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'rate_limit', _meta: { inputTokens: 2, outputTokens: 1 } } });
+        return;
+      }
       send({
         jsonrpc: '2.0',
         method: 'session/update',
@@ -73,7 +84,7 @@ function createPeer() {
       });
     }
   }
-  return { inbound, spawn: () => child };
+  return { inbound, spawn: () => child, child };
 }
 
 async function collect(generator) {
@@ -146,4 +157,110 @@ describe('GrokBuildAcpAdapter', () => {
     })()).rejects.toMatchObject({ code: 'GROK_RESUME_FAILED' });
     expect(events[0]).toMatchObject({ type: 'system', session_id: null });
   });
+
+  it('reads billing after a usage-limit prompt error', async () => {
+    const peer = createPeer({ prompt: 'limit' });
+    const billed = [];
+    const agent = new GrokBuildAcpAdapter({
+      spawnImpl: peer.spawn,
+      rememberModels: () => {},
+      allowanceObserver: (candidate) => billed.push(candidate),
+    });
+    await expect(collect(agent.execute({
+      prompt: 'Hello',
+      options: { cwd: '/work/tree', env: {}, providerId: 'xai-default' },
+    }))).rejects.toMatchObject({ message: 'Usage limit reached', code: -32003 });
+    expect(billed[0]).toMatchObject({
+      providerId: 'xai-default',
+      providerKind: 'xai',
+      allowances: [{ remainingPercent: 80 }],
+    });
+  });
+
+  it('treats a rate_limit stop as a finished turn', async () => {
+    const peer = createPeer({ prompt: 'rate_limit' });
+    const agent = new GrokBuildAcpAdapter({ spawnImpl: peer.spawn, rememberModels: () => {} });
+    const events = await collect(agent.execute({
+      prompt: 'Hello',
+      options: { cwd: '/work/tree', env: {} },
+    }));
+    expect(events.find((event) => event.type === 'result')).toMatchObject({
+      subtype: 'success',
+      usage: { input_tokens: 2, output_tokens: 1 },
+    });
+  });
+
+  it('skips billing and cancels the native session when the turn is aborted', async () => {
+    const peer = createPeer({ prompt: 'hold' });
+    const billed = [];
+    const abortController = new AbortController();
+    const agent = new GrokBuildAcpAdapter({
+      spawnImpl: peer.spawn,
+      rememberModels: () => {},
+      allowanceObserver: (candidate) => billed.push(candidate),
+    });
+    const pending = collect(agent.execute({
+      prompt: 'Hello',
+      options: { cwd: '/work/tree', env: {}, abortController, providerId: 'xai-default' },
+    }));
+    await waitFor(() => peer.inbound.some((message) => message.method === 'session/prompt'));
+    abortController.abort();
+    await expect(pending).rejects.toThrow(/process closed/);
+    const cancel = peer.inbound.find((message) => message.method === 'session/cancel');
+    expect(cancel.params).toEqual({ sessionId: 'sess-1' });
+    expect(billed).toEqual([]);
+  });
+
+  it('redacts a crashed process and does not bill a closed child', async () => {
+    const peer = createPeer({ prompt: 'hold' });
+    const billed = [];
+    const agent = new GrokBuildAcpAdapter({
+      spawnImpl: peer.spawn,
+      rememberModels: () => {},
+      allowanceObserver: (candidate) => billed.push(candidate),
+    });
+    const pending = collect(agent.execute({
+      prompt: 'Hello',
+      options: { cwd: '/work/tree', env: {}, providerId: 'xai-default' },
+    }));
+    await waitFor(() => peer.inbound.some((message) => message.method === 'session/prompt'));
+    peer.child.stderr.emit('data', 'boom sk-SUPERSECRET\n');
+    peer.child.emit('exit', 1);
+    await expect(pending).rejects.toThrow(/Grok Build exited \(1\): boom \[redacted\]/);
+    await expect(pending).rejects.not.toThrow(/SUPERSECRET/);
+    expect(billed).toEqual([]);
+  });
+
+  it('requires a working directory and a session id', async () => {
+    const agent = new GrokBuildAcpAdapter({ spawnImpl: () => { throw new Error('should not spawn'); } });
+    await expect(collect(agent.execute({ prompt: 'x', options: {} }))).rejects.toMatchObject({ code: 'GROK_NO_CWD' });
+
+    const peer = createPeer({ sessionId: null });
+    const started = new GrokBuildAcpAdapter({ spawnImpl: peer.spawn, rememberModels: () => {} });
+    await expect(collect(started.execute({
+      prompt: 'x',
+      options: { cwd: '/work/tree', env: {} },
+    }))).rejects.toMatchObject({ code: 'GROK_NO_SESSION' });
+  });
+
+  it('refuses to resume when this Grok version cannot load a session', async () => {
+    const peer = createPeer({ loadSession: false });
+    const agent = new GrokBuildAcpAdapter({ spawnImpl: peer.spawn, rememberModels: () => {} });
+    const events = [];
+    await expect((async () => {
+      for await (const event of agent.execute({
+        prompt: 'x',
+        options: { cwd: '/work/tree', resume: 'gone', model: 'grok-build' },
+      })) events.push(event);
+    })()).rejects.toMatchObject({ code: 'GROK_RESUME_UNSUPPORTED' });
+    expect(events[0]).toMatchObject({ type: 'system', session_id: null, model: 'grok-build' });
+  });
 });
+
+async function waitFor(predicate) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('timed out waiting for peer');
+}

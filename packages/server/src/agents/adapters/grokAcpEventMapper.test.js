@@ -20,11 +20,14 @@ describe('grok ACP event mapper', () => {
       { type: 'result', subtype: 'success', usage: { input_tokens: 3, output_tokens: 2 } },
     ]);
     expect(mapper.finish({ stopReason: 'end_turn' })).toEqual([]);
+    const limited = createGrokAcpEventMapper().finish({ stopReason: 'rate_limit', _meta: { inputTokens: 1, outputTokens: 1 } });
+    expect(limited[0]).toMatchObject({ type: 'result', subtype: 'success' });
   });
 
   it('maps tool calls and ignores unknown updates', () => {
     const mapper = createGrokAcpEventMapper();
     expect(mapper.mapUpdate({ update: { sessionUpdate: 'plan' } })).toEqual([]);
+    expect(mapper.mapUpdate({ update: { sessionUpdate: 'usage_limit_reached' } })).toEqual([]);
     const started = mapper.mapUpdate({
       update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'read', rawInput: { path: 'a' } },
     });
