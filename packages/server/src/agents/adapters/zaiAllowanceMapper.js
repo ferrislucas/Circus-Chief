@@ -61,7 +61,13 @@ function mapTokenLimit(limit) {
   const limitValue = nonNegativeFiniteNumber(limit.usage);
   const usedValue = nonNegativeFiniteNumber(limit.currentValue);
   const hasAbsoluteInput = limit.currentValue !== undefined || limit.usage !== undefined;
-  if (hasAbsoluteInput && (limitValue === null || usedValue === null || limitValue === 0 || usedValue > limitValue)) return null;
+  if (hasAbsoluteInput && (limitValue === null || usedValue === null || limitValue === 0)) return null;
+  // Over-limit absolutes (used above limit) are exhaustion, not malformed
+  // input: dropping the row here made an exhausted window vanish from the
+  // indicator entirely. The row is kept and the service derives
+  // remainingPercent 0 via Math.max(0, limit - used), which can never read
+  // as a healthy allowance.
+  const exhaustedByAbsolutes = usedValue !== null && limitValue !== null && usedValue >= limitValue;
   // Tolerated future shape: percentage without absolutes still feeds the
   // indicator through the percentage-only normalization path; the service
   // derives its percentage from absolutes when they exist (§4.1).
@@ -70,8 +76,12 @@ function mapTokenLimit(limit) {
   // CREDIT_LIMIT rows report floored percentages (observed live: 99 used of
   // 2000 reported as 4), so the exact cross-check below applies to
   // TOKENS_LIMIT rows only; credit percentages are re-derived by the service
-  // from the absolutes instead.
-  if (noun === 'token' && usedValue !== null && percentage !== null && Math.abs((usedValue / limitValue) * 100 - percentage) > 0.001) return null;
+  // from the absolutes instead. The cross-check is additionally skipped when
+  // the absolutes already show exhaustion: at the limit the provider-reported
+  // percentage can lag (or floor below 100) while the absolutes
+  // unambiguously show zero remaining, and deriving from them cannot
+  // manufacture a healthy allowance.
+  if (noun === 'token' && !exhaustedByAbsolutes && usedValue !== null && percentage !== null && Math.abs((usedValue / limitValue) * 100 - percentage) > 0.001) return null;
   if (usedValue === null && fallbackPercent === null) return null;
 
   return {

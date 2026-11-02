@@ -87,9 +87,39 @@ describe('zaiAllowanceMapper', () => {
   it.each([
     ['negative used', { currentValue: -5, usage: 100 }],
     ['zero limit', { currentValue: 5, usage: 0 }],
-    ['used above limit', { currentValue: 101, usage: 100 }],
   ])('rejects malformed CREDIT_LIMIT absolutes: %s', (_name, fields) => {
     expect(mapZaiQuota({ data: { limits: [{ type: 'CREDIT_LIMIT', unit: 3, percentage: 4, ...fields }] } }, { observedAt })).toBeNull();
+  });
+
+  it('displays over-limit absolutes as exhausted instead of dropping the window', () => {
+    // Regression: an exhausted weekly window reported with used above limit
+    // (10050 of 10000) vanished from the indicator, leaving only the 5-hour
+    // window visible. Over-limit can never read as healthy — the service
+    // derives remainingPercent 0 via Math.max(0, limit - used) — so the row
+    // is kept and displays as exhausted.
+    for (const type of ['CREDIT_LIMIT', 'TOKENS_LIMIT']) {
+      const candidate = mapZaiQuota({
+        data: {
+          limits: [
+            { type, unit: 3, usage: 2000, currentValue: 2000, percentage: 100, nextResetTime: observedAt },
+            { type, unit: 6, usage: 10000, currentValue: 10050, percentage: 100, nextResetTime: observedAt },
+          ],
+        },
+      }, { observedAt });
+      expect(candidate.allowances.map((row) => row.key)).toEqual(['five_hour', 'weekly']);
+      expect(candidate.allowances[1]).toMatchObject({ value: 10050, limit: 10000 });
+    }
+  });
+
+  it('ignores a lagging provider percentage when absolutes show exhaustion', () => {
+    // At exhaustion the provider-reported percentage can lag the absolutes
+    // (used == limit while percentage still reports 99). The absolutes
+    // unambiguously show zero remaining, so the row is kept and derived
+    // from them instead of being dropped as contradictory.
+    const candidate = mapZaiQuota({
+      data: { limits: [{ type: 'TOKENS_LIMIT', unit: 6, usage: 10000, currentValue: 10000, percentage: 99, nextResetTime: observedAt }] },
+    }, { observedAt });
+    expect(candidate.allowances).toEqual([expect.objectContaining({ key: 'weekly', value: 10000, limit: 10000 })]);
   });
 
   it('filters TIME_LIMIT rows and unknown token units', () => {
@@ -123,6 +153,9 @@ describe('zaiAllowanceMapper', () => {
     ['zero limit', { currentValue: 5, usage: 0 }],
     ['non-finite used', { currentValue: Infinity, usage: 100 }],
     ['contradictory absolutes and percent', { currentValue: 5, usage: 100, percentage: 90 }],
+    // NOTE: no 'used above limit' row here: over-limit absolutes are
+    // exhaustion, pinned by the dedicated display test above — they can only
+    // derive remainingPercent 0, never a healthy allowance.
   ])('rejects malformed absolute data without manufacturing healthy remaining allowance: %s', (_name, fields) => {
     const candidate = mapZaiQuota({ data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, ...fields }] } }, { observedAt });
     expect(candidate).toBeNull();
