@@ -24,10 +24,20 @@ export function parseGrokModelsOutput(text) {
     return normalizeModelIds(list);
   } catch {
     const ids = [];
+    // Real CLI output (grok 1.0.70) is prose banners plus model rows that
+    // contain ONLY the id, an optional bullet, and an optional "(default)"
+    // marker:
+    //   You are logged in with grok.com.
+    //   Default model: grok-4.7
+    //   Available models:
+    //     * grok-4.7 (default)
+    //     - grok-4.7-build-fast
+    // Accepting the first token of every line ingests the banners ("You",
+    // "Default") and drops the real rows behind their bullets, so match the
+    // row shape instead of skipping known header words.
     for (const line of trimmed.split('\n')) {
-      const token = line.trim().split(/\s+/)[0];
-      if (!token || /^(model|models|id|name|available)$/i.test(token)) continue;
-      ids.push(token);
+      const match = line.match(/^[\s>*·•-]*\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,80})\s*(?:\(\s*default\s*\))?\s*$/);
+      if (match) ids.push(match[1]);
     }
     return normalizeModelIds(ids);
   }

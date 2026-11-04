@@ -151,9 +151,11 @@ describe('GrokBuildAcpAdapter', () => {
       options: { cwd: '/work/tree', model: 'grok-4', effortLevel: 'high', env: {} },
     }));
     const sets = peer.inbound.filter((message) => message.method === 'session/set_config_option');
+    // grok 1.0.70 validates `value` as a bare scalar (SessionConfigOptionValue
+    // untagged enum); a {value} wrapper is rejected with -32602.
     expect(sets.map((message) => [message.params.configId, message.params.value])).toEqual([
-      ['model', { value: 'grok-4' }],
-      ['reasoning_effort', { value: 'high' }],
+      ['model', 'grok-4'],
+      ['reasoning_effort', 'high'],
     ]);
   });
 

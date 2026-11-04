@@ -154,7 +154,7 @@ async function applySessionConfig({ client, sessionId, options, init, session })
     await client.request('session/set_config_option', {
       sessionId,
       configId: 'model',
-      value: { value: options.model },
+      value: options.model,
     });
     model = options.model;
   }
@@ -163,7 +163,7 @@ async function applySessionConfig({ client, sessionId, options, init, session })
     await client.request('session/set_config_option', {
       sessionId,
       configId: 'reasoning_effort',
-      value: { value: effort },
+      value: effort,
     });
   }
   return model;

@@ -12,8 +12,32 @@ import {
 describe('grok model discovery', () => {
   it('parses JSON and plain model lists and drops junk', () => {
     expect(parseGrokModelsOutput('{"models":[{"id":"grok-build"},{"id":"not an id"}]}')).toEqual(['grok-build']);
-    expect(parseGrokModelsOutput('MODEL\ngrok-build\n')).toEqual(['grok-build']);
+    // Prose header lines fail the row shape; bare ids parse.
+    expect(parseGrokModelsOutput('Available models:\ngrok-build\n')).toEqual(['grok-build']);
     expect(parseGrokModelsOutput('')).toEqual([]);
+  });
+
+  it('parses the real grok 1.0.70 banner-and-bullets output without ingesting prose', () => {
+    // Captured verbatim from `grok models` on grok 1.0.70. The old first-token
+    // parser ingested "You" and "Default" from the banners and dropped every
+    // real row behind its bullet.
+    const real = [
+      'You are logged in with grok.com.',
+      '',
+      'Default model: grok-4.7',
+      '',
+      'Available models:',
+      '  * grok-4.7 (default)',
+      '  - grok-4.7-build-fast',
+      '  - grok-4.6',
+      '  - grok-4.5',
+    ].join('\n');
+    expect(parseGrokModelsOutput(real)).toEqual([
+      'grok-4.7',
+      'grok-4.7-build-fast',
+      'grok-4.6',
+      'grok-4.5',
+    ]);
   });
 
   it('upserts only new ids onto the built-in provider', () => {
