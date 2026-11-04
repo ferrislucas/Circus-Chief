@@ -70,6 +70,7 @@ export function agentTypeForProvider(provider) {
   if (provider?.kind === 'openai') return 'codex';
   if (provider?.kind === 'google') return 'gemini';
   if (provider?.kind === 'meta') return 'muse';
+  if (provider?.kind === 'xai') return 'grok-build';
   return 'claude-code';
 }
 

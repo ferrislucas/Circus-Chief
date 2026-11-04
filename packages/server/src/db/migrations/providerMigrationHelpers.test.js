@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { CLAUDE_MODELS, MUSE_MODELS } from '@circuschief/shared';
-import { seedBuiltInAnthropicProvider, seedBuiltInMetaProvider, widenProvidersKindCheck } from './providerMigrationHelpers.js';
+import { seedBuiltInAnthropicProvider, seedBuiltInMetaProvider, seedBuiltInXaiProvider, widenProvidersKindCheck } from './providerMigrationHelpers.js';
 import { allMigrations } from './index.js';
 import { seedBaselineData } from '../seedBaselineData.js';
 import { getModels } from '../providerModelOperations.js';
@@ -201,6 +201,32 @@ describe('seedBuiltInMetaProvider (single source of truth: MUSE_MODELS)', () => 
       expect(rows.map((r) => r.model_id).sort()).toEqual(
         MUSE_MODELS.map((m) => m.id).sort()
       );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('seedBuiltInXaiProvider', () => {
+  it('seeds xai-default with no models and does not duplicate on rerun', () => {
+    const db = freshDbWithMetaKind();
+    try {
+      widenProvidersKindCheck(db, ['anthropic', 'openai', 'google', 'meta', 'xai']);
+      seedBuiltInXaiProvider(db);
+      seedBuiltInXaiProvider(db);
+      const provider = db
+        .prepare('SELECT id, name, kind, is_built_in, auth_token, base_url FROM providers WHERE id = ?')
+        .get('xai-default');
+      expect(provider).toMatchObject({
+        id: 'xai-default',
+        name: 'xAI (Official)',
+        kind: 'xai',
+        is_built_in: 1,
+        auth_token: null,
+        base_url: null,
+      });
+      const models = db.prepare('SELECT model_id FROM provider_models WHERE provider_id = ?').all('xai-default');
+      expect(models).toEqual([]);
     } finally {
       db.close();
     }

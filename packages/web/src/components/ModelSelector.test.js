@@ -1596,4 +1596,53 @@ describe('ModelSelector', () => {
       expect(fetchHistoricalModel).not.toHaveBeenCalled();
     });
   });
+
+  describe('Grok Build catalog', () => {
+    it('keeps an empty xAI provider visible with a disabled install hint', async () => {
+      providersStore.providers.push({
+        id: 'xai-default',
+        name: 'xAI (Official)',
+        kind: 'xai',
+        isBuiltIn: true,
+        models: [],
+      });
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const group = wrapper.find('optgroup[data-agent-type="grok-build"]');
+      expect(group.attributes('label')).toContain('Grok Build');
+      const hint = group.findAll('option').find((option) => option.text().includes('Install Grok Build'));
+      expect(hint.element.disabled).toBe(true);
+      expect(hint.text()).toContain('run grok login');
+    });
+
+    it('offers a discovered Grok model and hides the install hint', async () => {
+      providersStore.providers.push({
+        id: 'xai-default',
+        name: 'xAI (Official)',
+        kind: 'xai',
+        isBuiltIn: true,
+        models: [{ id: 'grok-row', modelId: 'grok-4', displayName: 'grok-4' }],
+      });
+      const wrapper = mountComponent({ modelValue: 'grok-4', providerId: 'xai-default' });
+      await flushAll(wrapper);
+
+      const option = wrapper.find('option[data-model-id="grok-4"]');
+      expect(option.element.disabled).toBe(false);
+      expect(option.attributes('data-agent-type')).toBe('grok-build');
+      expect(wrapper.text()).not.toContain('Install Grok Build and run grok login');
+    });
+
+    it('hides an empty provider that is not xAI', async () => {
+      providersStore.providers.push({
+        id: 'empty-openai',
+        name: 'Empty OpenAI',
+        kind: 'openai',
+        models: [],
+      });
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+      expect(wrapper.text()).not.toContain('Empty OpenAI');
+    });
+  });
 });

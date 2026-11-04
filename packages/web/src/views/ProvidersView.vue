@@ -224,6 +224,12 @@ function getBuiltInProviderDescription(provider) {
   if (provider.kind === 'google') {
     return 'Uses Google Gemini CLI';
   }
+  if (provider.kind === 'meta') {
+    return 'Uses the local Muse CLI';
+  }
+  if (provider.kind === 'xai') {
+    return 'Uses the local Grok Build CLI';
+  }
 
   return 'Uses official Anthropic API';
 }

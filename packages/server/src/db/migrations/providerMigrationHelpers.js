@@ -7,6 +7,7 @@ const ANTHROPIC_PROVIDER_ID = 'anthropic-default';
 const OPENAI_PROVIDER_ID = 'openai-default';
 const GOOGLE_PROVIDER_ID = 'google-default';
 const META_PROVIDER_ID = 'meta-default';
+const XAI_PROVIDER_ID = 'xai-default';
 const FABLE_MODEL = {
   id: 'anthropic-fable',
   modelId: 'claude-fable-5',
@@ -128,6 +129,20 @@ export function seedBuiltInMetaProvider(db) {
   ).run(META_PROVIDER_ID, 'Meta (Official)', now, now);
 
   seedCatalogModels(db, META_PROVIDER_ID, MUSE_MODELS, () => 'custom');
+}
+
+/**
+ * Seed the built-in xAI provider with no model rows. Model ids come from the
+ * local `grok` CLI at runtime so Circus Chief never ships a guessed catalog.
+ */
+export function seedBuiltInXaiProvider(db) {
+  const now = Date.now();
+  db.prepare(
+    `INSERT OR IGNORE INTO providers (
+       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+     )
+     VALUES (?, ?, NULL, NULL, 'xai', 1, ?, ?)`
+  ).run(XAI_PROVIDER_ID, 'xAI (Official)', now, now);
 }
 
 export function seedBuiltInProviders(db) {

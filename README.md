@@ -2,7 +2,7 @@
 
 <p align="center">
   An open-source, touch-optimized control plane for managing AI coding agents.<br/><br/>
-  Supports Claude Code agents (any Anthropic-compatible provider), OpenAI Codex agents (any OpenAI-compatible provider), Google Gemini CLI agents, and Muse Code agents.
+  Supports Claude Code agents (any Anthropic-compatible provider), OpenAI Codex agents (any OpenAI-compatible provider), Google Gemini CLI agents, Muse Code agents, and Grok Build (local `grok` CLI over ACP).
   Works with API key or subscription-based authorization.
 </p>
 
@@ -29,14 +29,14 @@
   ![AI-generated summaries](docs/screenshots/03-session-detail-summary-desktop.png)
 - **User-configured commands.** Add one-tap buttons for the project commands you run constantly: tests, lint, build, typecheck, CI checks. Output streams live, and pass/fail results can optionally display on the dashboard.
   ![User-configured commands](docs/screenshots/06-command-buttons-desktop.png)
-- **Claude Code, Codex, Gemini, and Muse sessions.** Start any kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
+- **Claude Code, Codex, Gemini, Muse, and Grok Build sessions.** Start any kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
   ![Claude Code and Codex sessions](docs/screenshots/02-session-list-agent-control-desktop.png)
   ![Session chat overlay](docs/screenshots/04-session-chat-overlay-desktop.png)
 - **Worktree-per-session isolation.** Every session gets its own git worktree. You can also elect to work in the main git repo, or on a specific branch of the main git repo.
   ![Worktree-per-session isolation](docs/screenshots/13-worktree-session-isolation-desktop.png)
 - **Shared canvas.** Markdown, images, JSON, code — agents and you edit the same artifacts. Version history included.
   ![Shared canvas](docs/screenshots/05-canvas-artifacts-desktop.png)
-- **Bring your own provider — per session.** Use subscription auth for Anthropic, OpenAI, Google, or Muse (`muse auth`), or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Claude Code, Codex, Gemini CLI, and Muse Code are all first-class paths.
+- **Bring your own provider — per session.** Use subscription auth for Anthropic, OpenAI, Google, or Muse (`muse auth`), or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Grok Build uses the local `grok` CLI (`grok login`) and does not take an API key. Claude Code, Codex, Gemini CLI, Muse Code, and Grok Build are all first-class paths.
   ![Bring your own provider settings, closest existing capture](docs/screenshots/08-provider-settings-desktop.png)
 - **Model tiers with automatic failover.** Group models across providers into an ordered fallback list (e.g. Opus → GPT-5.5) and bind it anywhere you'd normally pick a model — sessions, templates, kanban lanes, project defaults, summaries. If the first model can't start a new session (outage, rate limit, out of tokens), Circus Chief automatically starts on the next healthy model in the tier.
   ![Model tiers settings](docs/screenshots/17-model-tiers-settings-list-desktop.png)
@@ -116,6 +116,7 @@ with TLS (above) whenever the server binds beyond localhost.
 - [OpenAI Codex CLI](https://github.com/openai/codex) — required for Codex agents
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — required for Gemini agents
 - Muse Code CLI (`muse` on PATH, authenticated via `muse auth`) — required for Muse agents
+- [Grok Build](https://x.ai/cli) (`grok` on PATH, authenticated via `grok login`) — required for Grok Build agents. Circus Chief does not take an xAI API key.
 - [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
 
 ## Documentation

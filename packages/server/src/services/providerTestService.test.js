@@ -582,3 +582,27 @@ describe('providerTestService', () => {
     });
   });
 });
+
+describe('testProviderConnection xai', () => {
+  it('succeeds when grok version exits 0 and does not send a prompt', async () => {
+    const child = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn();
+    const spawnGrokProcess = vi.fn(() => child);
+    const pending = testProviderConnection({ kind: 'xai', authToken: 'ignored' }, { spawnGrokProcess });
+    expect(spawnGrokProcess).toHaveBeenCalledWith({ command: 'grok', args: ['version'] });
+    child.emit('exit', 0);
+    await expect(pending).resolves.toMatchObject({ success: true, details: { model: null } });
+  });
+
+  it('tells the user to install Grok Build when the binary is missing', async () => {
+    const result = await testProviderConnection({ kind: 'xai' }, {
+      spawnGrokProcess: () => {
+        throw Object.assign(new Error('spawn grok ENOENT'), { code: 'ENOENT' });
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/Install Grok Build/);
+    expect(result.details.code).toBe('GROK_CLI_NOT_FOUND');
+  });
+});

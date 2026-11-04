@@ -13,6 +13,7 @@ import { assertValidReorder } from '../db/providerModelOperations.js';
 import { publishEmptiedTierDegradations } from '../services/tierDegradationNotifier.js';
 import { publishCatalogInvalidation } from '../services/catalogInvalidation.js';
 import { getProviderAllowanceService, notifyAllowanceListChangedAfterMutation } from '../services/providerAllowanceServiceInstance.js';
+import { refreshGrokCatalogIfEmpty } from '../services/grokBuildDiscovery.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -33,8 +34,13 @@ function redactAuthToken(provider) {
 }
 
 // GET /api/providers - List all providers
-router.get('/', (_req, res) => {
+router.get('/', async (_req, res) => {
   try {
+    try {
+      await refreshGrokCatalogIfEmpty({ modelProviders });
+    } catch {
+      /* discovery never blocks the catalog */
+    }
     const allProviders = modelProviders.getAll();
     // Redact auth tokens in response
     const sanitized = allProviders.map(redactAuthToken);

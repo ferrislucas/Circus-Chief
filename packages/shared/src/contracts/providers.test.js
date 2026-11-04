@@ -155,6 +155,7 @@ describe('Provider Contracts', () => {
 
     it('accepts "meta"', () => {
       expect(ProviderKind.safeParse('meta').success).toBe(true);
+      expect(ProviderKind.safeParse('xai').success).toBe(true);
     });
 
     it('rejects unknown values', () => {

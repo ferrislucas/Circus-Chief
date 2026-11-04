@@ -823,6 +823,34 @@ describe('buildQueryParams agent-aware', () => {
     const result = buildQueryParams(args);
     expect(result.options.systemPrompt).toContain('Plan Mode Active');
   });
+
+  it('grok-build: uses the worktree, omits auto effort, and resumes the native id', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'grok-build',
+      model: 'grok-build',
+      resumeSessionId: 'sess-native',
+      session: { mode: 'plan', projectId: 'proj-1', effortLevel: 'auto', providerId: 'xai-default' },
+    };
+    const result = buildQueryParams(args);
+    expect(result.options.cwd).toBe('/tmp/test');
+    expect(result.options.model).toBe('grok-build');
+    expect(result.options.effortLevel).toBeNull();
+    expect(result.options.resume).toBe('sess-native');
+    expect(result.options.providerId).toBe('xai-default');
+    expect(result.options.sessionId).toBe('sess-1');
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.systemPrompt).toContain('Plan Mode Active');
+  });
+
+  it('grok-build: forwards circus effort except auto', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'grok-build',
+      session: { mode: 'standard', projectId: 'proj-1', effortLevel: 'max' },
+    };
+    expect(buildQueryParams(args).options.effortLevel).toBe('max');
+  });
 });
 
 // ── createAgentForSession config forwarding ────────────────────────────────
@@ -832,6 +860,13 @@ describe('createAgentForSession config forwarding', () => {
     const spy = vi.spyOn(agentGateway, 'createAgent');
     createAgentForSession('claude-code');
     expect(spy).toHaveBeenCalledWith('claude-code', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
+    spy.mockRestore();
+  });
+
+  it('grok-build → always binds the real allowance observer with no opt-in', () => {
+    const spy = vi.spyOn(agentGateway, 'createAgent');
+    createAgentForSession('grok-build');
+    expect(spy).toHaveBeenCalledWith('grok-build', expect.objectContaining({ allowanceObserver: expect.any(Function) }));
     spy.mockRestore();
   });
 

@@ -24,6 +24,7 @@ describe('crossKindSwitch picker helper', () => {
     expect(agentTypeForKind('openai')).toBe('codex');
     expect(agentTypeForKind('google')).toBe('gemini');
     expect(agentTypeForKind('meta')).toBe('muse');
+    expect(agentTypeForKind('xai')).toBe('grok-build');
     expect(agentTypeForKind('anthropic')).toBe('claude-code');
     expect(agentTypeForKind(null)).toBe('claude-code');
     expect(agentTypeForKind('whatever')).toBe('claude-code');
@@ -61,6 +62,7 @@ describe('crossKindSwitch picker helper', () => {
     expect(agentLabelForType('codex')).toBe('Codex');
     expect(agentLabelForType('gemini')).toBe('Gemini');
     expect(agentLabelForType('muse')).toBe('Muse');
+    expect(agentLabelForType('grok-build')).toBe('Grok Build');
   });
 
   it('codex→claude-code on a started session asks for confirmation with the FRD copy', () => {

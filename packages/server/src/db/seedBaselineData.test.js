@@ -169,7 +169,8 @@ describe('seedBaselineData', () => {
   it('does not duplicate providers or models when seedBaselineData is rerun', () => {
     withDb((db) => {
       seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(4);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(5);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models WHERE provider_id = ?').get('xai-default').cnt).toBe(0);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models').get().cnt)
         .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length + BUILT_IN_GOOGLE_MODELS.length + BUILT_IN_META_MODELS.length);
     });

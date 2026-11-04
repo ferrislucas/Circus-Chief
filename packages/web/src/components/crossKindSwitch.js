@@ -18,6 +18,7 @@ const AGENT_LABELS = Object.freeze({
   codex: 'Codex',
   gemini: 'Gemini',
   muse: 'Muse',
+  'grok-build': 'Grok Build',
 });
 
 /**
@@ -30,6 +31,7 @@ export function agentTypeForKind(kind) {
   if (kind === 'openai') return 'codex';
   if (kind === 'google') return 'gemini';
   if (kind === 'meta') return 'muse';
+  if (kind === 'xai') return 'grok-build';
   return 'claude-code';
 }
 

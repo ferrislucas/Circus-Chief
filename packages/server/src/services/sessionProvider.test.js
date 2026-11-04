@@ -743,6 +743,46 @@ describe('sessionProvider', () => {
       const env = buildSessionEnv(provider, false, null, { shellEnv });
       expect(env.GIT_TEST_SENTINEL_VAR).toBe('provider-wins');
     });
+
+    it('xai provider: strips host provider secrets including XAI_API_KEY and ignores configured tokens', () => {
+      process.env.ANTHROPIC_API_KEY = 'host-a';
+      process.env.OPENAI_API_KEY = 'host-o';
+      process.env.GEMINI_API_KEY = 'host-g';
+      process.env.XAI_API_KEY = 'host-xai';
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const env = buildSessionEnv({
+          name: 'xAI (Official)',
+          kind: 'xai',
+          authToken: 'should-not-leak',
+          baseUrl: 'https://example.invalid',
+          additionalEnvVars: { CUSTOM_GROK_VAR: 'kept' },
+        }, true, 'max');
+        expect(env.XAI_API_KEY).toBeUndefined();
+        expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+        expect(env.OPENAI_API_KEY).toBeUndefined();
+        expect(env.GEMINI_API_KEY).toBeUndefined();
+        expect(env.MAX_THINKING_TOKENS).toBeUndefined();
+        expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+        expect(env.CUSTOM_GROK_VAR).toBe('kept');
+        expect(warn).toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+        delete process.env.ANTHROPIC_API_KEY;
+        delete process.env.OPENAI_API_KEY;
+        delete process.env.GEMINI_API_KEY;
+        delete process.env.XAI_API_KEY;
+      }
+    });
+
+    it('xai provider: additionalEnvVars may reintroduce XAI_API_KEY as an explicit escape hatch', () => {
+      const env = buildSessionEnv({
+        name: 'xAI (Official)',
+        kind: 'xai',
+        additionalEnvVars: { XAI_API_KEY: 'explicit' },
+      }, false, null);
+      expect(env.XAI_API_KEY).toBe('explicit');
+    });
   });
 
   // ── Built-in Anthropic tier-member parity (PR review finding 1) ──────
