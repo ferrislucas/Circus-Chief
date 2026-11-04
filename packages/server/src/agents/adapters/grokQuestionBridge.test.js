@@ -32,6 +32,14 @@ describe('toGrokQuestionResult', () => {
     expect(result.annotations.Notes.notes).toBe('something else');
     expect(result.annotations['Which database?'].preview).toBe('pg');
   });
+
+  it('honors the snake_case multi_select flag from the ACP payload', () => {
+    const result = toGrokQuestionResult({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Which extras?': 'Cache, Logs' } },
+    }, [{ question: 'Which extras?', options: [{ label: 'Cache' }, { label: 'Logs' }], multi_select: true }]);
+    expect(result.answers['Which extras?']).toEqual(['Cache', 'Logs']);
+  });
 });
 
 describe('answerGrokQuestion', () => {

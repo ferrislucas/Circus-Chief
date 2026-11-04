@@ -53,7 +53,7 @@ function mapQuestionAnswer(question, raw, incoming) {
   const value = raw[key];
   if (!key || typeof value !== 'string' || !value.trim()) return null;
   const labels = (question.options || []).map((option) => option.label).filter(Boolean);
-  const selected = matchSelections(value, labels, Boolean(question.multiSelect));
+  const selected = matchSelections(value, labels, Boolean(question.multiSelect || question.multi_select));
   return {
     key,
     answer: selected.length ? selected : ['Other'],

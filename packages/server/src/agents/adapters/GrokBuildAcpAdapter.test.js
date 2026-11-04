@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { describe, expect, it } from 'vitest';
 import { GrokBuildAcpAdapter } from './GrokBuildAcpAdapter.js';
 
-function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1' } = {}) {
+function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1', configVia = 'top' } = {}) {
   const stdout = new EventEmitter();
   const child = new EventEmitter();
   let buffer = '';
@@ -52,9 +52,7 @@ function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1' } 
       send({
         jsonrpc: '2.0',
         id: message.id,
-        result: sessionId
-          ? { sessionId, configOptions: [{ id: 'model' }, { id: 'reasoning_effort' }] }
-          : {},
+        result: sessionId ? sessionResult(sessionId, configVia) : {},
       });
     } else if (message.method === 'session/set_config_option') {
       send({ jsonrpc: '2.0', id: message.id, result: {} });
@@ -75,6 +73,11 @@ function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1' } 
       });
       send({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'end_turn', _meta: { inputTokens: 1, outputTokens: 1 } } });
     } else if (message.method === 'session/load') {
+      send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'OLD' } } },
+      });
       send({ jsonrpc: '2.0', id: message.id, result: { configOptions: [] } });
     } else if (message.method === '_x.ai/billing') {
       send({
@@ -85,6 +88,14 @@ function createPeer({ prompt = 'ok', loadSession = true, sessionId = 'sess-1' } 
     }
   }
   return { inbound, spawn: () => child, child };
+}
+
+function sessionResult(sessionId, configVia) {
+  const options = [{ id: 'model' }, { id: 'reasoning_effort' }];
+  if (configVia === 'meta') {
+    return { sessionId, _meta: { 'x.ai/sessionConfig': { options } } };
+  }
+  return { sessionId, configOptions: options };
 }
 
 async function collect(generator) {
@@ -128,6 +139,22 @@ describe('GrokBuildAcpAdapter', () => {
     expect(peer.inbound.some((message) => message.method === 'session/new')).toBe(false);
     expect(peer.inbound.find((message) => message.method === 'session/load').params.sessionId).toBe('sess-9');
     expect(events.find((event) => event.subtype === 'init').session_id).toBe('sess-9');
+    expect(events.find((event) => event.type === 'assistant').message.content[0].text).toBe('Hi');
+    expect(JSON.stringify(events)).not.toContain('OLD');
+  });
+
+  it('applies model and effort when config options live under x.ai sessionConfig', async () => {
+    const peer = createPeer({ configVia: 'meta' });
+    const agent = new GrokBuildAcpAdapter({ spawnImpl: peer.spawn, rememberModels: () => {} });
+    await collect(agent.execute({
+      prompt: 'Hello',
+      options: { cwd: '/work/tree', model: 'grok-4', effortLevel: 'high', env: {} },
+    }));
+    const sets = peer.inbound.filter((message) => message.method === 'session/set_config_option');
+    expect(sets.map((message) => [message.params.configId, message.params.value])).toEqual([
+      ['model', { value: 'grok-4' }],
+      ['reasoning_effort', { value: 'high' }],
+    ]);
   });
 
   it('clears the native id when restore fails', async () => {

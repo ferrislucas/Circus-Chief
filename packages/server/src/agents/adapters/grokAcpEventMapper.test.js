@@ -47,5 +47,8 @@ describe('grok ACP event mapper', () => {
     expect(grokEffortValue('auto')).toBeNull();
     expect(grokEffortValue('minimal')).toBeNull();
     expect([...configOptionIds({ configOptions: [{ id: 'model' }, { configId: 'reasoning_effort' }] })]).toEqual(['model', 'reasoning_effort']);
+    expect([...configOptionIds({
+      _meta: { 'x.ai/sessionConfig': { options: [{ id: 'model' }, { id: 'reasoning_effort' }] } },
+    })]).toEqual(['model', 'reasoning_effort']);
   });
 });

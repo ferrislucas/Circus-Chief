@@ -57,6 +57,7 @@ export class GrokBuildAcpAdapter extends BaseAgent {
       const init = await client.start();
       this._rememberModels(modelsFromInitialize(init));
       const opened = await openSession(client, options, init);
+      turn.beginUpdates();
       nativeId = opened.sessionId;
       client.sessionId = nativeId;
       const model = await applySessionConfig({
@@ -110,11 +111,17 @@ function openGrokTurn(adapter, options) {
       signal: options.abortController?.signal,
     }),
   });
+  let live = false;
   client.onNotification = (message) => {
-    if (message.method !== 'session/update') return;
+    if (!live || message.method !== 'session/update') return;
     for (const event of mapper.mapUpdate(message.params)) queue.push(event);
   };
-  return { mapper, queue, client };
+  return {
+    mapper,
+    queue,
+    client,
+    beginUpdates() { live = true; },
+  };
 }
 
 async function openSession(client, options, init) {

@@ -105,6 +105,69 @@ describe('GrokAcpClient', () => {
     await client.shutdown();
   });
 
+  it('answers the question methods Grok actually sends', async () => {
+    const peer = createPeer();
+    const client = new GrokAcpClient({
+      spawnImpl: scriptedSpawn(peer, (current) => {
+        const init = current.inbound[0];
+        current.send({ jsonrpc: '2.0', id: init.id, result: { authMethods: [{ id: 'cached_token' }] } });
+      }),
+      onQuestion: async () => ({ outcome: 'accepted', answers: { Q: ['A'] } }),
+    });
+    const pending = client.start();
+    await waitFor(() => peer.inbound.some((message) => message.method === 'authenticate'));
+    const auth = peer.inbound.find((message) => message.method === 'authenticate');
+    peer.send({ jsonrpc: '2.0', id: auth.id, result: {} });
+    await pending;
+    const methods = [
+      [11, '_x.ai/ask_user_question'],
+      [12, 'x.ai/ask_user_question'],
+      [13, 'ask_user_question'],
+    ];
+    for (const [id, method] of methods) {
+      peer.send({ jsonrpc: '2.0', id, method, params: { questions: [{ question: 'Q' }] } });
+    }
+    await waitFor(() => methods.every(([id]) => peer.inbound.some((message) => message.id === id && message.result)));
+    for (const [id] of methods) {
+      expect(peer.inbound.find((message) => message.id === id).result.outcome).toBe('accepted');
+    }
+    await client.shutdown();
+  });
+
+  it('reaps the child after malformed protocol output', async () => {
+    const peer = createPeer();
+    const client = new GrokAcpClient({
+      spawnImpl: () => {
+        queueMicrotask(() => peer.child.stdout.emit('data', 'not-json\n'));
+        return peer.child;
+      },
+    });
+    await expect(client.start()).rejects.toThrow(/malformed/);
+    await client.shutdown();
+    expect(peer.child.killed).toBe(true);
+  });
+
+  it('reaps the child when a question handler throws', async () => {
+    const peer = createPeer();
+    const client = new GrokAcpClient({
+      spawnImpl: scriptedSpawn(peer, (current) => {
+        const init = current.inbound[0];
+        current.send({ jsonrpc: '2.0', id: init.id, result: { authMethods: [{ id: 'cached_token' }] } });
+      }),
+      onQuestion: async () => { throw new Error('park failed'); },
+    });
+    const pending = client.start();
+    await waitFor(() => peer.inbound.some((message) => message.method === 'authenticate'));
+    const auth = peer.inbound.find((message) => message.method === 'authenticate');
+    peer.send({ jsonrpc: '2.0', id: auth.id, result: {} });
+    await pending;
+    peer.send({ jsonrpc: '2.0', id: 11, method: '_x.ai/ask_user_question', params: { questions: [{ question: 'Q' }] } });
+    await waitFor(() => client.closed);
+    await client.shutdown();
+    expect(peer.child.killed).toBe(true);
+    expect(peer.inbound.some((message) => message.id === 11)).toBe(false);
+  });
+
   it('rejects malformed output', async () => {
     const peer = createPeer();
     const client = new GrokAcpClient({

@@ -101,8 +101,15 @@ export function currentModelFromInitialize(init) {
 }
 
 export function configOptionIds(session) {
-  const options = session?.configOptions || [];
+  const options = [
+    ...optionList(session?.configOptions),
+    ...optionList(session?._meta?.['x.ai/sessionConfig']?.options),
+  ];
   return new Set(options.map((option) => option?.id || option?.configId).filter(Boolean));
+}
+
+function optionList(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 function chunkText(update) {

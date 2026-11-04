@@ -3,6 +3,13 @@ import { spawn } from 'child_process';
 const INIT_TIMEOUT_MS = 20_000;
 const STDERR_LIMIT = 16 * 1024;
 const SECRET_RE = /(sk-|xai-|Bearer\s+)[A-Za-z0-9._-]+/gi;
+const QUESTION_METHODS = new Set([
+  'askUserQuestion',
+  'x.ai/askUserQuestion',
+  '_x.ai/ask_user_question',
+  'x.ai/ask_user_question',
+  'ask_user_question',
+]);
 
 /**
  * Owned stdio JSON-RPC client for `grok --no-auto-update agent stdio`.
@@ -30,6 +37,7 @@ export class GrokAcpClient {
     this.pending = new Map();
     this.child = null;
     this.closed = false;
+    this.reaped = false;
     this.stderr = '';
     this.stdoutBuffer = '';
     this.onNotification = null;
@@ -99,23 +107,17 @@ export class GrokAcpClient {
   }
 
   async shutdown() {
-    if (this.closed) return;
+    if (this.reaped) return;
+    this.reaped = true;
+    const alreadyFailed = this.closed;
     this.closed = true;
     this.signal?.removeEventListener?.('abort', this._onAbort);
-    const error = new Error('Grok Build process closed.');
-    for (const pending of this.pending.values()) pending.reject(error);
-    this.pending.clear();
-    const child = this.child;
-    if (!child || child.exitCode != null || child.killed) return;
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* already gone */ }
-        resolve();
-      }, 2000);
-      timer.unref?.();
-      child.once?.('exit', () => { clearTimeout(timer); resolve(); });
-      try { child.kill('SIGTERM'); } catch { resolve(); }
-    });
+    if (!alreadyFailed) {
+      const error = new Error('Grok Build process closed.');
+      for (const pending of this.pending.values()) pending.reject(error);
+      this.pending.clear();
+    }
+    await reapChild(this.child);
   }
 
   #attach() {
@@ -171,7 +173,7 @@ export class GrokAcpClient {
 
   async #onIncomingRequest(message) {
     const method = message.method;
-    if (method === 'askUserQuestion' || method === 'x.ai/askUserQuestion') {
+    if (QUESTION_METHODS.has(method)) {
       const result = this.onQuestion
         ? await this.onQuestion(message.params || {})
         : { outcome: 'cancelled' };
@@ -204,6 +206,19 @@ export class GrokAcpClient {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
   }
+}
+
+function reapChild(child) {
+  if (!child || child.exitCode != null || child.killed) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      resolve();
+    }, 2000);
+    timer.unref?.();
+    child.once?.('exit', () => { clearTimeout(timer); resolve(); });
+    try { child.kill('SIGTERM'); } catch { resolve(); }
+  });
 }
 
 function grokSpawnError(error) {
