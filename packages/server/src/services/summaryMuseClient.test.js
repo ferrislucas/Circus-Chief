@@ -167,8 +167,10 @@ describe('summaryMuseClient', () => {
       'outcome', 'pr_url', 'session_title',
     ]));
     expect(normalized).toMatchObject({ additionalProperties: false });
-    // The shared schema itself is untouched by the boundary fix.
-    expect(SESSION_SUMMARY_SCHEMA.required).toHaveLength(5);
+    // The shared schema is itself strict-mode compliant now; normalization
+    // must not mutate the input schema object.
+    expect(SESSION_SUMMARY_SCHEMA.additionalProperties).toBe(false);
+    expect(SESSION_SUMMARY_SCHEMA.required).toHaveLength(7);
   });
 
   it('backfills required recursively in nested object subschemas', () => {

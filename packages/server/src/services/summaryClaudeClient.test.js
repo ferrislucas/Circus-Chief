@@ -78,6 +78,20 @@ describe('summaryClaudeClient', () => {
       expect(SESSION_SUMMARY_SCHEMA.properties.pr_url).toBeDefined();
       expect(SESSION_SUMMARY_SCHEMA.properties.session_title).toBeDefined();
     });
+
+    it('is strict-mode compliant for codex/muse structured output consumers', () => {
+      // OpenAI strict structured output (codex exec --output-schema) rejects
+      // schemas whose top-level object lacks `additionalProperties: false`
+      // (400 invalid_json_schema) and requires every property to be listed in
+      // `required`. Nullable unions model optionality instead.
+      expect(SESSION_SUMMARY_SCHEMA.additionalProperties).toBe(false);
+      expect(Object.keys(SESSION_SUMMARY_SCHEMA.properties).sort()).toEqual(
+        [...SESSION_SUMMARY_SCHEMA.required].sort()
+      );
+      // Optional fields stay nullable so models can return null.
+      expect(SESSION_SUMMARY_SCHEMA.properties.pr_url.type).toEqual(['string', 'null']);
+      expect(SESSION_SUMMARY_SCHEMA.properties.session_title.type).toEqual(['string', 'null']);
+    });
   });
 
   describe('callClaude', () => {
