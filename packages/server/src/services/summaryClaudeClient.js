@@ -148,8 +148,8 @@ export const SESSION_SUMMARY_SCHEMA = {
   // reject object schemas without `additionalProperties: false` (400:
   // invalid_json_schema), and require every property to appear in `required`.
   // Optional fields are modeled as nullable unions instead of omitted from
-  // `required`, so this one schema serves all summary routes (Claude SDK,
-  // codex-cli, muse-cli, Google generateContent).
+  // `required`. Google generateContent receives an adapted representation of
+  // this schema; the other summary routes use it directly.
   additionalProperties: false,
   properties: {
     short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },

@@ -13,6 +13,7 @@ import { modelTiers } from '../database.js';
 import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
 import { callMuseSummary } from './summaryMuseClient.js';
+import { googleSummarySchema } from './googleSummarySchema.js';
 
 export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
 
@@ -316,7 +317,7 @@ function googleSummaryRequest(prompt, systemPrompt, schema) {
   return {
     ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: googleSummarySchema(schema) },
   };
 }
 
