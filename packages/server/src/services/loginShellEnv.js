@@ -116,7 +116,7 @@ function killProbe(child) {
 
 export function forceStopLoginShellProbe() {
   startupCancelled = true;
-  for (const child of ownedProbes) killProbe(child);
+  for (const stop of ownedProbes) stop();
 }
 
 export function cancelLoginShellProbe() {
@@ -136,37 +136,37 @@ function supervisedDump(shell, command, deadline) {
       resolve({ failure: `login-shell probe failed: ${error.message}` });
       return;
     }
-    ownedProbes.add(child);
     let stdout = [];
     let stderr = '';
     let bytes = 0;
-    let stopped = false;
-    let failure;
-    const timer = setTimeout(() => {
-      stopped = true;
-      failure = 'login-shell probe timed out after budget';
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ownedProbes.delete(cancel);
+      // Signal only while this supervisor still owns the process group.
       killProbe(child);
-    }, Math.max(1, deadline - Date.now()));
+      child.stdout.destroy();
+      child.stderr.destroy();
+      stdout = [];
+      resolve(result);
+    };
+    const cancel = () => settle({ stopped: true, failure: 'login-shell probe cancelled' });
+    ownedProbes.add(cancel);
+    const timer = setTimeout(() => settle({ stopped: true, failure: 'login-shell probe timed out after budget' }), Math.max(1, deadline - Date.now()));
     child.stdout.on('data', (chunk) => {
       bytes += chunk.length;
       if (bytes > 1024 * 1024) {
-        stopped = true;
-        failure = 'login-shell probe exceeded output limit';
-        stdout = [];
-        killProbe(child);
-      } else stdout.push(chunk);
+        settle({ stopped: true, failure: 'login-shell probe exceeded output limit' });
+      } else if (!settled) stdout.push(chunk);
     });
-    child.stderr.on('data', (chunk) => { if (stderr.length < 200) stderr += chunk.toString().slice(0, 200 - stderr.length); });
-    child.on('error', (error) => { failure = `login-shell probe failed: ${error.message}`; });
+    child.stderr.on('data', (chunk) => { if (!settled && stderr.length < 200) stderr += chunk.toString().slice(0, 200 - stderr.length); });
+    child.on('error', (error) => settle({ failure: `login-shell probe failed: ${error.message}` }));
     child.on('close', (code) => {
-      clearTimeout(timer);
-      // Kill lingering members even if the shell exited before its children.
-      killProbe(child);
-      ownedProbes.delete(child);
-      if (startupCancelled) resolve({ stopped: true, failure: 'login-shell probe cancelled' });
-      else if (stopped) resolve({ stopped, failure });
-      else if (failure || code !== 0) resolve({ failure: failure || `login-shell probe exited with status ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}` });
-      else resolve({ output: Buffer.concat(stdout) });
+      if (settled) return;
+      if (code !== 0) settle({ failure: `login-shell probe exited with status ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}` });
+      else settle({ output: Buffer.concat(stdout) });
     });
   });
 }
