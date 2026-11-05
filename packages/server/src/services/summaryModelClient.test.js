@@ -28,12 +28,8 @@ vi.mock('openai', () => ({
   }),
 }));
 
-vi.mock('./summaryClaudeClient.js', () => ({
-  SESSION_SUMMARY_SCHEMA: {
-    type: 'object',
-    properties: { short_summary: { type: 'string' } },
-    required: ['short_summary'],
-  },
+vi.mock('./summaryClaudeClient.js', async (importOriginal) => ({
+  ...await importOriginal(),
   callClaude: mocks.callClaude,
 }));
 
@@ -74,6 +70,58 @@ describe('summaryModelClient', () => {
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
     vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('adapts the real summary schema for Google without mutating it', async () => {
+    const original = structuredClone(SESSION_SUMMARY_SCHEMA);
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }) });
+    const resolvedModel = { model: 'gemini-test', providerId: 'google', kind: 'google', provider: { authToken: 'key' } };
+
+    await callSummaryModel('prompt', [], 'completed', { resolvedModel });
+
+    const schema = JSON.parse(fetch.mock.calls[0][1].body).generationConfig.responseSchema;
+    const { additionalProperties, ...expected } = original;
+    expect(additionalProperties).toBe(false);
+    expect(original.required).toHaveLength(7);
+    expect(schema).toEqual({
+      ...expected,
+      properties: {
+        ...expected.properties,
+        pr_url: { ...expected.properties.pr_url, type: 'string', nullable: true },
+        session_title: { ...expected.properties.session_title, type: 'string', nullable: true },
+      },
+    });
+    expect(SESSION_SUMMARY_SCHEMA).toEqual(original);
+  });
+
+  it('adapts nested custom Google schemas while preserving property names and constraints', async () => {
+    const jsonSchema = {
+      type: 'object', additionalProperties: false, required: ['additionalProperties', 'entries'],
+      properties: {
+        additionalProperties: { type: 'string', description: 'A property name' },
+        entries: { type: 'array', items: {
+          type: 'object', additionalProperties: false, required: ['value'],
+          properties: { value: { type: ['null', 'string'], enum: ['yes', 'no'], description: 'Choice' } },
+        } },
+      },
+    };
+    const original = structuredClone(jsonSchema);
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }) });
+    const resolvedModel = { model: 'gemini-test', providerId: 'google', kind: 'google', provider: { authToken: 'key' } };
+
+    await callSummaryModel('prompt', [], 'completed', { resolvedModel, jsonSchema });
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body).generationConfig.responseSchema).toEqual({
+      type: 'object', required: ['additionalProperties', 'entries'],
+      properties: {
+        additionalProperties: { type: 'string', description: 'A property name' },
+        entries: { type: 'array', items: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'string', nullable: true, enum: ['yes', 'no'], description: 'Choice' } },
+        } },
+      },
+    });
+    expect(jsonSchema).toEqual(original);
   });
 
   it('calls built-in Anthropic through Claude with provider metadata', async () => {

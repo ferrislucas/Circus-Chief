@@ -144,6 +144,13 @@ function buildSummaryCallMetadata({ logMeta, model, providerId, selectionReason,
 
 export const SESSION_SUMMARY_SCHEMA = {
   type: 'object',
+  // Strict-mode consumers (codex exec --output-schema, muse structured output)
+  // reject object schemas without `additionalProperties: false` (400:
+  // invalid_json_schema), and require every property to appear in `required`.
+  // Optional fields are modeled as nullable unions instead of omitted from
+  // `required`. Google generateContent receives an adapted representation of
+  // this schema; the other summary routes use it directly.
+  additionalProperties: false,
   properties: {
     short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
     full_summary: { type: 'string', description: 'Detailed summary with key accomplishments and current state (max 500 characters)' },
@@ -153,7 +160,7 @@ export const SESSION_SUMMARY_SCHEMA = {
     pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if one was created' },
     session_title: { type: ['string', 'null'], description: 'Concise title for this session (max 60 characters)' },
   },
-  required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome'],
+  required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome', 'pr_url', 'session_title'],
 };
 
 /**
