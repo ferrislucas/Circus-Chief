@@ -83,7 +83,7 @@ describe('GrokAcpClient', () => {
     await client.shutdown();
   });
 
-  it('cancels a permission request and answers a question', async () => {
+  it('approves offered permissions, cancels unavailable permissions, and answers a question', async () => {
     const peer = createPeer();
     const client = new GrokAcpClient({
       spawnImpl: scriptedSpawn(peer, (current) => {
@@ -99,9 +99,16 @@ describe('GrokAcpClient', () => {
     await pending;
     peer.send({ jsonrpc: '2.0', id: 9, method: 'session/request_permission', params: {} });
     peer.send({ jsonrpc: '2.0', id: 10, method: 'askUserQuestion', params: { questions: [{ question: 'Q' }] } });
-    await waitFor(() => peer.inbound.filter((message) => message.id === 9 || message.id === 10).length === 2);
+    peer.send({ jsonrpc: '2.0', id: 11, method: 'session/request_permission', params: { options: [
+      { kind: 'reject_once', optionId: 'no' }, { kind: 'allow_always', optionId: 'all' }, { kind: 'allow_once', optionId: 'yes' },
+    ] } });
+    peer.send({ jsonrpc: '2.0', id: 12, method: 'session/request_permission', params: { options: [{ kind: 'allow_always', optionId: 'all' }] } });
+    await waitFor(() => [9, 10, 11, 12].every((id) => peer.inbound.some((message) => message.id === id && message.result)));
     expect(peer.inbound.find((message) => message.id === 9).result).toEqual({ outcome: { outcome: 'cancelled' } });
     expect(peer.inbound.find((message) => message.id === 10).result.outcome).toBe('accepted');
+    expect(peer.inbound.find((message) => message.id === 11).result).toEqual({ outcome: { outcome: 'selected', optionId: 'yes' } });
+    expect(peer.inbound.find((message) => message.id === 12).result).toEqual({ outcome: { outcome: 'selected', optionId: 'all' } });
+    expect(client.permissionCancelled).toBe(true);
     await client.shutdown();
   });
 

@@ -41,6 +41,7 @@ export class GrokAcpClient {
     this.stderr = '';
     this.stdoutBuffer = '';
     this.onNotification = null;
+    this.permissionCancelled = false;
     this._onAbort = null;
   }
 
@@ -181,7 +182,15 @@ export class GrokAcpClient {
       return;
     }
     if (method === 'session/request_permission') {
-      this.#reply(message.id, { outcome: { outcome: 'cancelled' } });
+      const options = Array.isArray(message.params?.options) ? message.params.options : [];
+      const allowed = options.find((option) => option?.kind === 'allow_once' && typeof option.optionId === 'string' && option.optionId)
+        || options.find((option) => option?.kind === 'allow_always' && typeof option.optionId === 'string' && option.optionId);
+      if (allowed) {
+        this.#reply(message.id, { outcome: { outcome: 'selected', optionId: allowed.optionId } });
+      } else {
+        this.permissionCancelled = true;
+        this.#reply(message.id, { outcome: { outcome: 'cancelled' } });
+      }
       return;
     }
     this.#send({
