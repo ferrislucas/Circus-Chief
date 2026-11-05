@@ -101,6 +101,9 @@ export function parseEnvLines(output) {
 
 function runDump({ shell, dumpCommand, timeoutMs, spawnSync }) {
   return spawnSync(shell, ['-lic', dumpCommand], {
+    // An interactive shell can change its controlling terminal's foreground
+    // process group, even with piped stdio. Give it its own session instead.
+    detached: true,
     timeout: timeoutMs,
     maxBuffer: 1024 * 1024,
     encoding: 'buffer',
@@ -221,6 +224,7 @@ function describeExecFailure(err, shell) {
 async function attemptDumpAsync({ shell, dumpCommand, timeoutMs, exec, parse }) {
   try {
     const { stdout } = await exec(shell, ['-lic', dumpCommand], {
+      detached: true,
       timeout: timeoutMs,
       maxBuffer: 1024 * 1024,
       windowsHide: true,

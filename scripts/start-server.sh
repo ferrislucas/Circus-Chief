@@ -189,7 +189,7 @@ echo "Starting server on port ${SELECTED_PORT}..."
 # Build first, then write port file AFTER build completes.
 # This prevents pw.sh from detecting the port and starting health checks
 # while the build is still running (which can cause 30s timeout failures).
-VCR_MODE="${VCR_MODE:-}" yarn build
+VCR_MODE="${VCR_MODE:-}" yarn build || exit $?
 
 # Write port to file for tool discovery (after build, before server start)
 # Other tools (like playwright.config.ts) read this file to know which
@@ -202,5 +202,5 @@ echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 # Bind to all interfaces via -H so the dev/E2E server is reachable from
 # LAN/Docker as well as localhost. DB_PATH is forwarded explicitly so the
 # server never depends on ambient configuration.
-NODE_ENV=production VCR_MODE="${VCR_MODE:-}" DB_PATH="${DB_PATH:-}" \
-    node packages/server/src/index.js -p ${SELECTED_PORT} --host 0.0.0.0
+export NODE_ENV=production VCR_MODE="${VCR_MODE:-}" DB_PATH="${DB_PATH:-}"
+exec node packages/server/src/index.js -p "${SELECTED_PORT}" --host 0.0.0.0

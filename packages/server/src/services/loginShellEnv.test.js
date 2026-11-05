@@ -107,6 +107,7 @@ describe('loginShellEnv', () => {
       expect(spawnSync).toHaveBeenCalledTimes(1);
       expect(spawnSync.mock.calls[0][0]).toBe('/bin/zsh');
       expect(spawnSync.mock.calls[0][1]).toContain('-lic');
+      expect(spawnSync.mock.calls[0][2].detached).toBe(true);
     });
 
     it('falls back to plain printenv when env -0 yields nothing usable', () => {
@@ -188,6 +189,7 @@ describe('loginShellEnv', () => {
       expect(execFile).toHaveBeenCalledTimes(1);
       expect(execFile.mock.calls[0][0]).toBe('/bin/zsh');
       expect(execFile.mock.calls[0][1]).toContain('-lic');
+      expect(execFile.mock.calls[0][2].detached).toBe(true);
     });
 
     it('falls back to plain printenv when env -0 yields nothing usable', async () => {
