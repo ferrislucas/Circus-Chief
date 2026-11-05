@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { EventEmitter as ProbeEmitter } from 'events';
+import { spawn as probeSpawn } from 'child_process';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 
 // Record actual child_process.spawn calls so hermeticity checks observe the
@@ -18,6 +20,7 @@ import {
   probeStartupLoginShellEnv,
   warmLoginShellEnv,
   cancelLoginShellProbe,
+  forceStopLoginShellProbe,
   probeLoginShellEnvAsync,
   refreshLoginShellEnvAsync,
   mergeShellEnv,
@@ -48,6 +51,7 @@ describe('loginShellEnv', () => {
     resetLoginShellEnvCache();
     clearSshLivenessCache();
     vi.restoreAllMocks();
+    vi.mocked(probeSpawn).mockReset();
   });
 
   // Finding #5: the vitest environment disables the login-shell probe
@@ -92,6 +96,63 @@ describe('loginShellEnv', () => {
   });
 
   describe('supervised startup probe', () => {
+    it('caches asynchronous spawn failures with missing streams and releases supervision', async () => {
+      await withProbeEnabled(async () => {
+        vi.useFakeTimers();
+        const kill = vi.spyOn(process, 'kill');
+        const children = [];
+        vi.mocked(probeSpawn).mockImplementation(() => {
+          const child = new ProbeEmitter();
+          child.on('error', () => {}); // Keep the red regression contained if supervision fails.
+          children.push(child);
+          queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' })));
+          return child;
+        });
+        try {
+          const result = await warmLoginShellEnv();
+          expect(result).toEqual({ ok: false, reason: expect.stringContaining('EMFILE') });
+          expect(getLoginShellEnv()).toBe(result);
+          expect(children).toHaveLength(2);
+          for (const child of children) expect(child.listenerCount('error')).toBeGreaterThan(1);
+          expect(vi.getTimerCount()).toBe(0);
+          cancelLoginShellProbe();
+          forceStopLoginShellProbe();
+          expect(kill).not.toHaveBeenCalled();
+          expect(vi.getTimerCount()).toBe(0);
+        } finally { vi.useRealTimers(); }
+      });
+    });
+
+    it('converts synchronous spawn failures into diagnostics', async () => {
+      vi.mocked(probeSpawn).mockImplementation(() => { throw new Error('spawn ENFILE'); });
+      const result = await probeStartupLoginShellEnv();
+      expect(result).toEqual({ ok: false, reason: expect.stringContaining('ENFILE') });
+    });
+
+    it.each(['timeout', 'cancellation'])('cleans up partial streams on %s and consumes late errors', async (action) => {
+      vi.useFakeTimers();
+      const child = new ProbeEmitter();
+      const safetyListener = () => {};
+      child.on('error', safetyListener);
+      child.stdout = new ProbeEmitter();
+      child.stdout.destroy = vi.fn();
+      vi.mocked(probeSpawn).mockReturnValue(child);
+      const kill = vi.spyOn(process, 'kill');
+      try {
+        const pending = probeStartupLoginShellEnv({ timeoutMs: 50 });
+        if (action === 'timeout') await vi.advanceTimersByTimeAsync(50);
+        else cancelLoginShellProbe();
+        const result = await pending;
+        expect(result.reason).toMatch(action === 'timeout' ? /timed out/ : /cancelled/);
+        expect(child.stdout.destroy).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+        child.removeListener('error', safetyListener);
+        expect(() => child.emit('error', new Error('late error'))).not.toThrow();
+        forceStopLoginShellProbe();
+        expect(kill).not.toHaveBeenCalled();
+      } finally { vi.useRealTimers(); }
+    });
+
     it('parses a controlled executable environment', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'login-fixture-'));
       try {
