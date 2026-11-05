@@ -63,6 +63,7 @@
         v-if="attentionCount"
         class="attention-badge"
       >{{ attentionCount }}</span>
+      <span v-if="error" class="fetch-error-badge" aria-hidden="true">!</span>
     </button>
     <p
       class="live-announcement"
@@ -100,6 +101,9 @@
             ×
           </button>
         </div>
+        <p v-if="error" class="dialog-fetch-error">
+          Unable to load provider usage. Showing the last available data when available.
+        </p>
         <article
           v-for="snapshot in snapshots"
           :key="snapshot.providerId"
@@ -234,7 +238,8 @@ const triggerAriaLabel = computed(() => {
   const reset = summaryResetsAt.value !== null
     ? `, resets ${new Date(summaryResetsAt.value).toLocaleString()}`
     : '';
-  return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}`;
+  const fetchError = error.value ? '. Unable to load provider usage; showing the last available data when available' : '';
+  return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}${fetchError}`;
 });
 const error = computed(() => store.error);
 const liveAnnouncement = ref('');
@@ -554,6 +559,12 @@ onUnmounted(() => {
   line-height: 1rem;
 }
 
+.fetch-error-badge {
+  display: none;
+}
+
+.dialog-fetch-error { color: var(--color-warning); }
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -639,6 +650,24 @@ onUnmounted(() => {
 }
 
 @media (max-width: 480px) {
+  .fetch-error { display: none; }
+
+  .fetch-error-badge {
+    position: absolute;
+    bottom: -.2rem;
+    right: -.3rem;
+    display: block;
+    width: .9rem;
+    height: .9rem;
+    border-radius: 50%;
+    background: var(--color-warning);
+    color: var(--color-background);
+    font-size: .65rem;
+    font-weight: bold;
+    line-height: .9rem;
+    text-align: center;
+  }
+
   .allowance-dialog {
     align-self: end;
     max-height: 85vh;
