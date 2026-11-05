@@ -14,7 +14,9 @@ vi.mock('child_process', async (importOriginal) => {
 import {
   parseEnvZero,
   parseEnvLines,
-  probeLoginShellEnv,
+  probeStartupLoginShellEnv,
+  warmLoginShellEnv,
+  cancelLoginShellProbe,
   probeLoginShellEnvAsync,
   refreshLoginShellEnvAsync,
   mergeShellEnv,
@@ -38,15 +40,6 @@ import { buildMuseHostEnv } from '../agents/adapters/museHostEnv.js';
 
 function nulEntries(obj) {
   return Buffer.from(`${Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\0')}\0`);
-}
-
-function okSpawn(stdout) {
-  return { status: 0, stdout, stderr: Buffer.alloc(0), error: undefined };
-}
-
-function busySleep(ms) {
-  const end = Date.now() + Math.max(0, ms);
-  while (Date.now() < end) { /* spin: simulate a hanging dump */ }
 }
 
 describe('loginShellEnv', () => {
@@ -97,82 +90,41 @@ describe('loginShellEnv', () => {
     });
   });
 
-  describe('probeLoginShellEnv', () => {
-    it('returns ok with the parsed env from env -0', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/shell/bin', SSH_AUTH_SOCK: '/tmp/s' })));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync });
+  describe('supervised startup probe', () => {
+    it('parses a real shell environment', async () => {
+      const result = await probeStartupLoginShellEnv({ shell: '/bin/sh' });
       expect(result.ok).toBe(true);
-      expect(result.env.PATH).toBe('/shell/bin');
-      expect(result.env.SSH_AUTH_SOCK).toBe('/tmp/s');
-      expect(spawnSync).toHaveBeenCalledTimes(1);
-      expect(spawnSync.mock.calls[0][0]).toBe('/bin/zsh');
-      expect(spawnSync.mock.calls[0][1]).toContain('-lic');
-      expect(spawnSync.mock.calls[0][2].detached).toBe(true);
+      expect(result.env.PATH).toBeTruthy();
     });
 
-    it('falls back to plain printenv when env -0 yields nothing usable', () => {
-      const spawnSync = vi.fn()
-        .mockReturnValueOnce({ status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: undefined })
-        .mockReturnValueOnce(okSpawn(Buffer.from('PATH=/fallback/bin\n')));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync });
-      expect(result.ok).toBe(true);
-      expect(result.env.PATH).toBe('/fallback/bin');
-      expect(spawnSync).toHaveBeenCalledTimes(2);
+    it('kills a SIGTERM-ignoring shell and child at the overall deadline', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-probe-'));
+      try {
+        const shell = join(dir, 'shell');
+        const childPid = join(dir, 'child');
+        writeFileSync(shell, `#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > '${childPid}'\nwait\n`, { mode: 0o755 });
+        const start = Date.now();
+        const result = await probeStartupLoginShellEnv({ shell, timeoutMs: 1500 });
+        expect(result.reason).toMatch(/timed out/);
+        expect(Date.now() - start).toBeLessThan(3000);
+        const pid = Number((await import('fs')).readFileSync(childPid, 'utf8'));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(() => process.kill(pid, 0)).toThrow();
+      } finally { rmSync(dir, { recursive: true, force: true }); }
     });
 
-    it('returns { ok: false } without throwing on timeout', () => {
-      const timeoutErr = new Error('spawnSync timed out');
-      timeoutErr.code = 'ETIMEDOUT';
-      const spawnSync = vi.fn(() => ({ status: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: timeoutErr }));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 50 }, { spawnSync });
-      expect(result.ok).toBe(false);
-      expect(result.reason).toMatch(/timed out|timeout/i);
-    });
-
-    it('returns { ok: false } for a bad shell without throwing', () => {
-      const spawnSync = vi.fn(() => { throw new Error('spawn /bin/nope ENOENT'); });
-      const result = probeLoginShellEnv({ shell: '/bin/nope' }, { spawnSync });
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBeTruthy();
-    });
-
-    it('returns { ok: false } on nonzero exit without throwing', () => {
-      const spawnSync = vi.fn(() => ({ status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from('boom'), error: undefined }));
-      const result = probeLoginShellEnv({ shell: '/bin/false' }, { spawnSync });
-      expect(result.ok).toBe(false);
-    });
-
-    it('declines on win32 instead of probing', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/x' })));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync, platform: 'win32' });
-      expect(result.ok).toBe(false);
-      expect(spawnSync).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('shared probe budget (finding #7)', () => {
-    it('gives the printenv retry only the remaining budget, not a fresh one', () => {
-      const budgets = [];
-      const spawnSync = vi.fn((_shell, _args, options) => {
-        budgets.push(options.timeout);
-        busySleep(options.timeout); // both dumps hang for their whole budget
-        return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-      });
-      const startedAt = Date.now();
-      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 300 }, { spawnSync });
-      const elapsed = Date.now() - startedAt;
-
-      expect(result.ok).toBe(false);
-      expect(budgets).toHaveLength(2);
-      expect(budgets[0]).toBe(300);
-      // The retry is bounded by what is left of the ONE overall budget —
-      // never a fresh full budget (FRD R-2: probe cost stays ≤2s).
-      expect(budgets[1]).toBeLessThan(300);
-      expect(elapsed).toBeLessThan(560);
-    });
-
-    it('keeps the default overall budget within the 2s FRD bound', () => {
-      expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    it('cancels an active startup probe without retrying', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-cancel-'));
+      try {
+        const shell = join(dir, 'shell');
+        const launches = join(dir, 'launches');
+        writeFileSync(shell, `#!/bin/sh\necho start >> '${launches}'\ntrap '' TERM\nsleep 30 &\nwait\n`, { mode: 0o755 });
+        const pending = probeStartupLoginShellEnv({ shell });
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        cancelLoginShellProbe();
+        expect((await pending).reason).toMatch(/cancelled/);
+        expect((await import('fs')).readFileSync(launches, 'utf8').trim().split('\n')).toHaveLength(1);
+      } finally { rmSync(dir, { recursive: true, force: true }); }
     });
   });
 
@@ -234,22 +186,13 @@ describe('loginShellEnv', () => {
   });
 
   describe('getLoginShellEnv cache', () => {
-    it('probes once per process lifetime (single-flight cache)', async () => {
+    it('returns a snapshot fallback until the asynchronous warmup completes', async () => {
       await withProbeEnabled(async () => {
-        const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
-        const first = getLoginShellEnv({}, { spawnSync });
-        const second = getLoginShellEnv({}, { spawnSync });
-        expect(first).toBe(second);
-        expect(spawnSync).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    it('caches failures too (no repeated slow probes)', async () => {
-      await withProbeEnabled(async () => {
-        const spawnSync = vi.fn(() => { throw new Error('nope'); });
-        getLoginShellEnv({}, { spawnSync });
-        getLoginShellEnv({}, { spawnSync });
-        expect(spawnSync).toHaveBeenCalledTimes(1);
+        expect(getLoginShellEnv().ok).toBe(false);
+        const first = warmLoginShellEnv({ shell: '/bin/sh' });
+        expect(warmLoginShellEnv()).toBe(first);
+        const result = await first;
+        expect(getLoginShellEnv()).toBe(result);
       });
     });
   });

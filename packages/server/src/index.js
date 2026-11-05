@@ -26,7 +26,7 @@ import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
 import { assertSingleProcessDeployment, DeploymentBoundaryError } from './services/deploymentBoundary.js';
-import { getLoginShellEnv } from './services/loginShellEnv.js';
+import { warmLoginShellEnv, cancelLoginShellProbe, forceStopLoginShellProbe } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
@@ -233,9 +233,10 @@ startMuseUsageProbe();
 // documented five-second drain bound before process exit is forced); a
 // repeated Ctrl-C / SIGTERM during the drain forces an immediate exit so the
 // server can never ignore the operator.
-const { install: installShutdownHandlers } = createShutdownHandler({
+const { install: installShutdownHandlers, isShuttingDown } = createShutdownHandler({
   server,
   stopPeriodicServices: async () => {
+    cancelLoginShellProbe();
     // Stop periodic services
     schedulerService.stop();
     await stopLaneEntryRetryWorker();
@@ -266,6 +267,7 @@ const { install: installShutdownHandlers } = createShutdownHandler({
   forceTerminateAgentChildren: combineForcedCleanup(
     () => commandRunner.shutdownAll({ force: true }),
     () => forceStopMuseUsageProbe(),
+    () => forceStopLoginShellProbe(),
   ),
   // Close all WebSocket connections (must happen before server.close())
   closeRealtimeConnections: () => webSocketManager.close(),
@@ -276,9 +278,9 @@ installShutdownHandlers();
 // Warm the login-shell env probe once at startup so the first Muse turn
 // doesn't pay the ~2s shell-spawn cost. Failures fall back to the server
 // snapshot env (FR-13) and are logged by the probe itself.
-getLoginShellEnv();
+await warmLoginShellEnv();
 
-startServer(server, {
+if (!isShuttingDown()) startServer(server, {
   port,
   host,
   isDefaultHost: host === DEFAULT_SERVER_HOST,

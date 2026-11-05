@@ -1,4 +1,4 @@
-import { execFile as execFileCallback, spawnSync as defaultSpawnSync } from 'child_process';
+import { execFile as execFileCallback, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const defaultExecFile = promisify(execFileCallback);
@@ -99,107 +99,123 @@ export function parseEnvLines(output) {
   return env;
 }
 
-function runDump({ shell, dumpCommand, timeoutMs, spawnSync }) {
-  return spawnSync(shell, ['-lic', dumpCommand], {
-    // An interactive shell can change its controlling terminal's foreground
-    // process group, even with piped stdio. Give it its own session instead.
-    detached: true,
-    timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
-    encoding: 'buffer',
+// Startup probes own detached process groups so cancellation never touches
+// other instances or unrelated terminal jobs.
+const ownedProbes = new Set();
+let startupCancelled = false;
+let cachedProbe = null;
+let cacheLogged = false;
+let startupPromise = null;
+
+function killProbe(child) {
+  if (!child.pid) return;
+  try { process.kill(-child.pid, 'SIGKILL'); } catch (error) {
+    if (error.code !== 'ESRCH') console.warn(`[loginShellEnv] cleanup failed: ${error.message}`);
+  }
+}
+
+export function forceStopLoginShellProbe() {
+  startupCancelled = true;
+  for (const child of ownedProbes) killProbe(child);
+}
+
+export function cancelLoginShellProbe() {
+  forceStopLoginShellProbe();
+}
+
+function supervisedDump(shell, command, deadline) {
+  return new Promise((resolve) => {
+    if (startupCancelled || Date.now() >= deadline) {
+      resolve({ stopped: true, failure: startupCancelled ? 'login-shell probe cancelled' : 'login-shell probe timed out after budget' });
+      return;
+    }
+    let child;
+    try {
+      child = spawn(shell, ['-lic', command], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      resolve({ failure: `login-shell probe failed: ${error.message}` });
+      return;
+    }
+    ownedProbes.add(child);
+    let stdout = [];
+    let stderr = '';
+    let bytes = 0;
+    let stopped = false;
+    let failure;
+    const timer = setTimeout(() => {
+      stopped = true;
+      failure = 'login-shell probe timed out after budget';
+      killProbe(child);
+    }, Math.max(1, deadline - Date.now()));
+    child.stdout.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > 1024 * 1024) {
+        stopped = true;
+        failure = 'login-shell probe exceeded output limit';
+        stdout = [];
+        killProbe(child);
+      } else stdout.push(chunk);
+    });
+    child.stderr.on('data', (chunk) => { if (stderr.length < 200) stderr += chunk.toString().slice(0, 200 - stderr.length); });
+    child.on('error', (error) => { failure = `login-shell probe failed: ${error.message}`; });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      // Kill lingering members even if the shell exited before its children.
+      killProbe(child);
+      ownedProbes.delete(child);
+      if (startupCancelled) resolve({ stopped: true, failure: 'login-shell probe cancelled' });
+      else if (stopped) resolve({ stopped, failure });
+      else if (failure || code !== 0) resolve({ failure: failure || `login-shell probe exited with status ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}` });
+      else resolve({ output: Buffer.concat(stdout) });
+    });
   });
 }
 
-function attemptDump({ shell, dumpCommand, timeoutMs, spawnSync, parse }) {
-  const result = runDump({ shell, dumpCommand, timeoutMs, spawnSync });
-  const failure = describeSpawnFailure(result, shell);
-  if (failure) return { env: null, failure };
-  const parsed = parse(result.stdout);
-  if (Object.keys(parsed).length === 0) return { env: null, failure: null };
-  return { env: parsed, failure: null };
-}
-
-function describeSpawnFailure(result, shell) {
-  if (result?.error) {
-    if (result.error?.code === 'ETIMEDOUT' || /timed out/i.test(result.error?.message || '')) {
-      return `login-shell probe timed out after budget (${shell} -lic)`;
-    }
-    return `login-shell probe failed: ${result.error?.message || result.error}`;
-  }
-  if (result?.status !== 0) {
-    const stderr = result?.stderr?.toString('utf8', 0, 200).trim();
-    return `login-shell probe exited with status ${result?.status ?? 'unknown'}${stderr ? `: ${stderr}` : ''}`;
-  }
-  return null;
-}
-
-/**
- * Probe the user's login shell for its exported environment.
- * Never throws: failures resolve to `{ ok: false, reason }` (FR-13 — the
- * caller falls back to today's hardened snapshot behavior).
- *
- * Finding #7 (R-2): the `env -0` attempt and the `printenv` retry share ONE
- * overall budget — the retry gets only the time the first attempt left,
- * never a fresh full budget, so a hanging shell costs at most `timeoutMs`
- * (default ≤2s), not twice that.
- *
- * @param {Object} [opts]
- * @param {string} [opts.shell] - Defaults to $SHELL, then /bin/sh.
- * @param {number} [opts.timeoutMs] - Overall budget across both dumps (default 2000ms).
- * @param {Object} [deps] - Test seam: { spawnSync, platform }.
- * @returns {{ ok: true, env: Object } | { ok: false, reason: string }}
- */
-export function probeLoginShellEnv({ shell, timeoutMs = LOGIN_SHELL_TIMEOUT_MS } = {}, deps = {}) {
-  const spawnSync = deps.spawnSync ?? defaultSpawnSync;
-  const platform = deps.platform ?? process.platform;
-  if (platform === 'win32') {
-    return { ok: false, reason: 'login-shell probe is POSIX-only; using snapshot behavior' };
-  }
+export async function probeStartupLoginShellEnv({ shell, timeoutMs = LOGIN_SHELL_TIMEOUT_MS } = {}) {
+  if (process.platform === 'win32') return { ok: false, reason: 'login-shell probe is POSIX-only; using snapshot behavior' };
   const loginShell = shell || process.env.SHELL || '/bin/sh';
-  try {
-    const startedAt = Date.now();
-    const nul = attemptDump({ shell: loginShell, dumpCommand: 'env -0', timeoutMs, spawnSync, parse: parseEnvZero });
-    if (nul.env) return { ok: true, env: nul.env };
-    const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt));
-    const lines = attemptDump({ shell: loginShell, dumpCommand: 'printenv', timeoutMs: remaining, spawnSync, parse: parseEnvLines });
-    if (lines.env) return { ok: true, env: lines.env };
-    return { ok: false, reason: lines.failure || nul.failure || `login-shell probe produced no parsable entries (${loginShell} -lic)` };
-  } catch (err) {
-    return { ok: false, reason: `login-shell probe failed: ${err?.message || err}` };
+  const deadline = Date.now() + timeoutMs;
+  let failure;
+  for (const [command, parse] of [['env -0', parseEnvZero], ['printenv', parseEnvLines]]) {
+    const result = await supervisedDump(loginShell, command, deadline);
+    failure = result.failure || failure;
+    if (result.stopped || startupCancelled || Date.now() >= deadline) break;
+    if (result.output) {
+      const env = parse(result.output);
+      if (Object.keys(env).length) return { ok: true, env };
+    }
   }
+  return { ok: false, reason: failure || `login-shell probe produced no parsable entries (${loginShell} -lic)` };
 }
 
-let cachedProbe = null;
-let cacheLogged = false;
+/** Synchronous consumers use the completed cache or the server snapshot. */
+export function getLoginShellEnv() {
+  return cachedProbe || { ok: false, reason: process.env[LOGIN_SHELL_DISABLE_ENV_VAR] === '1' ? 'login-shell probe disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1' : 'login-shell probe not yet complete' };
+}
 
-/**
- * Cached login-shell env (raw parsed output, unfiltered). Probes once per
- * process lifetime — including caching failures so a broken shell never
- * adds repeated slow probes to session startup. Respects the
- * CIRCUS_CHIEF_NO_LOGIN_SHELL=1 escape hatch (FR-13 fallback rehearsal).
- *
- * @param {Object} [opts] - Forwarded to probeLoginShellEnv on first call.
- * @param {Object} [deps] - Test seam forwarded to probeLoginShellEnv.
- * @returns {{ ok: true, env: Object } | { ok: false, reason: string }}
- */
-export function getLoginShellEnv(opts = {}, deps = {}) {
-  if (cachedProbe) return cachedProbe;
+export function warmLoginShellEnv(opts = {}) {
+  if (cachedProbe) return Promise.resolve(cachedProbe);
+  if (startupPromise) return startupPromise;
   if (process.env[LOGIN_SHELL_DISABLE_ENV_VAR] === '1') {
     cachedProbe = { ok: false, reason: 'login-shell probe disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1' };
-    return cachedProbe;
+    return Promise.resolve(cachedProbe);
   }
-  cachedProbe = probeLoginShellEnv(opts, deps);
-  if (!cachedProbe.ok && !cacheLogged) {
-    cacheLogged = true;
-    console.warn(`[loginShellEnv] ${cachedProbe.reason}; falling back to server snapshot env.`);
-  }
-  return cachedProbe;
+  startupPromise = probeStartupLoginShellEnv(opts).then((result) => {
+    cachedProbe = result;
+    if (!result.ok && !cacheLogged && !startupCancelled) {
+      cacheLogged = true;
+      console.warn(`[loginShellEnv] ${result.reason}; falling back to server snapshot env.`);
+    }
+    return result;
+  });
+  return startupPromise;
 }
 
-/** Clear the process-lifetime probe cache (tests and diagnostics re-probe). */
 export function resetLoginShellEnvCache() {
   cachedProbe = null;
   cacheLogged = false;
+  startupPromise = null;
+  startupCancelled = false;
 }
 
 /**
@@ -244,7 +260,7 @@ async function attemptDumpAsync({ shell, dumpCommand, timeoutMs, exec, parse }) 
  * event loop, and with a tighter per-dump budget. Never throws: failures
  * resolve to `{ ok: false, reason }`, same as the sync probe.
  *
- * The cached sync probe stays the path for startup/turn code; this is only
+ * The supervised startup probe warms the cache; this helper is only
  * for on-demand (re-)probes that must not stall concurrent requests.
  *
  * @param {Object} [opts]
