@@ -63,6 +63,7 @@
         v-if="attentionCount"
         class="attention-badge"
       >{{ attentionCount }}</span>
+      <span v-if="error" class="fetch-error-badge" aria-hidden="true">!</span>
     </button>
     <p
       class="live-announcement"
@@ -100,6 +101,9 @@
             ×
           </button>
         </div>
+        <p v-if="error" class="dialog-fetch-error">
+          Unable to load provider usage. Showing the last available data when available.
+        </p>
         <article
           v-for="snapshot in snapshots"
           :key="snapshot.providerId"
@@ -234,7 +238,8 @@ const triggerAriaLabel = computed(() => {
   const reset = summaryResetsAt.value !== null
     ? `, resets ${new Date(summaryResetsAt.value).toLocaleString()}`
     : '';
-  return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}`;
+  const fetchError = error.value ? '. Unable to load provider usage; showing the last available data when available' : '';
+  return `Provider usage: ${statusText(triggerStatus.value)}, ${value}${reset}${fetchError}`;
 });
 const error = computed(() => store.error);
 const liveAnnouncement = ref('');
@@ -487,162 +492,4 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped>
-.provider-allowances {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.allowance-trigger,
-.close-button {
-  border: 0;
-  background: transparent;
-  color: var(--color-text-soft);
-  font: inherit;
-  cursor: pointer;
-}
-
-.allowance-trigger {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  padding: .35rem;
-  border-radius: 4px;
-  line-height: 0;
-}
-
-.allowance-trigger:hover {
-  background: var(--color-background-mute);
-  color: var(--color-text);
-}
-
-.battery-icon { display: block; }
-
-.battery-outline,
-.battery-nub {
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.battery-outline { fill: none; }
-.battery-nub { fill: currentColor; }
-
-.battery-fill { fill: var(--color-success); }
-.battery-bolt { fill: var(--color-background-soft); }
-
-.is-warning .battery-fill { fill: var(--color-warning); }
-.is-critical .battery-fill,
-.is-exhausted .battery-fill { fill: var(--color-error); }
-
-.is-warning,
-.fetch-error { color: var(--color-warning); }
-.is-critical,
-.is-exhausted { color: var(--color-error); }
-.is-stale { opacity: .68; }
-
-.attention-badge {
-  position: absolute;
-  top: -.35rem;
-  right: -.5rem;
-  min-width: 1rem;
-  height: 1rem;
-  border-radius: 99px;
-  background: var(--color-error);
-  color: var(--color-text);
-  font-size: .65rem;
-  line-height: 1rem;
-}
-
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: rgba(0, 0, 0, .42);
-}
-
-.allowance-dialog {
-  width: min(36rem, 100%);
-  max-height: 80vh;
-  padding: 1rem;
-  overflow: auto;
-  outline: none;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-background-soft);
-  color: var(--color-text);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
-}
-
-.dialog-heading,
-.provider-detail header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.dialog-heading h2 { margin: 0; }
-.close-button { font-size: 1.6rem; }
-
-.provider-detail {
-  padding: .8rem 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.provider-detail.focused {
-  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
-}
-
-.provider-detail p,
-.provider-detail ul { margin: .45rem 0; }
-
-.provider-detail small {
-  display: block;
-  margin-top: .3rem;
-  color: var(--color-text-soft);
-}
-
-.status { font-size: .8rem; }
-
-.allowance-bar {
-  height: .5rem;
-  margin-top: .4rem;
-  overflow: hidden;
-  border-radius: 99px;
-  background: var(--color-background-mute);
-}
-
-.allowance-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-success);
-}
-
-.allowance-bar-fill.fill-warning { background: var(--color-warning); }
-.allowance-bar-fill.fill-critical,
-.allowance-bar-fill.fill-exhausted { background: var(--color-error); }
-
-.live-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  .allowance-dialog {
-    align-self: end;
-    max-height: 85vh;
-    border-radius: 10px 10px 0 0;
-  }
-}
-</style>
+<style scoped src="./ProviderAllowanceIndicators.css"></style>
