@@ -72,7 +72,7 @@ export class GrokBuildAcpAdapter extends BaseAgent {
         sessionId: nativeId,
         prompt: [{ type: 'text', text: composeCliPrompt(options.systemPrompt, queryParams.prompt) }],
       }).then((result) => {
-        for (const event of mapper.finish(result, nativeId)) queue.push(event);
+        for (const event of mapper.finish(result, nativeId, { permissionCancelled: client.permissionCancelled })) queue.push(event);
         queue.end();
       }).catch((error) => queue.fail(error));
       yield* queue.events();

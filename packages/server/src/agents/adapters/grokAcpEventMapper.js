@@ -31,7 +31,7 @@ export function createGrokAcpEventMapper() {
     return [];
   }
 
-  function finish(result, sessionKey) {
+  function finish(result, sessionKey, { permissionCancelled = false } = {}) {
     if (state.terminated) return [];
     state.terminated = true;
     const events = [];
@@ -40,9 +40,13 @@ export function createGrokAcpEventMapper() {
     if (text) {
       events.push({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
     }
+    const failed = permissionCancelled || ['error', 'cancelled', 'canceled'].includes(result?.stopReason);
     events.push({
       type: 'result',
-      subtype: result?.stopReason === 'error' ? 'error' : 'success',
+      subtype: failed ? 'error' : 'success',
+      ...(failed ? { is_error: true, error: permissionCancelled
+        ? 'Grok requested tool permission without an available allow option.'
+        : `Grok turn ended: ${result.stopReason}.` } : {}),
       usage: usageFromGrokPrompt(result, sessionKey),
     });
     return events;

@@ -24,6 +24,15 @@ describe('grok ACP event mapper', () => {
     expect(limited[0]).toMatchObject({ type: 'result', subtype: 'success' });
   });
 
+  it('reports cancelled turns and unavailable permission approvals as errors', () => {
+    expect(createGrokAcpEventMapper().finish({ stopReason: 'cancelled' })[0]).toMatchObject({
+      subtype: 'error', is_error: true, error: expect.stringContaining('cancelled'),
+    });
+    expect(createGrokAcpEventMapper().finish({ stopReason: 'end_turn' }, 'session', { permissionCancelled: true })[0]).toMatchObject({
+      subtype: 'error', is_error: true, error: expect.stringContaining('permission'),
+    });
+  });
+
   it('maps tool calls and ignores unknown updates', () => {
     const mapper = createGrokAcpEventMapper();
     expect(mapper.mapUpdate({ update: { sessionUpdate: 'plan' } })).toEqual([]);
