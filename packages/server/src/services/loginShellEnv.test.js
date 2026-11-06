@@ -1,20 +1,26 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { EventEmitter as ProbeEmitter } from 'events';
+import { spawn as probeSpawn } from 'child_process';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 
-// Finding #5 (test hermeticity): wrap child_process.spawnSync in a recording
-// spy that delegates to the real implementation, so the hermeticity test can
+// Record actual child_process.spawn calls so hermeticity checks observe the
+// supervised probe while delegating controlled fixtures to the real implementation.
+// This proves
 // prove the login-shell probe never spawns in the vitest environment.
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+  return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 import {
   parseEnvZero,
   parseEnvLines,
-  probeLoginShellEnv,
+  probeStartupLoginShellEnv,
+  warmLoginShellEnv,
+  cancelLoginShellProbe,
+  forceStopLoginShellProbe,
   probeLoginShellEnvAsync,
   refreshLoginShellEnvAsync,
   mergeShellEnv,
@@ -40,26 +46,18 @@ function nulEntries(obj) {
   return Buffer.from(`${Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\0')}\0`);
 }
 
-function okSpawn(stdout) {
-  return { status: 0, stdout, stderr: Buffer.alloc(0), error: undefined };
-}
-
-function busySleep(ms) {
-  const end = Date.now() + Math.max(0, ms);
-  while (Date.now() < end) { /* spin: simulate a hanging dump */ }
-}
-
 describe('loginShellEnv', () => {
   afterEach(() => {
     resetLoginShellEnvCache();
     clearSshLivenessCache();
     vi.restoreAllMocks();
+    vi.mocked(probeSpawn).mockReset();
   });
 
   // Finding #5: the vitest environment disables the login-shell probe
   // (hermeticity). These probe/cache machinery tests exercise the probe
-  // itself with injected spawnSync/execFile doubles, so they re-enable it
-  // for their own scope only — no real shell is ever spawned.
+  // with controlled executable fixtures or execFile doubles; these tests re-enable it
+  // only for their own scope.
   async function withProbeEnabled(run) {
     const previous = process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
     delete process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL;
@@ -97,81 +95,148 @@ describe('loginShellEnv', () => {
     });
   });
 
-  describe('probeLoginShellEnv', () => {
-    it('returns ok with the parsed env from env -0', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/shell/bin', SSH_AUTH_SOCK: '/tmp/s' })));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync });
-      expect(result.ok).toBe(true);
-      expect(result.env.PATH).toBe('/shell/bin');
-      expect(result.env.SSH_AUTH_SOCK).toBe('/tmp/s');
-      expect(spawnSync).toHaveBeenCalledTimes(1);
-      expect(spawnSync.mock.calls[0][0]).toBe('/bin/zsh');
-      expect(spawnSync.mock.calls[0][1]).toContain('-lic');
-    });
-
-    it('falls back to plain printenv when env -0 yields nothing usable', () => {
-      const spawnSync = vi.fn()
-        .mockReturnValueOnce({ status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: undefined })
-        .mockReturnValueOnce(okSpawn(Buffer.from('PATH=/fallback/bin\n')));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync });
-      expect(result.ok).toBe(true);
-      expect(result.env.PATH).toBe('/fallback/bin');
-      expect(spawnSync).toHaveBeenCalledTimes(2);
-    });
-
-    it('returns { ok: false } without throwing on timeout', () => {
-      const timeoutErr = new Error('spawnSync timed out');
-      timeoutErr.code = 'ETIMEDOUT';
-      const spawnSync = vi.fn(() => ({ status: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: timeoutErr }));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 50 }, { spawnSync });
-      expect(result.ok).toBe(false);
-      expect(result.reason).toMatch(/timed out|timeout/i);
-    });
-
-    it('returns { ok: false } for a bad shell without throwing', () => {
-      const spawnSync = vi.fn(() => { throw new Error('spawn /bin/nope ENOENT'); });
-      const result = probeLoginShellEnv({ shell: '/bin/nope' }, { spawnSync });
-      expect(result.ok).toBe(false);
-      expect(result.reason).toBeTruthy();
-    });
-
-    it('returns { ok: false } on nonzero exit without throwing', () => {
-      const spawnSync = vi.fn(() => ({ status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from('boom'), error: undefined }));
-      const result = probeLoginShellEnv({ shell: '/bin/false' }, { spawnSync });
-      expect(result.ok).toBe(false);
-    });
-
-    it('declines on win32 instead of probing', () => {
-      const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/x' })));
-      const result = probeLoginShellEnv({ shell: '/bin/zsh' }, { spawnSync, platform: 'win32' });
-      expect(result.ok).toBe(false);
-      expect(spawnSync).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('shared probe budget (finding #7)', () => {
-    it('gives the printenv retry only the remaining budget, not a fresh one', () => {
-      const budgets = [];
-      const spawnSync = vi.fn((_shell, _args, options) => {
-        budgets.push(options.timeout);
-        busySleep(options.timeout); // both dumps hang for their whole budget
-        return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  describe('supervised startup probe', () => {
+    it('caches asynchronous spawn failures with missing streams and releases supervision', async () => {
+      await withProbeEnabled(async () => {
+        vi.useFakeTimers();
+        const kill = vi.spyOn(process, 'kill');
+        const children = [];
+        vi.mocked(probeSpawn).mockImplementation(() => {
+          const child = new ProbeEmitter();
+          child.on('error', () => {}); // Keep the red regression contained if supervision fails.
+          children.push(child);
+          queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' })));
+          return child;
+        });
+        try {
+          const result = await warmLoginShellEnv();
+          expect(result).toEqual({ ok: false, reason: expect.stringContaining('EMFILE') });
+          expect(getLoginShellEnv()).toBe(result);
+          expect(children).toHaveLength(2);
+          for (const child of children) expect(child.listenerCount('error')).toBeGreaterThan(1);
+          expect(vi.getTimerCount()).toBe(0);
+          cancelLoginShellProbe();
+          forceStopLoginShellProbe();
+          expect(kill).not.toHaveBeenCalled();
+          expect(vi.getTimerCount()).toBe(0);
+        } finally { vi.useRealTimers(); }
       });
-      const startedAt = Date.now();
-      const result = probeLoginShellEnv({ shell: '/bin/zsh', timeoutMs: 300 }, { spawnSync });
-      const elapsed = Date.now() - startedAt;
-
-      expect(result.ok).toBe(false);
-      expect(budgets).toHaveLength(2);
-      expect(budgets[0]).toBe(300);
-      // The retry is bounded by what is left of the ONE overall budget —
-      // never a fresh full budget (FRD R-2: probe cost stays ≤2s).
-      expect(budgets[1]).toBeLessThan(300);
-      expect(elapsed).toBeLessThan(560);
     });
 
-    it('keeps the default overall budget within the 2s FRD bound', () => {
-      expect(LOGIN_SHELL_TIMEOUT_MS).toBeLessThanOrEqual(2000);
+    it('converts synchronous spawn failures into diagnostics', async () => {
+      vi.mocked(probeSpawn).mockImplementation(() => { throw new Error('spawn ENFILE'); });
+      const result = await probeStartupLoginShellEnv();
+      expect(result).toEqual({ ok: false, reason: expect.stringContaining('ENFILE') });
+    });
+
+    it.each(['timeout', 'cancellation'])('cleans up partial streams on %s and consumes late errors', async (action) => {
+      vi.useFakeTimers();
+      const child = new ProbeEmitter();
+      const safetyListener = () => {};
+      child.on('error', safetyListener);
+      child.stdout = new ProbeEmitter();
+      child.stdout.destroy = vi.fn();
+      vi.mocked(probeSpawn).mockReturnValue(child);
+      const kill = vi.spyOn(process, 'kill');
+      try {
+        const pending = probeStartupLoginShellEnv({ timeoutMs: 50 });
+        if (action === 'timeout') await vi.advanceTimersByTimeAsync(50);
+        else cancelLoginShellProbe();
+        const result = await pending;
+        expect(result.reason).toMatch(action === 'timeout' ? /timed out/ : /cancelled/);
+        expect(child.stdout.destroy).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+        child.removeListener('error', safetyListener);
+        expect(() => child.emit('error', new Error('late error'))).not.toThrow();
+        forceStopLoginShellProbe();
+        expect(kill).not.toHaveBeenCalled();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('parses a controlled executable environment', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-fixture-'));
+      try {
+        const shell = join(dir, 'shell');
+        writeFileSync(shell, `#!${process.execPath}\nprocess.stdout.write('PATH=/fixture/bin\\0');\n`, { mode: 0o755 });
+        const result = await probeStartupLoginShellEnv({ shell });
+        expect(result).toMatchObject({ ok: true, env: { PATH: '/fixture/bin' } });
+        const { spawn } = await import('child_process');
+        expect(vi.mocked(spawn)).toHaveBeenCalledWith(shell, ['-lic', 'env -0'], expect.objectContaining({ detached: true }));
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('kills a SIGTERM-ignoring shell and child at the overall deadline', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-probe-'));
+      try {
+        const shell = join(dir, 'shell');
+        const childPid = join(dir, 'child');
+        writeFileSync(shell, `#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > '${childPid}'\nwait\n`, { mode: 0o755 });
+        const start = Date.now();
+        const result = await probeStartupLoginShellEnv({ shell, timeoutMs: 1500 });
+        expect(result.reason).toMatch(/timed out/);
+        expect(Date.now() - start).toBeLessThan(3000);
+        const pid = Number((await import('fs')).readFileSync(childPid, 'utf8'));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(() => process.kill(pid, 0)).toThrow();
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('settles at the deadline when an escaped descendant retains the pipes', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-escape-'));
+      const pidFile = join(dir, 'pid');
+      const shell = join(dir, 'shell');
+      writeFileSync(shell, `#!${process.execPath}\nconst { spawn } = require('child_process');\nconst child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 1, 2] });\nrequire('fs').writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));\nchild.unref();\n`, { mode: 0o755 });
+      try {
+        const started = Date.now();
+        const result = await Promise.race([
+          probeStartupLoginShellEnv({ shell, timeoutMs: 1500 }),
+          new Promise((resolve) => setTimeout(() => resolve({ reason: 'harness timeout' }), 3000)),
+        ]);
+        const escapedPid = Number((await import('fs')).readFileSync(pidFile, 'utf8'));
+        expect(escapedPid).toBeGreaterThan(0);
+        expect(() => process.kill(escapedPid, 0)).not.toThrow();
+        expect(result.reason).toMatch(/timed out/);
+        expect(Date.now() - started).toBeLessThan(2500);
+      } finally {
+        try { process.kill(Number((await import('fs')).readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* Already exited or never started. */ }
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('cancels promptly even when an escaped descendant holds the pipe', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-escape-cancel-'));
+      const pidFile = join(dir, 'pid');
+      const shell = join(dir, 'shell');
+      writeFileSync(shell, `#!${process.execPath}\nconst { spawn } = require('child_process');\nconst child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 1, 2] });\nrequire('fs').writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));\nchild.unref();\n`, { mode: 0o755 });
+      try {
+        const pending = probeStartupLoginShellEnv({ shell, timeoutMs: 4000 });
+        const readyDeadline = Date.now() + 2500;
+        while (!existsSync(pidFile) && Date.now() < readyDeadline) await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(existsSync(pidFile)).toBe(true);
+        const started = Date.now();
+        cancelLoginShellProbe();
+        const result = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve({ reason: 'harness timeout' }), 1000))]);
+        expect(result.reason).toMatch(/cancelled/);
+        expect(Date.now() - started).toBeLessThan(900);
+      } finally {
+        cancelLoginShellProbe();
+        try { process.kill(Number((await import('fs')).readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* Already exited or never started. */ }
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('cancels an active startup probe without retrying', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'login-cancel-'));
+      try {
+        const shell = join(dir, 'shell');
+        const launches = join(dir, 'launches');
+        writeFileSync(shell, `#!/bin/sh\necho start >> '${launches}'\ntrap '' TERM\nsleep 30 &\nwait\n`, { mode: 0o755 });
+        const pending = probeStartupLoginShellEnv({ shell });
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        cancelLoginShellProbe();
+        expect((await pending).reason).toMatch(/cancelled/);
+        expect((await import('fs')).readFileSync(launches, 'utf8').trim().split('\n')).toHaveLength(1);
+      } finally { rmSync(dir, { recursive: true, force: true }); }
     });
   });
 
@@ -188,6 +253,7 @@ describe('loginShellEnv', () => {
       expect(execFile).toHaveBeenCalledTimes(1);
       expect(execFile.mock.calls[0][0]).toBe('/bin/zsh');
       expect(execFile.mock.calls[0][1]).toContain('-lic');
+      expect(execFile.mock.calls[0][2].detached).toBe(true);
     });
 
     it('falls back to plain printenv when env -0 yields nothing usable', async () => {
@@ -223,8 +289,7 @@ describe('loginShellEnv', () => {
         const execFile = vi.fn(async () => ({ stdout: 'PATH=/fresh/bin\0' }));
         await refreshLoginShellEnvAsync({}, { execFile });
         // The sync reader now serves the refreshed value with no new spawn.
-        const spawnSync = vi.fn(() => { throw new Error('must not probe'); });
-        const cached = getLoginShellEnv({}, { spawnSync });
+        const cached = getLoginShellEnv();
         expect(cached.ok).toBe(true);
         expect(cached.env.PATH).toBe('/fresh/bin');
       });
@@ -232,22 +297,18 @@ describe('loginShellEnv', () => {
   });
 
   describe('getLoginShellEnv cache', () => {
-    it('probes once per process lifetime (single-flight cache)', async () => {
+    it('returns a snapshot fallback until the asynchronous warmup completes', async () => {
       await withProbeEnabled(async () => {
-        const spawnSync = vi.fn(() => okSpawn(nulEntries({ PATH: '/cached' })));
-        const first = getLoginShellEnv({}, { spawnSync });
-        const second = getLoginShellEnv({}, { spawnSync });
-        expect(first).toBe(second);
-        expect(spawnSync).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    it('caches failures too (no repeated slow probes)', async () => {
-      await withProbeEnabled(async () => {
-        const spawnSync = vi.fn(() => { throw new Error('nope'); });
-        getLoginShellEnv({}, { spawnSync });
-        getLoginShellEnv({}, { spawnSync });
-        expect(spawnSync).toHaveBeenCalledTimes(1);
+        expect(getLoginShellEnv().ok).toBe(false);
+        const dir = mkdtempSync(join(tmpdir(), 'login-warm-'));
+        const shell = join(dir, 'shell');
+        writeFileSync(shell, `#!${process.execPath}\nprocess.stdout.write('PATH=/fixture/bin\\0');\n`, { mode: 0o755 });
+        try {
+          const first = warmLoginShellEnv({ shell });
+          expect(warmLoginShellEnv()).toBe(first);
+          const result = await first;
+          expect(getLoginShellEnv()).toBe(result);
+        } finally { rmSync(dir, { recursive: true, force: true }); }
       });
     });
   });
@@ -565,33 +626,26 @@ describe('loginShellEnv', () => {
       expect(process.env.CIRCUS_CHIEF_NO_LOGIN_SHELL).toBe('1');
     });
 
-    it('short-circuits the probe before any spawn attempt while disabled', () => {
+    it('short-circuits warm-up before spawning while disabled', async () => {
+      const { spawn } = await import('child_process');
+      vi.mocked(spawn).mockClear();
       resetLoginShellEnvCache();
-      try {
-        const boobyTrapped = vi.fn(() => {
-          throw new Error('real login shell spawned inside a unit test');
-        });
-        const result = getLoginShellEnv({}, { spawnSync: boobyTrapped });
-        expect(result.ok).toBe(false);
-        expect(result.reason).toMatch(/disabled via CIRCUS_CHIEF_NO_LOGIN_SHELL=1/);
-        expect(boobyTrapped).not.toHaveBeenCalled();
-      } finally {
-        resetLoginShellEnvCache();
-      }
+      expect((await warmLoginShellEnv()).reason).toMatch(/disabled/);
+      expect(spawn).not.toHaveBeenCalled();
     });
 
     it('records zero login-shell spawns during createRobustEnv(process.env) in the test env', async () => {
-      const { spawnSync } = await import('child_process');
-      const spawnSyncSpy = vi.mocked(spawnSync);
+      const { spawn } = await import('child_process');
+      const spawnSpy = vi.mocked(spawn);
       resetLoginShellEnvCache();
-      spawnSyncSpy.mockClear();
+      spawnSpy.mockClear();
       try {
         const env = createRobustEnv(process.env);
         expect(env.PATH).toBeDefined();
-        expect(spawnSyncSpy).not.toHaveBeenCalled();
+        expect(spawnSpy).not.toHaveBeenCalled();
       } finally {
         resetLoginShellEnvCache();
-        spawnSyncSpy.mockClear();
+        spawnSpy.mockClear();
       }
     });
   });

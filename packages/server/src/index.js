@@ -11,6 +11,7 @@ import { parseCliOptions } from './cli.js';
 import { resolveStartupAuth } from './middleware/basicAuth.js';
 import { resolveTlsConfig } from './tls.js';
 import { startServer, prepareBindFailureHandler } from './startup.js';
+import { startWorkAfterEnvironment } from './startupWork.js';
 import { createShutdownHandler } from './shutdown.js';
 import { DEFAULT_SERVER_HOST } from '@circuschief/shared';
 import { settings } from './db/index.js';
@@ -26,7 +27,7 @@ import { startLaneEntryRetryWorker, stopLaneEntryRetryWorker } from './services/
 import { formatKanbanInvariantReport } from './services/kanbanRecoveryService.js';
 import { runStartupPreflight } from './services/startupPreflight.js';
 import { assertSingleProcessDeployment, DeploymentBoundaryError } from './services/deploymentBoundary.js';
-import { getLoginShellEnv } from './services/loginShellEnv.js';
+import { warmLoginShellEnv, cancelLoginShellProbe, forceStopLoginShellProbe } from './services/loginShellEnv.js';
 import { setAutomationPreflightStatus } from './services/automationStatusService.js';
 import { startKanbanOperationRetention, stopKanbanOperationRetention } from './services/kanbanOperationRetention.js';
 import { startStreamWatchdog, stopStreamWatchdog } from './services/streamWatchdog.js';
@@ -176,8 +177,6 @@ startStreamWatchdog();
 if (!preflight.workersEnabled) {
   console.error(formatKanbanInvariantReport(preflight.report));
   console.error('Kanban preflight failed; HTTP serving and unrelated scheduling remain available, but Kanban entry delivery is disabled');
-} else {
-  startLaneEntryRetryWorker();
 }
 
 // Apply --no-analytics flag to persisted settings
@@ -205,9 +204,6 @@ const { onListenFailure } = prepareBindFailureHandler(server, { port, host });
 // Initialize WebSocket for app
 initWebSocket(server, { auth: authConfig });
 
-// Scheduler readiness is independent of Kanban automation readiness. A bad
-// board configuration must never strand unrelated scheduled sessions.
-schedulerService.startIfEnabled(sessionManager);
 
 // Start PR status polling service
 prStatusService.start();
@@ -233,9 +229,10 @@ startMuseUsageProbe();
 // documented five-second drain bound before process exit is forced); a
 // repeated Ctrl-C / SIGTERM during the drain forces an immediate exit so the
 // server can never ignore the operator.
-const { install: installShutdownHandlers } = createShutdownHandler({
+const { install: installShutdownHandlers, isShuttingDown } = createShutdownHandler({
   server,
   stopPeriodicServices: async () => {
+    cancelLoginShellProbe();
     // Stop periodic services
     schedulerService.stop();
     await stopLaneEntryRetryWorker();
@@ -266,6 +263,7 @@ const { install: installShutdownHandlers } = createShutdownHandler({
   forceTerminateAgentChildren: combineForcedCleanup(
     () => commandRunner.shutdownAll({ force: true }),
     () => forceStopMuseUsageProbe(),
+    () => forceStopLoginShellProbe(),
   ),
   // Close all WebSocket connections (must happen before server.close())
   closeRealtimeConnections: () => webSocketManager.close(),
@@ -276,14 +274,19 @@ installShutdownHandlers();
 // Warm the login-shell env probe once at startup so the first Muse turn
 // doesn't pay the ~2s shell-spawn cost. Failures fall back to the server
 // snapshot env (FR-13) and are logged by the probe itself.
-getLoginShellEnv();
-
-startServer(server, {
-  port,
-  host,
-  isDefaultHost: host === DEFAULT_SERVER_HOST,
-  onListenFailure,
-  secure: tlsConfig.enabled,
-  selfSigned: tlsConfig.enabled && tlsConfig.source === 'self-signed',
-  authEnabled: Boolean(authConfig),
+await startWorkAfterEnvironment({
+  warm: warmLoginShellEnv,
+  isShuttingDown,
+  startLaneWorker: () => { if (preflight.workersEnabled) startLaneEntryRetryWorker(); },
+  // Scheduler readiness is independent of Kanban preflight.
+  startScheduler: () => schedulerService.startIfEnabled(sessionManager),
+  listen: () => startServer(server, {
+    port,
+    host,
+    isDefaultHost: host === DEFAULT_SERVER_HOST,
+    onListenFailure,
+    secure: tlsConfig.enabled,
+    selfSigned: tlsConfig.enabled && tlsConfig.source === 'self-signed',
+    authEnabled: Boolean(authConfig),
+  }),
 });
