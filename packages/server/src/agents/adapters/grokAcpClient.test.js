@@ -141,6 +141,54 @@ describe('GrokAcpClient', () => {
     await client.shutdown();
   });
 
+  it('routes plan approval on both ext-method spellings and never falls through to -32601', async () => {
+    const peer = createPeer();
+    const decisions = {};
+    const client = new GrokAcpClient({
+      spawnImpl: scriptedSpawn(peer, (current) => {
+        const init = current.inbound[0];
+        current.send({ jsonrpc: '2.0', id: init.id, result: { authMethods: [{ id: 'cached_token' }] } });
+      }),
+      onPlanApproval: async (params) => {
+        decisions[params.toolCallId] = params.planContent;
+        return { outcome: 'approved' };
+      },
+    });
+    const pending = client.start();
+    await waitFor(() => peer.inbound.some((message) => message.method === 'authenticate'));
+    const auth = peer.inbound.find((message) => message.method === 'authenticate');
+    peer.send({ jsonrpc: '2.0', id: auth.id, result: {} });
+    await pending;
+    peer.send({ jsonrpc: '2.0', id: 20, method: '_x.ai/exit_plan_mode', params: { toolCallId: 'call-a', planContent: '# Plan A' } });
+    peer.send({ jsonrpc: '2.0', id: 21, method: 'x.ai/exit_plan_mode', params: { toolCallId: 'call-b', planContent: '# Plan B' } });
+    await waitFor(() => [20, 21].every((id) => peer.inbound.some((message) => message.id === id && message.result)));
+    expect(decisions).toEqual({ 'call-a': '# Plan A', 'call-b': '# Plan B' });
+    expect(peer.inbound.find((message) => message.id === 20).result).toEqual({ outcome: 'approved' });
+    expect(peer.inbound.find((message) => message.id === 21).result).toEqual({ outcome: 'approved' });
+    await client.shutdown();
+  });
+
+  it('answers a plan-approval request with abandoned when no handler is wired', async () => {
+    const peer = createPeer();
+    const client = new GrokAcpClient({
+      spawnImpl: scriptedSpawn(peer, (current) => {
+        const init = current.inbound[0];
+        current.send({ jsonrpc: '2.0', id: init.id, result: { authMethods: [{ id: 'cached_token' }] } });
+      }),
+    });
+    const pending = client.start();
+    await waitFor(() => peer.inbound.some((message) => message.method === 'authenticate'));
+    const auth = peer.inbound.find((message) => message.method === 'authenticate');
+    peer.send({ jsonrpc: '2.0', id: auth.id, result: {} });
+    await pending;
+    peer.send({ jsonrpc: '2.0', id: 30, method: '_x.ai/exit_plan_mode', params: { toolCallId: 'call-c', planContent: '' } });
+    await waitFor(() => peer.inbound.some((message) => message.id === 30 && message.result));
+    // The fail-safe is a well-formed result, not the -32601 error Grok reads
+    // as "client disconnected mid-approval" (which cancels the whole turn).
+    expect(peer.inbound.find((message) => message.id === 30).result).toEqual({ outcome: 'abandoned' });
+    await client.shutdown();
+  });
+
   it('reaps the child after malformed protocol output', async () => {
     const peer = createPeer();
     const client = new GrokAcpClient({

@@ -63,4 +63,13 @@ describe('PromptResponse', () => {
   it('continues to accept permission responses without answers', () => {
     expect(PromptResponse.safeParse({ action: 'allow' }).success).toBe(true);
   });
+
+  it('accepts every plan-approval decision and requires feedback for request_changes', () => {
+    expect(PromptResponse.safeParse({ action: 'approve' }).success).toBe(true);
+    expect(PromptResponse.safeParse({ action: 'abandon' }).success).toBe(true);
+    expect(PromptResponse.safeParse({ action: 'request_changes', feedback: 'Add a verification step.' }).success).toBe(true);
+    expect(PromptResponse.safeParse({ action: 'request_changes' }).success).toBe(false);
+    expect(PromptResponse.safeParse({ action: 'request_changes', feedback: '   ' }).success).toBe(false);
+    expect(PromptResponse.safeParse({ action: 'reject' }).success).toBe(false);
+  });
 });

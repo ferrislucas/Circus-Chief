@@ -51,7 +51,6 @@ function park(sessionId, kind, payload = kind === 'question' ? questionPayload :
 
 describe('promptStore work-log emission', () => {
   beforeEach(() => vi.clearAllMocks());
-
   it('settles the live callback and promotes queued work when work-log persistence fails', async () => {
     const session = { id: 'work-log-failure', projectId: 'proj-1' };
     sessions.update = vi.fn((id, data) => ({ ...session, ...data }));
@@ -582,6 +581,58 @@ const CLI_PERMISSION_RESULT_SCHEMA = z.union([
     toolUseID: z.string().optional(),
   }),
 ]);
+
+describe('promptStore plan approval responses', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('settles each decision with the decision and revision notes for the Grok bridge', async () => {
+    const { promise, prompt } = park('plan-approve', 'plan_approval', { planContent: '# Plan\n' });
+    expect(respondToPrompt('plan-approve', prompt.id, { action: 'approve' })).toBe(true);
+    await expect(promise).resolves.toEqual({
+      behavior: 'allow',
+      updatedInput: { decision: 'approve' },
+    });
+
+    const changes = park('plan-changes', 'plan_approval', { planContent: '# Plan\n' });
+    expect(respondToPrompt('plan-changes', changes.prompt.id, { action: 'request_changes', feedback: 'Cover failures.' })).toBe(true);
+    await expect(changes.promise).resolves.toEqual({
+      behavior: 'allow',
+      updatedInput: { decision: 'request_changes', feedback: 'Cover failures.' },
+    });
+
+    const abandon = park('plan-abandon', 'plan_approval', { planContent: '# Plan\n' });
+    expect(respondToPrompt('plan-abandon', abandon.prompt.id, { action: 'abandon' })).toBe(true);
+    await expect(abandon.promise).resolves.toEqual({
+      behavior: 'allow',
+      updatedInput: { decision: 'abandon' },
+    });
+  });
+
+  it('rejects actions from other prompt kinds', () => {
+    const { prompt } = park('plan-reject', 'plan_approval', { planContent: '' });
+    expect(respondToPrompt('plan-reject', prompt.id, { action: 'answer', answers: {} })).toBeNull();
+    expect(respondToPrompt('plan-reject', prompt.id, { action: 'allow' })).toBeNull();
+    expect(respondToPrompt('plan-reject', prompt.id, { action: 'approve' })).toBe(true);
+  });
+
+  it('audits decisions under ExitPlanMode without persisting the plan body', () => {
+    const { prompt } = park('plan-audit', 'plan_approval', { planContent: '# Secret plan details\n' });
+    respondToPrompt('plan-audit', prompt.id, { action: 'request_changes', feedback: 'Tighten scope.' });
+    expect(createWorkLog).toHaveBeenCalledWith(
+      'plan-audit', 'tool_output',
+      'Plan approval decision\nOutcome: changes requested\nRevision notes: sent to agent',
+      'ExitPlanMode',
+    );
+
+    const approved = park('plan-audit-approve', 'plan_approval', { planContent: '# More secrets\n' });
+    respondToPrompt('plan-audit-approve', approved.prompt.id, { action: 'approve' });
+    expect(createWorkLog).toHaveBeenCalledWith(
+      'plan-audit-approve', 'tool_output', 'Plan approval decision\nOutcome: approved', 'ExitPlanMode',
+    );
+    const logged = JSON.stringify(createWorkLog.mock.calls);
+    expect(logged).not.toContain('Secret plan details');
+  });
+});
 
 describe('promptStore canUseTool responses satisfy the CLI permission-result schema', () => {
   it.each(['allow', 'always_allow'])('an %s response parses as a valid CLI permission result (regression: invalid_union without updatedInput)', async (action) => {

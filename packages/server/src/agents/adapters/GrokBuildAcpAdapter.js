@@ -9,6 +9,7 @@ import {
   modelsFromInitialize,
 } from './grokAcpEventMapper.js';
 import { answerGrokQuestion } from './grokQuestionBridge.js';
+import { answerGrokPlanApproval } from './grokPlanBridge.js';
 import { observeGrokBilling } from './grokBilling.js';
 import { rememberGrokModels } from '../../services/grokBuildDiscovery.js';
 
@@ -105,6 +106,12 @@ function openGrokTurn(adapter, options) {
     env: options.env,
     signal: options.abortController?.signal,
     onQuestion: (request) => answerGrokQuestion({
+      sessionId: options.sessionId,
+      conversationId: options.conversationId,
+      request,
+      signal: options.abortController?.signal,
+    }),
+    onPlanApproval: (request) => answerGrokPlanApproval({
       sessionId: options.sessionId,
       conversationId: options.conversationId,
       request,

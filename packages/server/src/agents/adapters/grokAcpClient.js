@@ -10,6 +10,13 @@ const QUESTION_METHODS = new Set([
   'x.ai/ask_user_question',
   'ask_user_question',
 ]);
+// Grok intercepts the model's exit_plan_mode tool and asks the client to run
+// plan approval. Both method spellings are seen in the wild: the wire uses
+// the underscore-prefixed ext form, the binary also references the plain one.
+const PLAN_APPROVAL_METHODS = new Set([
+  '_x.ai/exit_plan_mode',
+  'x.ai/exit_plan_mode',
+]);
 
 /**
  * Owned stdio JSON-RPC client for `grok --no-auto-update agent stdio`.
@@ -25,14 +32,16 @@ export class GrokAcpClient {
    * @param {Object} [opts.env]
    * @param {AbortSignal} [opts.signal]
    * @param {(params: Object) => Promise<Object>} [opts.onQuestion]
+   * @param {(params: Object) => Promise<Object>} [opts.onPlanApproval]
    */
-  constructor({ spawnImpl = spawn, command = 'grok', cwd, env, signal, onQuestion } = {}) {
+  constructor({ spawnImpl = spawn, command = 'grok', cwd, env, signal, onQuestion, onPlanApproval } = {}) {
     this.spawnImpl = spawnImpl;
     this.command = command;
     this.cwd = cwd;
     this.env = env;
     this.signal = signal;
     this.onQuestion = onQuestion;
+    this.onPlanApproval = onPlanApproval;
     this.nextId = 1;
     this.pending = new Map();
     this.child = null;
@@ -174,6 +183,10 @@ export class GrokAcpClient {
 
   async #onIncomingRequest(message) {
     const method = message.method;
+    if (PLAN_APPROVAL_METHODS.has(method)) {
+      await this.#onPlanApprovalRequest(message);
+      return;
+    }
     if (QUESTION_METHODS.has(method)) {
       const result = this.onQuestion
         ? await this.onQuestion(message.params || {})
@@ -198,6 +211,18 @@ export class GrokAcpClient {
       id: message.id,
       error: { code: -32601, message: `Unsupported Grok interaction: ${method}` },
     });
+  }
+
+  // Plan approval must never fall through to the -32601 catch-all: Grok
+  // reads an error reply (or any transport failure) as "client disconnected
+  // mid-approval" and cancels the whole turn. Without a handler wired the
+  // fail-safe outcome is `abandoned` — plan mode turns off, nothing starts
+  // implementing, and the turn keeps going.
+  async #onPlanApprovalRequest(message) {
+    const result = this.onPlanApproval
+      ? await this.onPlanApproval(message.params || {})
+      : { outcome: 'abandoned' };
+    this.#reply(message.id, result || { outcome: 'abandoned' });
   }
 
   #reply(id, result) {
