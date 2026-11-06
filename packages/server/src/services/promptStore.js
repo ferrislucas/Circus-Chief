@@ -99,7 +99,9 @@ function persistPromptOutcome(record, outcome, result) {
 // input and question text can contain credentials or other private content.
 function persistPreParkDenial({ sessionId, kind, payload, reason }) {
   try {
-    const toolName = kind === 'question' ? 'AskUserQuestion' : (payload?.toolName || 'Unknown tool');
+    const toolName = kind === 'question' ? 'AskUserQuestion'
+      : kind === 'plan_approval' ? 'ExitPlanMode'
+        : (payload?.toolName || 'Unknown tool');
     createWorkLog(sessionId, 'tool_output', [
       'Interactive prompt denied before parking',
       `Kind: ${kind}`,
@@ -144,6 +146,16 @@ function describePromptOutcome(record, outcome, result) {
       return { toolName: 'AskUserQuestion', content: `User answered\nQuestions answered: ${answerCount}\nSelections recorded: ${answerCount}` };
     }
     return { toolName: 'AskUserQuestion', content: 'User did not answer' };
+  }
+
+  if (record.kind === 'plan_approval') {
+    // The plan body is agent-authored and can be long; only the decision and
+    // whether revision notes accompanied it belong in durable history.
+    const decision = {
+      approve: 'approved', request_changes: 'changes requested', abandon: 'abandoned',
+    }[outcome] || outcome;
+    const withFeedback = outcome === 'request_changes' && Boolean(result?.updatedInput?.feedback?.trim());
+    return { toolName: 'ExitPlanMode', content: ['Plan approval decision', `Outcome: ${decision}`, withFeedback && 'Revision notes: sent to agent'].filter(Boolean).join('\n') };
   }
 
   const toolName = record.payload.toolName || 'Unknown tool';
@@ -338,6 +350,22 @@ function permissionResult(record, response) {
   return { behavior: 'deny', message: response.reason || 'Permission denied by user.' };
 }
 
+// All three plan-approval decisions are legitimate, deliberate outcomes —
+// there is no "deny" here. The decision (and the revision notes for
+// `request_changes`) travel to the Grok bridge via updatedInput; `abandon`
+// tells Grok to deactivate plan mode, while a cancelled/expired park settles
+// with `behavior: 'deny'` and the bridge maps that to the same abandoned
+// outcome fail-safe.
+function planApprovalResult(record, response) {
+  return {
+    behavior: 'allow',
+    updatedInput: {
+      decision: response.action,
+      ...(response.action === 'request_changes' ? { feedback: response.feedback } : {}),
+    },
+  };
+}
+
 // Only the queue head is ever surfaced to a client (`getPrompt` returns it,
 // and it is the one carried in the SESSION_PROMPT broadcast), so a response
 // resolves the head deterministically. A `promptId` for a queued-but-not-head
@@ -347,7 +375,9 @@ export function respondToPrompt(sessionId, promptId, response) {
   const record = prompts.get(sessionId)?.[0];
   if (!record || record.id !== promptId) return false;
   if (!PROMPT_ACTIONS_BY_KIND[record.kind]?.has(response.action)) return null;
-  const result = record.kind === 'question' ? questionResult(record, response) : permissionResult(record, response);
+  const result = record.kind === 'question' ? questionResult(record, response)
+    : record.kind === 'plan_approval' ? planApprovalResult(record, response)
+      : permissionResult(record, response);
   if (!result) return null;
   return settle(record, response.action, result);
 }

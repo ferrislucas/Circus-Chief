@@ -32,11 +32,22 @@ export const PermissionPromptResponse = z.object({
   reason: z.string().optional(),
   destination: z.enum(['session', 'projectSettings']).optional(),
 });
+// Grok's plan-approval card (`_x.ai/exit_plan_mode`). The feedback text is
+// what the agent receives as revision notes — it is mandatory there so an
+// accidental empty "request changes" can't bounce the agent back to planning
+// with nothing to act on.
+export const PlanApprovalPromptResponse = z.object({
+  action: z.enum(['approve', 'request_changes', 'abandon']),
+  feedback: z.string().optional(),
+}).refine((response) => response.action !== 'request_changes' || Boolean(response.feedback?.trim()), {
+  message: 'Feedback is required when requesting changes',
+});
 
 export const PROMPT_ACTIONS_BY_KIND = Object.freeze({
   question: new Set(['answer', 'cancel']),
   permission: new Set(['allow', 'always_allow', 'deny']),
+  plan_approval: new Set(['approve', 'request_changes', 'abandon']),
 });
 export const PromptResponse = z.union([
-  QuestionPromptResponse, PermissionPromptResponse,
+  QuestionPromptResponse, PermissionPromptResponse, PlanApprovalPromptResponse,
 ]);

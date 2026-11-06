@@ -33,6 +33,14 @@ describe('grok ACP event mapper', () => {
     });
   });
 
+  it('surfaces the cancellation category so a protocol cancellation is not mistaken for a dropped connection', () => {
+    const { error } = createGrokAcpEventMapper().finish({
+      stopReason: 'cancelled',
+      _meta: { cancellationCategory: 'PermissionCancelled', inputTokens: 1, outputTokens: 1 },
+    })[0];
+    expect(error).toContain('cancelled (PermissionCancelled)');
+  });
+
   it('maps tool calls and ignores unknown updates', () => {
     const mapper = createGrokAcpEventMapper();
     expect(mapper.mapUpdate({ update: { sessionUpdate: 'plan' } })).toEqual([]);

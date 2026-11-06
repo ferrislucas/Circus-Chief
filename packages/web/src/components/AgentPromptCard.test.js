@@ -281,4 +281,33 @@ describe('AgentPromptCard', () => {
     expect(wrapper.get('.deny-reason input').attributes('disabled')).toBeDefined();
     expect(wrapper.find('.pending-state').text()).toContain('Saving decision');
   });
+
+  it('renders the plan body and approves directly from a plan-approval card', async () => {
+    const onRespond = vi.fn();
+    const plan = { id: 'plan-1', kind: 'plan_approval', payload: { planContent: '# Watchlist plan\n\n- add symbols' } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: plan, onRespond } });
+    await flushPromises();
+    expect(wrapper.find('.plan-preview').text()).toContain('Watchlist plan');
+    expect(wrapper.get('.prompt-primary-action').text()).toContain('Approve');
+    await wrapper.get('.prompt-primary-action').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith({ action: 'approve' });
+  });
+
+  it('requires revision notes before request changes can be sent and abandons directly', async () => {
+    const onRespond = vi.fn();
+    const plan = { id: 'plan-2', kind: 'plan_approval', payload: { planContent: '' } };
+    const wrapper = mount(AgentPromptCard, { props: { prompt: plan, onRespond } });
+    expect(wrapper.find('.plan-preview').exists()).toBe(false);
+    expect(wrapper.text()).toContain('No plan was written');
+
+    await wrapper.get('.btn-secondary').trigger('click');
+    const notes = wrapper.get('.deny-reason textarea');
+    expect(wrapper.get('.deny-reason button').attributes('disabled')).toBeDefined();
+    await notes.setValue('Add a verification step.');
+    await wrapper.get('.deny-reason button').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith({ action: 'request_changes', feedback: 'Add a verification step.' });
+
+    await wrapper.get('.deny-action').trigger('click');
+    expect(onRespond).toHaveBeenCalledWith({ action: 'abandon' });
+  });
 });

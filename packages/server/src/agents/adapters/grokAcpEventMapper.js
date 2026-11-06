@@ -41,12 +41,17 @@ export function createGrokAcpEventMapper() {
       events.push({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
     }
     const failed = permissionCancelled || ['error', 'cancelled', 'canceled'].includes(result?.stopReason);
+    // Grok annotates cancelled results with a machine-readable category (e.g.
+    // `PermissionCancelled` when an interactive approval went unanswered).
+    // Surfacing it keeps a protocol-level cancellation from reading as a
+    // flaky connection in the session's error line.
+    const category = result?._meta?.cancellationCategory;
     events.push({
       type: 'result',
       subtype: failed ? 'error' : 'success',
       ...(failed ? { is_error: true, error: permissionCancelled
         ? 'Grok requested tool permission without an available allow option.'
-        : `Grok turn ended: ${result.stopReason}.` } : {}),
+        : `Grok turn ended: ${result.stopReason}${category ? ` (${category})` : ''}.` } : {}),
       usage: usageFromGrokPrompt(result, sessionKey),
     });
     return events;

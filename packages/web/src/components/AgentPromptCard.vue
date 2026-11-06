@@ -15,7 +15,11 @@
         :title="`Raised by subagent ${prompt.agentId}`"
       >Subagent · {{ subagentLabel }}</span>
       <p class="prompt-context">
-        {{ prompt.kind === 'question' ? 'The agent is waiting for your guidance.' : 'The agent needs approval to continue.' }}
+        {{ prompt.kind === 'question'
+          ? 'The agent is waiting for your guidance.'
+          : prompt.kind === 'plan_approval'
+            ? 'The agent finished planning and wants your approval before implementing.'
+            : 'The agent needs approval to continue.' }}
       </p>
     </header>
 
@@ -130,6 +134,75 @@
       </footer>
     </template>
 
+    <template v-else-if="prompt.kind === 'plan_approval'">
+      <section
+        class="permission-evidence plan-approval"
+        aria-label="Proposed plan"
+      >
+        <div class="evidence-heading">
+          <span>Proposed plan</span><code>exit_plan_mode</code>
+        </div>
+        <div
+          v-if="planContent"
+          class="plan-preview"
+        >
+          <MarkdownViewer :content="planContent" />
+        </div>
+        <p
+          v-else
+          class="plan-empty"
+        >
+          No plan was written. Approving starts implementation without one; use “Request changes” to send the agent back to planning.
+        </p>
+      </section>
+      <footer class="prompt-actions permission-actions">
+        <span
+          v-if="submitting"
+          class="pending-state"
+          role="status"
+        >Saving decision…</span>
+        <button
+          ref="planApprove"
+          class="btn prompt-primary-action"
+          :disabled="submitting"
+          @click="respond({ action: 'approve' })"
+        >
+          Approve plan
+        </button>
+        <button
+          class="btn btn-secondary"
+          :disabled="submitting"
+          @click="showPlanFeedback = !showPlanFeedback"
+        >
+          {{ showPlanFeedback ? 'Cancel notes' : 'Request changes' }}
+        </button>
+        <button
+          class="btn-link deny-action"
+          :disabled="submitting"
+          @click="respond({ action: 'abandon' })"
+        >
+          Abandon plan
+        </button>
+        <label
+          v-if="showPlanFeedback"
+          class="deny-reason"
+        >
+          <span>Revision notes <em>required</em></span>
+          <textarea
+            v-model="planFeedback"
+            class="form-input form-textarea"
+            :disabled="submitting"
+            placeholder="What should change about this plan?"
+          />
+          <button
+            class="btn"
+            :disabled="submitting || !planFeedback.trim()"
+            @click="submitPlanChanges"
+          >Send notes</button>
+        </label>
+      </footer>
+    </template>
+
     <template v-else>
       <div class="permission-intro">
         <h3>{{ prompt.payload.title || prompt.payload.displayName || prompt.payload.toolName }}</h3>
@@ -228,8 +301,11 @@ const reason = ref('');
 const destination = ref('session');
 const focusedOption = ref({ question: 0, label: null });
 const showDenyReason = ref(false);
+const planFeedback = ref('');
+const showPlanFeedback = ref(false);
 const card = ref(null);
 const allowOnce = ref(null);
+const planApprove = ref(null);
 const firstAnswerControls = ref([]);
 
 function setFirstAnswerControl(questionIndex, optionIndex, element) {
@@ -240,10 +316,12 @@ watch(() => props.prompt?.id, async () => {
   answers.value = {};
   for (const question of props.prompt?.payload.questions || []) if (question.multiSelect) answers.value[question.question] = [];
   other.value = {}; notes.value = {}; reason.value = ''; destination.value = 'session'; showDenyReason.value = false;
+  planFeedback.value = ''; showPlanFeedback.value = false;
   focusedOption.value = { question: 0, label: null }; firstAnswerControls.value = [];
   await nextTick();
   if (typeof card.value?.scrollIntoView === 'function') card.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  const target = props.prompt?.kind === 'question' ? firstAnswerControls.value[0] : allowOnce.value;
+  const target = props.prompt?.kind === 'question' ? firstAnswerControls.value[0]
+    : props.prompt?.kind === 'plan_approval' ? planApprove.value : allowOnce.value;
   target?.focus?.();
 }, { immediate: true });
 
@@ -269,6 +347,12 @@ const subagentLabel = computed(() => {
   return id.length > 12 ? `${id.slice(0, 12)}…` : id;
 });
 const isFileMutation = computed(() => ['Edit', 'Write'].includes(props.prompt?.payload.toolName));
+const planContent = computed(() => props.prompt?.payload?.planContent || '');
+function submitPlanChanges() {
+  const feedback = planFeedback.value.trim();
+  if (!feedback || props.submitting) return;
+  respond({ action: 'request_changes', feedback });
+}
 const permissionDiffFiles = computed(() => {
   const input = props.prompt?.payload.input || {};
   const path = input.file_path || input.path || input.filename || 'pending change';
@@ -369,6 +453,7 @@ useKeyboardShortcuts({
 .option-preview { grid-column: 2 / -1; margin-top: .15rem; padding: .65rem .75rem; border-left: 2px solid var(--prompt-amber); background: rgba(0, 0, 0, .18); color: var(--color-text-soft); font-size: .8rem; overflow: hidden; }.option-preview > span { display: block; margin-bottom: .3rem; color: #f2c462; font-size: .67rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .option-card--other { grid-template-columns: 1.15rem minmax(0, 1fr); }.option-indicator--other { display: grid; place-items: center; color: var(--color-text-soft); font-weight: 700; }.other-input { grid-column: 2; margin-top: .15rem; }.additional-response { display: block; margin-top: 1rem; }.additional-response > span, .deny-reason > span { display: block; margin-bottom: .35rem; color: var(--color-text-soft); font-size: .78rem; }.additional-response em, .deny-reason em { font-style: normal; opacity: .75; }
 .permission-intro { margin-bottom: 1rem; }.permission-intro h3 { margin-bottom: .3rem; }.permission-evidence { overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); }.evidence-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .55rem .75rem; border-bottom: 1px solid var(--color-border); color: var(--color-text-soft); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }.evidence-heading code { color: #f2c462; font-size: .68rem; text-transform: none; }.permission-evidence pre { max-height: 15rem; margin: 0; border: 0; border-radius: 0; background: transparent; }
+.plan-preview { max-height: 24rem; padding: .75rem .9rem; overflow: auto; color: var(--color-text-soft); font-size: .85rem; }.plan-preview :deep(h1), .plan-preview :deep(h2), .plan-preview :deep(h3) { color: var(--color-text); }.plan-empty { margin: 0; padding: .9rem; color: var(--color-text-soft); font-size: .82rem; }
 .prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem .7rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); }.prompt-actions .btn { min-height: 2.75rem; }.prompt-primary-action { border-color: var(--prompt-amber); background: var(--prompt-amber); color: #15110a; font-weight: 700; }.prompt-primary-action:hover:not(:disabled) { background: #e3ad32; }.prompt-quiet-action, .deny-action { padding: .5rem .25rem; color: var(--color-text-soft); font-size: .82rem; }.deny-action { color: #ff9b95; }.always-allow { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }.permission-scope { display: inline-flex; align-items: center; gap: .35rem; color: var(--color-text-soft); font-size: .75rem; }.permission-scope select { min-height: 2.4rem; padding: .35rem .5rem; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); }.deny-reason { display: grid; grid-template-columns: minmax(12rem, 1fr) auto; gap: .45rem .65rem; flex-basis: 100%; margin-top: .2rem; }.deny-reason > span { grid-column: 1 / -1; margin: 0; }.deny-reason .btn { min-height: 2.5rem; }.pending-state { flex-basis: 100%; color: #f2c462; font-size: .78rem; }.agent-prompt-card :is(button, input, textarea, select):focus-visible { outline: 2px solid #f2c462; outline-offset: 2px; }.agent-prompt-card :is(button, input, textarea, select):disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 600px) { .agent-prompt-card { padding: 1rem; }.prompt-header { display: block; }.prompt-context { margin-top: .2rem; }.question-heading { display: block; }.question-chip { display: inline-block; margin-bottom: .35rem; }.option-card { grid-template-columns: 1.15rem minmax(0, 1fr); }.selected-mark { grid-column: 2; }.option-preview { grid-column: 2; }.prompt-actions { align-items: stretch; }.prompt-primary-action { flex: 1 1 100%; }.always-allow { flex: 1 1 100%; }.always-allow .btn { flex: 1; }.permission-scope { flex: 1; justify-content: space-between; }.permission-scope select { flex: 1; }.deny-reason { grid-template-columns: 1fr; }.deny-reason .btn { width: 100%; } }
 </style>
