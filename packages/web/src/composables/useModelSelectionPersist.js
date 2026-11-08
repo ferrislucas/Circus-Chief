@@ -17,6 +17,7 @@ import {
  * @param {object} args.sessionsStore - Sessions store (currentSession, isDraftSession, updateSessionModel).
  * @param {object} args.providersStore - Providers store (providers catalog).
  * @param {object} args.uiStore - UI store (error surfacing).
+ * @param {() => void} [args.onRevert] - Called when a picker change is cancelled or rejected.
  * @returns {{ pauseModelPersist: () => void, resumeModelPersist: () => void }}
  *   Guards for programmatic ref updates that must not trigger a persist
  *   (model initialization, template application).
@@ -28,6 +29,7 @@ export function useModelSelectionPersist({
   sessionsStore,
   providersStore,
   uiStore,
+  onRevert,
 }) {
   const selectedModel = selectedModelRef;
   const selectedProviderId = selectedProviderIdRef;
@@ -42,6 +44,7 @@ export function useModelSelectionPersist({
     suppressNextModelPersist = true;
     selectedModel.value = model;
     selectedProviderId.value = providerId;
+    onRevert?.();
   }
 
   // Persist model selection to session

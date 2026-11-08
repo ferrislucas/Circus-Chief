@@ -71,6 +71,7 @@
       @update:model-value="input = $event"
       @update:selected-model="selectedModel = $event"
       @update:selected-provider-id="selectedProviderId = $event"
+      @model-selected="onUserModelSelected"
       @submit="handleFormSubmit"
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
@@ -134,7 +135,6 @@ import './ConversationTab.css';
 import { useScheduleStartNow } from '../composables/useScheduleStartNow.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { appendTemplatePromptValue, buildTemplateSettingsFields, resolveTemplateProviderId } from '../utils/templateApply.js';
-import { normalizeModelProviderPair, resolveDefaultModelId } from './modelSelectorTiers.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -151,6 +151,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { isTierRef, useTiersStore } from '../stores/tiers.js';
 import { useModelSelectionPersist } from '../composables/useModelSelectionPersist.js';
+import { useFollowUpModel } from '../composables/useFollowUpModel.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -203,8 +204,9 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
 
-// Picker → session model persistence (confirm/revert flow lives here so the
-// component stays under the max-lines budget).
+// Picker persistence and the follow-up payload. A cancelled switch clears the
+// user-pick flag via onRevert, which is assigned once useFollowUpModel returns.
+let onModelPickReverted = () => {};
 const { pauseModelPersist, resumeModelPersist } = useModelSelectionPersist({
   getSessionId: () => props.sessionId,
   selectedModel,
@@ -212,7 +214,19 @@ const { pauseModelPersist, resumeModelPersist } = useModelSelectionPersist({
   sessionsStore,
   providersStore,
   uiStore,
+  onRevert: () => onModelPickReverted(),
 });
+const { onUserModelSelected, onModelPickReverted: clearFollowUpPick, followUpSelection } = useFollowUpModel({
+  getSessionId: () => props.sessionId,
+  sessionsStore,
+  providersStore,
+  defaultsStore,
+  selectedModel,
+  selectedProviderId,
+  pauseModelPersist,
+  resumeModelPersist,
+});
+onModelPickReverted = clearFollowUpPick;
 
 // Draft saving composable
 const {
@@ -537,20 +551,6 @@ watch(
   }
 );
 
-function getProjectDefaultModel() {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId) return null;
-  const defaults = defaultsStore.getDefaultsForProject(projectId);
-  return defaults?.model || null;
-}
-
-function getProjectDefaultProviderId() {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId) return null;
-  const defaults = defaultsStore.getDefaultsForProject(projectId);
-  return defaults?.providerId || null;
-}
-
 // Watch for conversation query parameter changes
 watch(
   () => route.query.conv,
@@ -559,33 +559,6 @@ watch(
       await sessionsStore.switchConversation(props.sessionId, newConvId);
     }
   }
-);
-
-// Model initialization from active conversation. The pair resolves
-// atomically: a tier-bound model never pairs with a concrete provider hint,
-// and the legacy 'sonnet' literal defers to the shared default-model
-// resolver so the fallback always names a model in the live catalog.
-watch(
-  () => sessionsStore.activeConversation,
-  (conv) => {
-    if (selectedModel.value === null) {
-      pauseModelPersist();
-      const pair = normalizeModelProviderPair(
-        sessionsStore.currentSession?.model ||
-          getProjectDefaultModel() ||
-          resolveDefaultModelId(providersStore.providers),
-        sessionsStore.currentSession?.providerId ||
-          getProjectDefaultProviderId() ||
-          null
-      );
-      selectedModel.value = pair.model;
-      selectedProviderId.value = pair.providerId;
-      nextTick(() => {
-        resumeModelPersist();
-      });
-    }
-  },
-  { immediate: true }
 );
 
 // Form submission handler
@@ -636,7 +609,7 @@ async function handleFormSubmit(options = {}) {
     const success = await handleSend(
       currentValue,
       attachedFiles.value,
-      { model: selectedModel.value, providerId: selectedProviderId.value },
+      followUpSelection(),
       options
     );
     if (success) {
