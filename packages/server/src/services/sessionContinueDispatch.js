@@ -1,10 +1,10 @@
-import { sessions } from '../database.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import {
-  buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
+  buildLastExecutedUpdate, checkContinuationDispatchKind,
   createCrossKindDispatchError, hasDispatchPairChanged,
 } from './sessionAgentGuard.js';
+import { applyContinueResolution, resolveContinueAgentTypeUpdate } from './sessionContinueKindSwitch.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { buildQueryParams } from './queryParamBuilder.js';
@@ -44,7 +44,7 @@ export function isSameBindingSelection(session, model, providerId) {
  * `tier::<id>` sentinel is never forwarded to the agent.
  */
 export function buildContinueModelAndEnv(session, sessionId, model, {
-  providerId = null, suppressAdvanceNotice = false, retryMember = null,
+  providerId = null, suppressAdvanceNotice = false, retryMember = null, interactive = false,
 } = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
@@ -94,16 +94,27 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   // newly validated candidate — not the model string or tier sentinel alone.
   const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
-  // Advance-aware agentType reconciliation (§5.1): shared with
-  // sessionManager.buildModelAndProvider.
-  const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
-
-  let updatedSession = session;
-  const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
-  if (Object.keys(updatePayload).length > 0) {
-    sessions.update(sessionId, updatePayload);
-    updatedSession = sessions.getById(sessionId);
-  }
+  // Explicit off-binding kind mismatches throw here, before the row write.
+  // Interactive in-scope concrete switches retarget; tier advances stay on
+  // the advance-aware path. A null model keeps the current snapshot.
+  const agentTypeUpdate = resolveContinueAgentTypeUpdate({
+    session,
+    sessionId,
+    requestedModel: model,
+    requestedProviderId: providerId,
+    interactive,
+    sameBinding: model == null || isSameBindingSelection(session, model, providerId),
+    effectiveModel,
+    providerIdHint,
+    persist,
+  });
+  const updatedSession = applyContinueResolution({
+    session,
+    sessionId,
+    persist,
+    agentTypeUpdate,
+    lastExecutedUpdate: buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId),
+  });
 
   // An explicit request that moves OFF the session's own (model, providerId)
   // binding (a concrete-model pick, a different tier ref, or a provider-only
@@ -222,6 +233,7 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
         providerId: firstAttempt ? providerId : null,
         suppressAdvanceNotice: !firstAttempt,
         retryMember,
+        interactive,
       }
     );
     if (!firstAttempt && resolvesToFailedMember(modelEnv, turn.unsettledError)) {

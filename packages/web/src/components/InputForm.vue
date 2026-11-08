@@ -102,6 +102,7 @@
           :session-scoped="true"
           @update:model-value="$emit('update:selectedModel', $event)"
           @update:provider-id="$emit('update:selectedProviderId', $event)"
+          @model-selected="$emit('modelSelected', $event)"
         />
 
         <FileAttachment
@@ -205,6 +206,7 @@ const emit = defineEmits([
   'update:modelValue',
   'update:selectedModel',
   'update:selectedProviderId',
+  'modelSelected',
   'autoSendToggle',
   'prompt-focus',
   'prompt-blur',
