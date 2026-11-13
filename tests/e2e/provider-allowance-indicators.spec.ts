@@ -103,6 +103,11 @@ test.describe('Provider allowance indicators', () => {
     page.on('websocket', (socket) => socket.on('framereceived', (frame) => receivedFrames.push(frame.payload)));
 
     await page.goto('/');
+    // The adapter can finish before the browser's WebSocket handshake under
+    // load. Wait for the mounted app and its connection before emitting the
+    // update whose live delivery this test verifies.
+    await expect(page.getByTestId('provider-allowance-indicators')).toBeVisible();
+    await expect(page.getByTestId('connection-status-dot')).toHaveCount(0);
     const session = await seedSession(project.id, {
       prompt: 'Return a brief allowance fixture response.',
       model: 'gpt-5.6-sol', providerId: provider.id, startImmediately: true,
@@ -149,6 +154,8 @@ test.describe('Provider allowance indicators', () => {
     page.on('websocket', (socket) => socket.on('framereceived', (frame) => receivedFrames.push(frame.payload)));
 
     await page.goto('/');
+    await expect(page.getByTestId('provider-allowance-indicators')).toBeVisible();
+    await expect(page.getByTestId('connection-status-dot')).toHaveCount(0);
     // The E2E Claude fixture replaces the SDK query() boundary on the test
     // server, so this session streams a sanitized rate_limit_event through the
     // production adapter tap (57.5% remaining → 58% displayed).

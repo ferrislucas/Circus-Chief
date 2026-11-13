@@ -76,6 +76,10 @@ export function useWorkLogFollow({ resolveContainer = null, resolveContent = nul
     lastPinnedTop = null;
     const { scrollTop, scrollHeight, clientHeight } = container;
     isNearBottom.value = scrollHeight - scrollTop - clientHeight < WORK_LOG_SCROLL_THRESHOLD;
+    // A browser may deliver another scroll event for the same movement after
+    // content has grown. Preserve the return-to-bottom position as an echo,
+    // so that delayed event cannot immediately pause following again.
+    if (isNearBottom.value) lastPinnedTop = pinTop(container);
   }
 
   // Convergent re-pin watch after each follow scroll. Rendered content
