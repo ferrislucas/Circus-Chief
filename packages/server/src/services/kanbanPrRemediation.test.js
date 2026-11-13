@@ -53,6 +53,8 @@ import {
   databaseManager,
 } from '../database.js';
 import { runSession } from './sessionManager.js';
+import { broadcastToProject } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   drainLaneEntryTrigger,
   drainQueuedEntries,
@@ -129,6 +131,13 @@ describe('kanban PR remediation (issues 13, 14, 15)', () => {
     expect(getRun(run.id).failureReason).not.toContain('secret');
     expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
     expect(entryStatus(run.laneEntryEventId)).toBe('failed');
+    const notices = broadcastToProject.mock.calls.filter((call) => call[1] === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED);
+    expect(notices.length).toBeGreaterThan(0);
+    for (const notice of notices) {
+      expect(notice[2].board).toBeTruthy();
+      expect(JSON.stringify(notice[2].board)).toContain(childId);
+      expect(JSON.stringify(notice[2].board)).not.toContain('secret');
+    }
   });
 
   it('exhausted setup retries fail the preserved child instead of wedging it', async () => {
@@ -158,6 +167,69 @@ describe('kanban PR remediation (issues 13, 14, 15)', () => {
     expect(getRun(run.id).failureReason).toContain('git boom');
     expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
     expect(entryStatus(run.laneEntryEventId)).toBe('failed');
+    const notices = broadcastToProject.mock.calls.filter((call) => call[1] === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED);
+    expect(notices.length).toBeGreaterThan(0);
+    for (const notice of notices) {
+      expect(notice[2].board).toBeTruthy();
+      expect(JSON.stringify(notice[2].board)).toContain(childId);
+      expect(JSON.stringify(notice[2].board)).not.toContain('secret');
+    }
+  });
+
+  it.each([false, true])('parks template entry after setup contention (preserved child: %s)', async (preserved) => {
+    const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'work' });
+    kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id) });
+    const child = preserved ? createSession('Retry child', { parentSessionId: root.id, status: 'starting' }) : null;
+    if (child) attachRootSession(run.id, child.id);
+    const { setupGitForSession } = await import('./gitSessionSetup.js');
+    let rejectSetup;
+    let setupStarted;
+    const started = new Promise((resolve) => { setupStarted = resolve; });
+    setupGitForSession.mockImplementationOnce(() => { setupStarted(); return new Promise((resolve, reject) => { rejectSetup = reject; }); });
+    const delivery = drainLaneEntryTrigger(run.laneEntryEventId);
+    await started;
+    updateLaneWithAutomationToggle(lanes[0].id, { automationEnabled: false });
+    const error = new Error('shared config contention');
+    error.code = 'GIT_SHARED_CONFIG_CONTENTION';
+    rejectSetup(error);
+    expect(await delivery).toBe(false);
+    expect(entryStatus(run.laneEntryEventId)).toBe('queued');
+    expect(getRun(run.id)).toMatchObject({ status: 'open', rootSessionId: child?.id || null });
+    if (child) expect(sessions.getById(child.id).ownWorkState).toBe('open');
+    expect(runSession).not.toHaveBeenCalled();
+    kanbanLanes.update(lanes[0].id, { automationEnabled: true });
+    expect(drainQueuedEntries(lanes[0].id).drainedCount).toBe(1);
+    await vi.waitFor(() => expect(entryStatus(run.laneEntryEventId)).toBe('completed'));
+    expect(runSession).toHaveBeenCalledTimes(1);
+    if (child) expect(runSession.mock.calls[0][0]).toBe(child.id);
+  });
+
+  it('does not fail a child when the delivery claim is replaced during setup', async () => {
+    const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'work' });
+    kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id) });
+    const { setupGitForSession } = await import('./gitSessionSetup.js');
+    let rejectSetup;
+    let setupStarted;
+    const started = new Promise((resolve) => { setupStarted = resolve; });
+    setupGitForSession.mockImplementationOnce(() => { setupStarted(); return new Promise((resolve, reject) => { rejectSetup = reject; }); });
+    const delivery = drainLaneEntryTrigger(run.laneEntryEventId);
+    const outcome = expect(delivery).rejects.toThrow();
+    await started;
+    const childId = getRun(run.id).rootSessionId;
+    databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET claim_token=? WHERE id=?').run('successor', run.laneEntryEventId);
+    const error = new Error('shared config contention');
+    error.code = 'GIT_SHARED_CONFIG_CONTENTION';
+    rejectSetup(error);
+    await outcome;
+    expect(getRun(run.id)).toMatchObject({ status: 'open', rootSessionId: childId });
+    expect(sessions.getById(childId).ownWorkState).toBe('open');
+    expect(broadcastToProject.mock.calls.filter((call) => call[1] === WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED)).toHaveLength(0);
   });
 
   /** Provider permission posture for a child row, via the real query builder. */

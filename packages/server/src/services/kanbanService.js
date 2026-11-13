@@ -1274,7 +1274,9 @@ function terminalizeExhaustedEntryRun(event) {
   // when dispatch intent was recorded: only uncertain ownership is spared.
   if (isAmbiguousDispatchEvent(merged)
     && !String(merged.last_error || '').includes(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON)) return null;
-  const run = db.prepare(`SELECT id, root_session_id FROM kanban_lane_runs WHERE lane_entry_event_id=? AND status='open'`).get(event.id);
+  const run = db.prepare(`SELECT r.id, r.root_session_id FROM kanban_lane_runs r
+    JOIN kanban_cards c ON c.id=r.card_id AND c.active_lane_run_id=r.id
+    WHERE r.lane_entry_event_id=? AND r.status='open'`).get(event.id);
   if (!run) return null;
   const time = Date.now();
   failUndispatchedLaneChild(db, run, event.last_error);
@@ -1559,13 +1561,10 @@ function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
     console.error(`Kanban failed to terminalize exhausted entry ${eventId}; kept retryable:`, transitionError);
     throw new Error(`Lane-entry delivery failed: ${lastError}; run terminalization failed: ${transitionError?.message || transitionError}`);
   }
-  // Post-commit refresh (never inside the transaction above): a subscribed
-  // board re-fetches the failed run (sanitized failure_reason, failed
-  // session link) and any open child view sees its terminal state without
-  // inspecting server logs.
+  // Publish the committed failure snapshot and notify any open child view.
   if (transitionedExhausted) {
     const projectId = current.project_id;
-    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, { projectId });
+    broadcastQueueAdvance(current.lane_id);
     const terminalRun = db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId);
     if (terminalRun?.root_session_id) {
       broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
