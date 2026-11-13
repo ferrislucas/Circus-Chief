@@ -15,10 +15,12 @@ import {
   assertLaneAutomationActive, isLaneAutomationDisabledError, createLaneAutomationDisabledError,
 } from './kanbanTriggers.js';
 import { abandonUndispatchedChild, settlePreservedChildForPause } from './kanbanAbandon.js';
+import { isTerminalLaneGitSetupFailure } from './kanbanTriggerWorkdir.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import {
   createLaneRunForEntry, supersedeLaneRun, supersedeLaneRunAuthorityOnly,
   supersedeRunForCard, isStructured, isAutomationActive, getRun, setLaneRunTerminalHandler,
-  enqueueDisabledEntry,
+  enqueueDisabledEntry, closeOwnWork,
 } from './workflowSessionService.js';
 import {
   createGatedLaneRunForEntry, drainLaneQueue, getQueuedCardIds,
@@ -1228,6 +1230,26 @@ function quarantineAmbiguousEntryDelivery(db, event, token, error) {
 }
 
 /**
+ * Fail a lane child that an exhausted definitive delivery can never start,
+ * so it does not remain 'starting' with an open obligation forever (FRD
+ * worktree-startup failure propagation). The reason is sanitized at the same
+ * choke point as every other workflow failure; closeOwnWork closes the open
+ * obligation and reconciles the run to failed with that reason, pointing the
+ * run projection's failedSessionId at the child. No-op for an already-closed
+ * child (races, retries, or a prior terminal handoff).
+ * @returns {string|null} The failed child id, or null when nothing changed
+ */
+function failUndispatchedLaneChild(db, run, rawReason) {
+  if (!run.root_session_id) return null;
+  const child = db.prepare('SELECT id, own_work_state FROM sessions WHERE id=?').get(run.root_session_id);
+  if (!child || child.own_work_state !== 'open') return null;
+  const reason = normalizeFinalErrorMessage(rawReason || 'lane-entry delivery attempts exhausted');
+  sessions.update(child.id, { status: 'error', error: reason });
+  closeOwnWork(child.id, 'closed_failed', reason);
+  return child.id;
+}
+
+/**
  * Terminalize the open run tied to a definitively failed entry event (FR-9,
  * FR-10). A deferred start counts as running from run creation, so without
  * this an exhausted delivery would hold its lane slot forever and block the
@@ -1236,6 +1258,10 @@ function quarantineAmbiguousEntryDelivery(db, event, token, error) {
  * Pending retries (not yet exhausted) keep holding their slot. Uncertain
  * dispatches are never terminalized here: callers quarantine those instead,
  * while definitive provider refusals stay on the terminal path.
+ *
+ * An exhausted definitive delivery also proves its attached child can never
+ * run, so the child is failed with the sanitized reason instead of being
+ * left 'starting' with an open obligation.
  * @param {{ id: string, lane_id: string, last_error: string|null }} event
  * @returns {string|null} The terminalized run id, or null when no open run remains
  */
@@ -1248,12 +1274,13 @@ function terminalizeExhaustedEntryRun(event) {
   // when dispatch intent was recorded: only uncertain ownership is spared.
   if (isAmbiguousDispatchEvent(merged)
     && !String(merged.last_error || '').includes(PROVIDER_DISPATCH_NOT_ACCEPTED_REASON)) return null;
-  const run = db.prepare(`SELECT id FROM kanban_lane_runs WHERE lane_entry_event_id=? AND status='open'`).get(event.id);
+  const run = db.prepare(`SELECT id, root_session_id FROM kanban_lane_runs WHERE lane_entry_event_id=? AND status='open'`).get(event.id);
   if (!run) return null;
   const time = Date.now();
+  failUndispatchedLaneChild(db, run, event.last_error);
   const failed = db.prepare(`UPDATE kanban_lane_runs SET status='failed',
     failure_reason=?, failed_at=?, updated_at=? WHERE id=? AND status='open'`)
-    .run(String(event.last_error || 'lane-entry delivery attempts exhausted').slice(0, 240), time, time, run.id);
+    .run(normalizeFinalErrorMessage(event.last_error || 'lane-entry delivery attempts exhausted').slice(0, 240), time, time, run.id);
   if (!failed.changes) return null;
   console.error(`Kanban lane-entry delivery ${event.id} exhausted retries; run ${run.id} marked failed`);
   // The freed slot drains to the next queued card (deferred: the failure
@@ -1457,6 +1484,7 @@ function auditDeliveryFailure(db, runId, event, error) {
  * and terminalizes its run at exhaustion (releasing the lane slot so the
  * queue drains) instead of quarantining.
  */
+// eslint-disable-next-line complexity -- delivery ownership and retry boundaries are handled together
 function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
   // Re-read the dispatch phase: the caller's snapshot may predate the
   // dispatch-intent write from an earlier attempt under another claim.
@@ -1464,7 +1492,13 @@ function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
     FROM kanban_lane_entry_events WHERE id=?`).get(eventId);
   const current = { ...event, ...fresh };
   const time = Date.now();
-  const exhausted = current.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
+  // A terminally classified Git setup failure (shared-config contention that
+  // already spent its own bounded retry budget) is exhausted on arrival:
+  // re-delivering it cannot succeed, so the child and run are failed now
+  // instead of consuming the retry window. Generic setup failures stay
+  // retryable and reuse the preserved child.
+  const exhausted = isTerminalLaneGitSetupFailure(error)
+    || current.attempt_count >= MAX_ENTRY_EVENT_ATTEMPTS;
   // An uncertain dispatch is quarantined at exhaustion, never failed: a
   // provider may already be running, so the run keeps its slot and
   // authority. Earlier attempts still retry (dispatch keys stay idempotent),
@@ -1524,6 +1558,20 @@ function failClaimedEntryDelivery(db, { eventId, token, event, error }) {
     });
     console.error(`Kanban failed to terminalize exhausted entry ${eventId}; kept retryable:`, transitionError);
     throw new Error(`Lane-entry delivery failed: ${lastError}; run terminalization failed: ${transitionError?.message || transitionError}`);
+  }
+  // Post-commit refresh (never inside the transaction above): a subscribed
+  // board re-fetches the failed run (sanitized failure_reason, failed
+  // session link) and any open child view sees its terminal state without
+  // inspecting server logs.
+  if (transitionedExhausted) {
+    const projectId = current.project_id;
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, { projectId });
+    const terminalRun = db.prepare('SELECT root_session_id FROM kanban_lane_runs WHERE lane_entry_event_id=?').get(eventId);
+    if (terminalRun?.root_session_id) {
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId, sessionId: terminalRun.root_session_id, session: sessions.getById(terminalRun.root_session_id),
+      });
+    }
   }
 }
 

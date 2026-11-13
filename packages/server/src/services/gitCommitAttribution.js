@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import os from 'os';
 import path from 'path';
 import { chmod, mkdir, writeFile } from 'fs/promises';
+import { ensureWorktreeConfigEnabled } from './gitWorktreeConfig.js';
 
 const execAsync = promisify(exec);
 
@@ -89,7 +90,7 @@ export async function clearWorktreeCommitAttribution(worktreePath) {
     return false;
   }
 
-  await git(worktreePath, 'config extensions.worktreeConfig true');
+  await ensureWorktreeConfigEnabled(worktreePath);
 
   if (currentAttribution) {
     try {
@@ -121,7 +122,7 @@ export async function clearWorktreeCommitAttribution(worktreePath) {
 export async function ensureWorktreeCommitAttributionHook(worktreePath) {
   const managedHooksPath = getManagedHooksPath();
 
-  await git(worktreePath, 'config extensions.worktreeConfig true');
+  await ensureWorktreeConfigEnabled(worktreePath);
 
   const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
   if (currentHooksPath && currentHooksPath !== managedHooksPath && currentHooksPath !== LEGACY_MANAGED_HOOKS_PATH) {

@@ -17,9 +17,10 @@ import { runSession } from './sessionManager.js';
 import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
 import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import { abandonPausedTriggerChild } from './kanbanAbandon.js';
-import { attachRootSession, isLaneDispatchable } from './workflowSessionService.js';
+import { attachRootSession, isLaneDispatchable, closeOwnWork } from './workflowSessionService.js';
 import {
   resolveTriggerWorkingDirectory, determineWorkingDirectory, throwIfAborted,
+  isTerminalLaneGitSetupFailure,
 } from './kanbanTriggerWorkdir.js';
 
 // determineWorkingDirectory lives in kanbanTriggerWorkdir.js (extracted to
@@ -28,6 +29,31 @@ import {
 export { determineWorkingDirectory };
 
 export const LANE_AUTOMATION_DISABLED_CODE = 'LANE_AUTOMATION_DISABLED';
+
+/**
+ * Terminal handoff for a lane child whose Git setup failed before provider
+ * dispatch with a terminally classified error (shared-config contention that
+ * already spent its bounded retry budget). The child is marked failed with
+ * the sanitized reason and its open lane obligation closed; reconciliation
+ * fails the run and points failedSessionId at the child. The sanitized error
+ * is rethrown with its classification intact so the outbox terminalizes the
+ * delivery immediately — the undelivered path would strip the code and spend
+ * a futile retry window on an already-retried, unrecoverable error. Transient
+ * setup failures return false and stay on the ordinary outbox retry path,
+ * which reuses the preserved child (issues 13/16). Idempotent for races and
+ * retries: an already-closed child is left untouched.
+ */
+function failGitSetup(error, childId, projectId) {
+  if (!isTerminalLaneGitSetupFailure(error) || !childId) return false;
+  const reason = normalizeFinalErrorMessage(error.cause);
+  const session = sessions.update(childId, { status: 'error', error: reason });
+  closeOwnWork(childId, 'closed_failed', reason);
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, { projectId, sessionId: childId, session });
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, { projectId });
+  const safeError = new Error(reason, { cause: error.cause });
+  safeError.code = error.code;
+  throw safeError;
+}
 
 /** Thrown when a lane is disabled mid-dispatch. The outbox parks the entry. */
 export function createLaneAutomationDisabledError() {
@@ -309,6 +335,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
       throw error;
     }
+    failGitSetup(error, createdChildId || childSessionId, session.projectId);
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
@@ -361,6 +388,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   return { newSession, renderedPrompt, settings };
 }
 
+// eslint-disable-next-line max-statements -- setup and dispatch fences belong to one delivery boundary
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated } = options;
 
@@ -401,6 +429,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
       throw error;
     }
+    failGitSetup(error, createdChildId || childSessionId, session.projectId);
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }

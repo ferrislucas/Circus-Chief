@@ -107,6 +107,59 @@ describe('kanban PR remediation (issues 13, 14, 15)', () => {
       .get(eventId).status;
   }
 
+  it('fails the lane child terminally when Git setup contention is classified persistent', async () => {
+    const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'work' });
+    kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id) });
+    const { setupGitForSession } = await import('./gitSessionSetup.js');
+    // The classified contention error already spent its bounded retry budget
+    // inside ensureWorktreeConfigEnabled, so the first delivery is terminal:
+    // no outbox retry window is consumed.
+    const contention = new Error('Cannot access https://user:secret@example.com/repo');
+    contention.code = 'GIT_SHARED_CONFIG_CONTENTION';
+    setupGitForSession.mockRejectedValueOnce(contention);
+    await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow();
+    const childId = getRun(run.id).rootSessionId;
+    expect(childId).toBeTruthy();
+    expect(sessions.getById(childId)).toMatchObject({ status: 'error', ownWorkState: 'closed_failed' });
+    expect(sessions.getById(childId).error).not.toContain('secret');
+    expect(getRun(run.id)).toMatchObject({ status: 'failed', failedSessionId: childId });
+    expect(getRun(run.id).failureReason).not.toContain('secret');
+    expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+    expect(entryStatus(run.laneEntryEventId)).toBe('failed');
+  });
+
+  it('exhausted setup retries fail the preserved child instead of wedging it', async () => {
+    const template = sessionTemplates.create({ projectId, name: 'Entry', prompt: 'work' });
+    kanbanLanes.update(lanes[0].id, { onEnterTemplateId: template.id });
+    const root = createSession('Root');
+    const card = kanbanCards.create(lanes[0].id, root.id);
+    const run = createLaneRunForEntry({ projectId, workspaceId: root.id, cardId: card.id, lane: kanbanLanes.getById(lanes[0].id) });
+    const { setupGitForSession } = await import('./gitSessionSetup.js');
+    // A generic setup failure is transient: every attempt retries and reuses
+    // the preserved child until the outbox's attempt budget is spent. Each
+    // attempt queues its own once-rejection so the module default (resolve)
+    // stays intact for later tests.
+    let childId = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      setupGitForSession.mockRejectedValueOnce(new Error('git boom'));
+      databaseManager.get().prepare('UPDATE kanban_lane_entry_events SET next_attempt_at=NULL WHERE id=?')
+        .run(run.laneEntryEventId);
+      await expect(drainLaneEntryTrigger(run.laneEntryEventId)).rejects.toThrow();
+      childId = childId || getRun(run.id).rootSessionId;
+      expect(childId).toBeTruthy();
+    }
+    // The same child survived every retry, then failed terminally instead of
+    // remaining 'starting' with an open obligation it can never satisfy.
+    expect(sessions.getById(childId)).toMatchObject({ status: 'error', ownWorkState: 'closed_failed' });
+    expect(getRun(run.id)).toMatchObject({ status: 'failed', failedSessionId: childId });
+    expect(getRun(run.id).failureReason).toContain('git boom');
+    expect(kanbanCards.getById(card.id).laneId).toBe(lanes[0].id);
+    expect(entryStatus(run.laneEntryEventId)).toBe('failed');
+  });
+
   /** Provider permission posture for a child row, via the real query builder. */
   function permissionModeFor(child) {
     const params = buildQueryParams({
