@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { kanbanWebSocketActions } from '../stores/kanbanWebSocketActions.js';
 import { defineComponent, nextTick, ref } from 'vue';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
@@ -81,6 +82,22 @@ describe('useProjectListRealtime', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('retains the failed card and reason when a subscribed board snapshot arrives', () => {
+    const store = { board: { lanes: [] }, ...kanbanWebSocketActions };
+    const subscription = useProjectSubscription('a');
+    const unsubscribe = subscription.onKanbanBoardUpdated((board) => store.handleBoardUpdated(board));
+    const board = { lanes: [{ id: 'lane', cards: [{ id: 'card', activeRun: {
+      status: 'failed', failureReason: 'shared config contention', failedSessionId: 'child',
+    } }] }] };
+    for (const handler of listeners.get(WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED)) {
+      handler({ projectId: 'a', board });
+    }
+    expect(store.board.lanes[0].cards[0].activeRun).toMatchObject({
+      status: 'failed', failureReason: 'shared config contention', failedSessionId: 'child',
+    });
+    unsubscribe();
   });
 
   it('subscribes to every loaded project and unsubscribes them all on unmount', () => {
