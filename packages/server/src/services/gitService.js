@@ -2,6 +2,8 @@
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { classifyGitError } from './gitErrorClassify.js';
+import { ensureWorktreeConfigEnabled } from './gitWorktreeConfig.js';
+export { ensureWorktreeConfigEnabled } from './gitWorktreeConfig.js';
 export {
   _setManagedHooksPath,
   clearWorktreeCommitAttribution,
@@ -610,7 +612,7 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
   if (!author) return false;
 
   // Enable worktree-specific config (required for --worktree flag)
-  await git(worktreePath, 'config extensions.worktreeConfig true');
+  await ensureWorktreeConfigEnabled(worktreePath);
 
   // Pin the human's identity in the worktree config so they are always
   // the commit Author, regardless of what the session does later

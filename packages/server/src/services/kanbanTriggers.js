@@ -20,6 +20,7 @@ import { abandonPausedTriggerChild } from './kanbanAbandon.js';
 import { attachRootSession, isLaneDispatchable } from './workflowSessionService.js';
 import {
   resolveTriggerWorkingDirectory, determineWorkingDirectory, throwIfAborted,
+  isTerminalLaneGitSetupFailure,
 } from './kanbanTriggerWorkdir.js';
 
 // determineWorkingDirectory lives in kanbanTriggerWorkdir.js (extracted to
@@ -28,6 +29,23 @@ import {
 export { determineWorkingDirectory };
 
 export const LANE_AUTOMATION_DISABLED_CODE = 'LANE_AUTOMATION_DISABLED';
+
+async function settleTriggerFailure(error, { laneRunId, childSessionId, createdChildId, allocatedWorktree, abortController, assertLaneEnabled }) {
+  let failure = error;
+  if (isTerminalLaneGitSetupFailure(failure)) {
+    try {
+      throwIfAborted(abortController);
+      assertLaneEnabled?.();
+    } catch (fenceError) {
+      failure = fenceError;
+    }
+  }
+  if (isLaneAutomationDisabledError(failure)) {
+    await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
+    throw failure;
+  }
+  if (failure !== error || isTerminalLaneGitSetupFailure(failure) || abortController?.signal.aborted) throw failure;
+}
 
 /** Thrown when a lane is disabled mid-dispatch. The outbox parks the entry. */
 export function createLaneAutomationDisabledError() {
@@ -305,10 +323,9 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     console.log(`Kanban: Created and started on-enter session ${newSession.id}`);
     return result;
   } catch (error) {
-    if (isLaneAutomationDisabledError(error)) {
-      await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
-      throw error;
-    }
+    await settleTriggerFailure(error, {
+      laneRunId, childSessionId, createdChildId, allocatedWorktree, abortController, assertLaneEnabled,
+    });
     console.error(`Kanban: Failed to trigger on-enter template for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'template delivery failed');
   }
@@ -361,6 +378,7 @@ async function buildChildSessionFromPrompt(lane, session, options = {}) {
   return { newSession, renderedPrompt, settings };
 }
 
+// eslint-disable-next-line max-statements -- setup and dispatch fences belong to one delivery boundary
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const { laneRunId = null, childSessionId = null, beforeDispatch, abortController, assertLaneEnabled, onDispatchInitiated } = options;
 
@@ -397,10 +415,9 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
     return result;
   } catch (error) {
-    if (isLaneAutomationDisabledError(error)) {
-      await abandonPausedTriggerChild({ laneRunId, childSessionId, createdChildId, allocatedWorktree });
-      throw error;
-    }
+    await settleTriggerFailure(error, {
+      laneRunId, childSessionId, createdChildId, allocatedWorktree, abortController, assertLaneEnabled,
+    });
     console.error(`Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`, error);
     return undelivered(error instanceof Error ? error.message : 'prompt delivery failed');
   }

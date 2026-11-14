@@ -1,11 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
 import KanbanCardSessionDetails from './KanbanCardSessionDetails.vue';
+
+// Runtime template compilation is unavailable in the test build, so string
+// template stubs render as comments. Use the render-function stub pattern
+// from SessionCard.test.js.
+const RouterLinkStub = defineComponent({
+  name: 'RouterLink',
+  props: ['to'],
+  setup(props, { slots }) {
+    return () => h('a', { href: props.to }, slots.default?.());
+  },
+});
 
 describe('KanbanCardSessionDetails', () => {
   const session = {
     id: 'session-1', name: 'Prompted session', status: 'running', mode: 'standard',
   };
+
+  it('shows the reason and link for a failed automation', () => {
+    const wrapper = mount(KanbanCardSessionDetails, {
+      props: { session, lane: { name: 'Review' }, activeLaneRun: {
+        status: 'failed', failureReason: 'Git setup failed', failedSessionId: 'child-1',
+      } },
+      // Register like a plugin would: the `stubs` RouterLink key is
+      // special-cased by @vue/test-utils and renders nothing here.
+      global: { components: { 'router-link': RouterLinkStub } },
+    });
+    expect(wrapper.text()).toContain('automation failed');
+    expect(wrapper.text()).toContain('Git setup failed');
+    const link = wrapper.findAll('a').find((a) => a.text() === 'Open failed session');
+    expect(link).toBeTruthy();
+    expect(link.attributes('href')).toBe('/sessions/child-1');
+  });
 
   it('shows the accessible attention badge only when a card session needs agent input', () => {
     const wrapper = mount(KanbanCardSessionDetails, {

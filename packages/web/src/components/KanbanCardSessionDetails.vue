@@ -62,6 +62,10 @@
         :class="['lane-run-exit-lane', { 'lane-run-exit-lane-discarded': activeLaneRun.status !== 'open' }]"
       >{{ activeLaneRun.status === 'open' ? 'Exit lane:' : 'Discarded exit:' }} {{ activeLaneRun.chosenExitLaneName }}</span>
       <time v-if="activeLaneRun.nextScheduledAt">Next: {{ formatLaneRunTime(activeLaneRun.nextScheduledAt) }}</time>
+      <span
+        v-if="activeLaneRun.status === 'failed' && activeLaneRun.failureReason"
+        class="lane-run-failure-reason"
+      >{{ activeLaneRun.failureReason }}</span>
       <router-link
         v-if="activeLaneRun.status === 'failed' && activeLaneRun.failedSessionId"
         :to="`/sessions/${activeLaneRun.failedSessionId}`"
@@ -70,7 +74,7 @@
         Open failed session
       </router-link>
       <router-link
-        v-else-if="activeLaneRun.blockingSessionId"
+        v-if="!(activeLaneRun.status === 'failed' && activeLaneRun.failedSessionId) && activeLaneRun.blockingSessionId"
         :to="`/sessions/${activeLaneRun.blockingSessionId}`"
         :class="['lane-run-blocker-link', { 'lane-run-resume-link': isPausedLaneRun(activeLaneRun) }]"
       >
