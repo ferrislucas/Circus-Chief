@@ -1,6 +1,6 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { claimSessionExecution, createExecutionConflictError, getSessionExecutionConflict } from './sessionExecutionOwnership.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
@@ -8,6 +8,8 @@ import { handlePreparationFailure } from './sessionExecution.js';
 import { executeContinueAttempt, prepareContinueAttempt } from './sessionContinueDispatch.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution } from './sessionStartResult.js';
+import { resolveDurableProviderId } from './sessionProvider.js';
+import { checkCrossKindSwitch, createCrossKindDispatchError, sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
 
 /**
  * Validate the ownership claim for a branch continue, then fetch the session,
@@ -99,12 +101,24 @@ async function openContinueTurn(sessionId, content, fileAttachments) {
   return setup;
 }
 
+function admitConcreteSelection(session, sessionId, { model, providerId, interactive }) {
+  if (interactive || !model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId)) return;
+  const owner = resolveDurableProviderId(model, providerId);
+  const block = owner && checkCrossKindSwitch(session, model, owner);
+  if (block) throw createCrossKindDispatchError(block);
+}
+
 export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
   const { options = {}, callbacks } = config;
   const { systemPrompt = null, fileAttachments = [], model = null, providerId = null, interactive = false } = options;
 
   const admitted = fetchAdmittedContinueSession(sessionId, interactive);
   if (admitted.rejected) return admitted.rejected;
+
+  // Concrete background selections must be admitted before opening a turn.
+  // Tier resolution is intentionally left to dispatch: it may advance the
+  // session's own binding and can persist its snapshot.
+  admitConcreteSelection(admitted.session, sessionId, { model, providerId, interactive });
 
   const controller = new AbortController();
   // Atomically claim execution ownership. Throws a 409-coded conflict when a

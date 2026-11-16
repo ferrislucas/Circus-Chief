@@ -158,6 +158,91 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     return broadcastCalls.filter(([, type]) => type === WS_MESSAGE_TYPES.TIER_FAILOVER);
   }
 
+  it.each([false, true])('clears every native chain on a Claude to Grok advance (destination fails: %s)', async (fails) => {
+    const grok = modelProviders.create({ name: 'Tier Grok', kind: 'xai' });
+    modelProviders.addModel(grok.id, { modelId: 'retry-grok', displayName: 'Grok' });
+    const { session } = createPinnedSession([
+      { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+      { providerId: grok.id, modelId: 'retry-grok', position: 1 },
+    ], { modelId: 'retry-a', providerId: providerA.id });
+    const first = conversations.ensureActiveConversation(session.id);
+    const second = conversations.create(session.id, 'Second', false);
+    conversations.update(first.id, { claudeSessionId: 'claude-first' });
+    conversations.update(second.id, { claudeSessionId: 'claude-second' });
+    messages.create(session.id, 'assistant', 'second history', { conversationId: second.id });
+    const { createAgentForSession } = await import('./sessionExecution.js');
+    createAgentForSession.mockImplementation(() => ({ needsConversationContext: () => false, supportsResume: () => true }));
+    markUnhealthy(providerA.id, 'retry-a');
+    try {
+      executeScript = [{ error: fails ? new Error('destination failed before init') : null, onDispatch: () => {
+        expect(conversations.getById(first.id).claudeSessionId).toBeNull();
+        expect(conversations.getById(second.id).claudeSessionId).toBeNull();
+      } }];
+      const advance = continueSessionCore(session.id, 'advance', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+      if (fails) await expect(advance).rejects.toThrow('destination failed before init');
+      else await advance;
+      expect(sessions.getById(session.id)).toMatchObject({ agentType: 'grok-build', lastExecutedModel: 'retry-grok' });
+      conversations.setActive(second.id, session.id);
+      activeSessions.clear();
+      await continueSessionCore(session.id, 'second turn', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+      expect(dispatched[1].queryParams.options.resume ?? null).toBeNull();
+      expect(dispatched[1].queryParams.prompt).toContain('second history');
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+      createAgentForSession.mockReset();
+      createAgentForSession.mockImplementation(() => ({ needsConversationContext: () => false, supportsResume: () => false }));
+    }
+  });
+
+  it('clears source chains before a same-turn retry advances to Grok', async () => {
+    const grok = modelProviders.create({ name: 'Retry Grok', kind: 'xai' });
+    modelProviders.addModel(grok.id, { modelId: 'retry-grok-switch', displayName: 'Grok' });
+    const { session } = createPinnedSession([
+      { providerId: providerA.id, modelId: 'retry-a', position: 0 },
+      { providerId: grok.id, modelId: 'retry-grok-switch', position: 1 },
+    ], { modelId: 'retry-a', providerId: providerA.id });
+    const first = conversations.ensureActiveConversation(session.id);
+    const second = conversations.create(session.id, 'Second', false);
+    conversations.update(first.id, { claudeSessionId: 'source-first' });
+    conversations.update(second.id, { claudeSessionId: 'source-second' });
+    executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }, { onDispatch: () => {
+      expect(conversations.getById(first.id).claudeSessionId).toBeNull();
+      expect(conversations.getById(second.id).claudeSessionId).toBeNull();
+    } }];
+    try {
+      await continueSessionCore(session.id, 'retry across kinds', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+      expect(dispatched).toHaveLength(2);
+      expect(sessions.getById(session.id)).toMatchObject({ agentType: 'grok-build', lastExecutedModel: 'retry-grok-switch' });
+      expect(dispatched[1].queryParams.options.resume ?? null).toBeNull();
+    } finally {
+      clearUnhealthy(providerA.id, 'retry-a');
+    }
+  });
+
+  it('clears Grok chains when its tier advances back to Claude', async () => {
+    const grok = modelProviders.create({ name: 'Reverse Tier Grok', kind: 'xai' });
+    modelProviders.addModel(grok.id, { modelId: 'reverse-tier-grok', displayName: 'Grok' });
+    const { session } = createPinnedSession([
+      { providerId: grok.id, modelId: 'reverse-tier-grok', position: 0 },
+      { providerId: providerA.id, modelId: 'retry-a', position: 1 },
+    ], { modelId: 'reverse-tier-grok', providerId: grok.id });
+    sessions.update(session.id, { agentType: 'grok-build' });
+    const first = conversations.ensureActiveConversation(session.id);
+    const second = conversations.create(session.id, 'Second', false);
+    conversations.update(first.id, { claudeSessionId: 'grok-first' });
+    conversations.update(second.id, { claudeSessionId: 'grok-second' });
+    markUnhealthy(grok.id, 'reverse-tier-grok');
+    try {
+      await continueSessionCore(session.id, 'advance to Claude', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+      expect(sessions.getById(session.id)).toMatchObject({ agentType: 'claude-code', lastExecutedModel: 'retry-a' });
+      expect(conversations.getById(first.id).claudeSessionId).toBeNull();
+      expect(conversations.getById(second.id).claudeSessionId).toBeNull();
+      expect(dispatched[0].queryParams.options.resume ?? null).toBeNull();
+    } finally {
+      clearUnhealthy(grok.id, 'reverse-tier-grok');
+    }
+  });
+
   it('retries the same prompt once on the next healthy member with a boundary marker', async () => {
     const { session } = createPinnedSession(
       [

@@ -8,7 +8,7 @@
  * to buildQueryParams — never the raw `tier::<id>` sentinel.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { projects, sessions, messages, conversations, modelTiers, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelTiers, modelProviders, attachments } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 import { clearUnhealthy, markUnhealthy } from './tierResolutionService.js';
 
@@ -1698,6 +1698,41 @@ describe('live continuation cross-kind remediation', () => {
     return { session, conv };
   }
 
+  it.each(['remediation-grok', 'remediation-codex'])('rejects background switch to %s before opening a turn', async (model) => {
+    const codex = modelProviders.create({ name: 'Admission Codex', kind: 'openai' });
+    modelProviders.addModel(codex.id, { modelId: 'remediation-codex', displayName: 'Codex' });
+    const { session } = started();
+    const attachment = attachments.create(session.id, null, { buffer: Buffer.from('data'), originalname: 'test.txt', mimetype: 'text/plain', size: 4 }, null);
+    const before = { session: sessions.getById(session.id), messages: messages.getBySessionId(session.id), conversations: conversations.getBySessionId(session.id), attachments: attachments.getBySessionId(session.id) };
+    vi.clearAllMocks();
+    await expect(continueSessionCore(session.id, 'rejected', '/tmp/test', {
+      options: { model, providerId: model === 'remediation-grok' ? destination.id : codex.id, interactive: false, fileAttachments: [attachment] }, callbacks: mockCallbacks,
+    })).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+    expect(sessions.getById(session.id)).toEqual(before.session);
+    expect(messages.getBySessionId(session.id)).toEqual(before.messages);
+    expect(conversations.getBySessionId(session.id)).toEqual(before.conversations);
+    expect(attachments.getBySessionId(session.id)).toEqual(before.attachments);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastSessionStatus).not.toHaveBeenCalled();
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('rejects a background Grok to Claude switch before mutation', async () => {
+    const { session } = started();
+    sessions.update(session.id, { model: 'remediation-grok', providerId: destination.id, agentType: 'grok-build' });
+    const before = { session: sessions.getById(session.id), messages: messages.getBySessionId(session.id), conversations: conversations.getBySessionId(session.id) };
+    vi.clearAllMocks();
+    await expect(continueSessionCore(session.id, 'rejected', '/tmp/test', {
+      options: { model: 'remediation-claude', providerId: source.id, interactive: false }, callbacks: mockCallbacks,
+    })).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+    expect(sessions.getById(session.id)).toEqual(before.session);
+    expect(messages.getBySessionId(session.id)).toEqual(before.messages);
+    expect(conversations.getBySessionId(session.id)).toEqual(before.conversations);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(broadcastSessionStatus).not.toHaveBeenCalled();
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
   it('reconciles an interactive concrete switch before dispatch', async () => {
     const { session, conv } = started();
     await continueSessionCore(session.id, 'new question', '/tmp/test', {
@@ -1708,6 +1743,26 @@ describe('live continuation cross-kind remediation', () => {
     expect(conversations.getById(conv.id).claudeSessionId).toBeNull();
     expect(capturedQueryParams.at(-1).prompt).toContain('old answer');
     expect(capturedQueryParams.at(-1).options.resume ?? null).toBeNull();
+  });
+
+  it.each([null, 'anthropic-default'])('dispatches official Claude from Grok with provider hint %s', async (providerId) => {
+    const { session, conv } = started();
+    sessions.update(session.id, { model: 'remediation-grok', providerId: destination.id, agentType: 'grok-build' });
+    await continueSessionCore(session.id, 'switch to Claude', '/tmp/test', {
+      options: { interactive: true, model: 'sonnet', providerId }, callbacks: mockCallbacks,
+    });
+    expect(capturedAgentTypes.at(-1)).toBe('claude-code');
+    expect(sessions.getById(session.id)).toMatchObject({ model: 'sonnet', providerId: 'anthropic-default', agentType: 'claude-code' });
+    expect(conversations.getById(conv.id).claudeSessionId).toBeNull();
+    expect(capturedQueryParams.at(-1).prompt).toContain('old answer');
+    expect(capturedQueryParams.at(-1).options.resume ?? null).toBeNull();
+    conversations.update(conv.id, { claudeSessionId: 'new-claude-thread' });
+    activeSessions.clear();
+    const { createAgentForSession } = await import('./sessionExecution.js');
+    createAgentForSession.mockImplementationOnce(() => ({ supportsResume: () => true, needsConversationContext: () => false }));
+    await continueSessionCore(session.id, 'next turn', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+    expect(capturedQueryParams.at(-1).options.resume).toBe('new-claude-thread');
+    expect(capturedQueryParams.at(-1).prompt).not.toContain('old answer');
   });
 
   it.each([

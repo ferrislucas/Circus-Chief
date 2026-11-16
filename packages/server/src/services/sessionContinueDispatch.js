@@ -35,8 +35,8 @@ export function isSameBindingSelection(session, model, providerId) {
     && (isTierRef(model) || providerId == null || providerId === session.providerId);
 }
 
-function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, provider, interactive }) {
-  if (!model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId) || !provider) return {};
+function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, interactive }) {
+  if (!model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId) || !dispatchedProviderId) return {};
   const block = checkCrossKindSwitch(session, effectiveModel, dispatchedProviderId);
   if (!block) return {};
   if (!interactive || !isCrossKindBlockLiftable(session, model, dispatchedProviderId, block)) {
@@ -102,7 +102,7 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
 
   // Concrete overrides on established sessions need the same authorization as
   // the message route, evaluated against the provider that will dispatch.
-  const interactiveKindUpdate = reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, provider, interactive });
+  const interactiveKindUpdate = reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, interactive });
 
   // Visible fallback notice when the own binding silently moved off its
   // previously executed member (review issue 1), or advanced off a cooled
@@ -117,6 +117,7 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   // Advance-aware agentType reconciliation (§5.1): shared with
   // sessionManager.buildModelAndProvider.
   const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
+  clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate);
 
   let updatedSession = session;
   const updatePayload = { ...persist, ...agentTypeUpdate, ...interactiveKindUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
@@ -210,7 +211,7 @@ async function prepareContinueDispatch({
     sessionId: session.id, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     commitAttributionOverride: modelEnv.commitAttributionOverride,
-    modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
+    modelChanged: modelEnv.modelChanged, activeConversation: conversations.getById(activeConversation.id), promptWithAttachments,
     workingDirectory, controller, agentType, agent, failoverBoundary,
   });
   return { tierContext, agentType, agent, queryParams, agentCallMeta, dispatchedPair: modelEnv.dispatchedPair };
