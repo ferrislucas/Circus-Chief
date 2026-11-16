@@ -4,12 +4,15 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { projects, sessions, messages, conversations, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy, clearUnhealthy } from '../services/tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { prepareContinueTurn } from '../services/sessionTurnSetup.js';
 import { continueSessionCore } from '../services/sessionContinuation.js';
 import { activeSessions } from '../services/sessionExecutionOwnership.js';
 import { _executeSession } from '../services/sessionExecution.js';
+import { resolveProviderFromModel } from '../services/sessionProvider.js';
 
 vi.mock('../services/sessionExecution.js', async (importOriginal) => ({
   ...await importOriginal(),
@@ -105,6 +108,75 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
   function resumePointers(sessionId) {
     return conversations.getBySessionId(sessionId).map((c) => c.claudeSessionId);
   }
+
+  it.each(['claude-opus-4-8', 'sonnet'])('model-only Grok to official Claude PATCH persists owner for %s', async (model) => {
+    const session = createStartedSessionWithResume({ name: 'Grok to official', model: GROK_MODEL, providerId: xaiProvider.id });
+    const side = conversations.create(session.id, 'Side', true);
+    conversations.update(side.id, { claudeSessionId: 'side-native' });
+    const response = await request(app).patch(`/api/sessions/${session.id}`).send({ model }).expect(200);
+    expect(response.body).toMatchObject({ model, agentType: 'claude-code', providerId: 'anthropic-default' });
+    expect(sessions.getById(session.id)).toMatchObject({ model, agentType: 'claude-code', providerId: 'anthropic-default' });
+    expect(resumePointers(session.id)).toEqual([null, null]);
+    expect(resolveProviderFromModel(model)).toBeNull();
+    const spy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgentFor('claude-code'));
+    try {
+      const { queryParams } = await prepareContinueTurn({
+        session: sessions.getById(session.id), sessionId: session.id, content: 'continue',
+        workingDirectory: tempDir, options: { interactive: true }, controller: new AbortController(),
+      });
+      expect(queryParams.options.providerId).toBe('anthropic-default');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each([
+    ['claude-code', CLAUDE_MODEL, 'grok-build', GROK_MODEL],
+    ['grok-build', GROK_MODEL, 'claude-code', CLAUDE_MODEL],
+  ])('tier advance %s to %s clears every native chain before existing-message dispatch', async (sourceKind, sourceModel, destinationKind, destinationModel) => {
+    const { continueSessionWithExistingMessage } = await import('../services/sessionBranchContinue.js');
+    const source = sourceKind === 'claude-code' ? anthropicProvider : xaiProvider;
+    const destination = destinationKind === 'claude-code' ? anthropicProvider : xaiProvider;
+    const tier = modelTiers.create({ name: 'Cross kind branch', members: [
+      { providerId: source.id, modelId: sourceModel, position: 0 },
+      { providerId: destination.id, modelId: destinationModel, position: 1 },
+    ] });
+    const session = createStartedSessionWithResume({ name: 'Tier branch', model: sourceModel, providerId: source.id });
+    const root = conversations.ensureActiveConversation(session.id);
+    const side = conversations.create(session.id, 'Side', true);
+    messages.create(session.id, 'user', 'side prompt', { conversationId: side.id });
+    conversations.update(side.id, { claudeSessionId: 'side-native' });
+    sessions.update(session.id, { model: buildTierRef(tier.id), agentType: sourceKind, resolvedModel: sourceModel, resolvedProviderId: source.id, lastExecutedModel: sourceModel, lastExecutedProviderId: source.id });
+    markUnhealthy(source.id, sourceModel);
+    try {
+      let pointersAtDispatch;
+      _executeSession.mockImplementationOnce(async () => { pointersAtDispatch = resumePointers(session.id); });
+      await continueSessionWithExistingMessage(session.id, side.id, tempDir, {});
+      expect(pointersAtDispatch).toEqual([null, null]);
+      expect(resumePointers(session.id)).toEqual([null, null]);
+      const params = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(params.options.resume ?? null).toBeNull();
+      expect(params.prompt).toContain('side prompt');
+      expect(params.prompt).not.toContain('first answer');
+      activeSessions.clear();
+      messages.create(session.id, 'user', 'root follow-up', { conversationId: root.id });
+      await continueSessionWithExistingMessage(session.id, root.id, tempDir, {});
+      const rootParams = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(rootParams.options.resume ?? null).toBeNull();
+      expect(rootParams.prompt).toContain('first answer');
+      expect(rootParams.prompt).not.toContain('side prompt');
+      conversations.update(root.id, { claudeSessionId: 'destination-native' });
+      activeSessions.clear();
+      messages.create(session.id, 'user', 'resume prompt', { conversationId: root.id });
+      await continueSessionWithExistingMessage(session.id, root.id, tempDir, {});
+      const resumed = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(resumed.options.resume).toBe('destination-native');
+      expect(resumed.prompt).toBe('resume prompt');
+    } finally {
+      clearUnhealthy(source.id, sourceModel);
+      activeSessions.clear();
+    }
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();

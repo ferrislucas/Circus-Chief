@@ -1,5 +1,5 @@
 import { conversations, messages, sessions, workLogs, modelTiers } from '../database.js';
-import { resolveAgentTypeFromModel, resolveProviderFromModel } from './sessionProvider.js';
+import { resolveAgentTypeFromModel, resolveProviderFromModel, resolveDurableProviderId } from './sessionProvider.js';
 import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { isUnhealthy, resolveActiveModel, resolveAnyMember } from './tierResolutionService.js';
 
@@ -646,7 +646,14 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
  */
 export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProviderId) {
   if (!newModel) return {};
-  return deriveKindUpdate(session, newModel, suppliedProviderId);
+  const update = deriveKindUpdate(session, newModel, suppliedProviderId);
+  // Official Anthropic uses SDK defaults at runtime, but still has an owner
+  // identity which must be persisted when the caller omits a provider.
+  if (suppliedProviderId === undefined && !isTierRef(newModel)) {
+    const providerId = resolveDurableProviderId(newModel);
+    if (providerId && providerId !== session.providerId) update.providerId = providerId;
+  }
+  return update;
 }
 
 /**
