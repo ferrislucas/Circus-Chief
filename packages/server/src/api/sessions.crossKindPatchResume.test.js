@@ -7,6 +7,15 @@ import { tmpdir } from 'os';
 import { projects, sessions, messages, conversations, modelProviders } from '../database.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { prepareContinueTurn } from '../services/sessionTurnSetup.js';
+import { continueSessionCore } from '../services/sessionContinuation.js';
+import { activeSessions } from '../services/sessionExecutionOwnership.js';
+import { _executeSession } from '../services/sessionExecution.js';
+
+vi.mock('../services/sessionExecution.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  createAgentForSession: vi.fn(() => ({ supportsResume: () => true, needsConversationContext: () => false })),
+  _executeSession: vi.fn(async () => {}),
+}));
 
 // Mock websocket so PATCH doesn't try to reach real subscribers.
 vi.mock('../websocket.js', () => ({
@@ -300,6 +309,36 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     } finally {
       createAgentSpy.mockRestore();
     }
+  });
+
+  it('PATCH transfers each conversation history once through the live dispatcher', async () => {
+    const session = createStartedSessionWithResume({ name: 'Legacy', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+    const first = conversations.ensureActiveConversation(session.id);
+    const second = conversations.create(session.id, 'Second', true);
+    messages.create(session.id, 'user', 'second question', { conversationId: second.id });
+    messages.create(session.id, 'assistant', 'second answer', { conversationId: second.id });
+    conversations.update(second.id, { claudeSessionId: 'old-second' });
+    expect(sessions.getById(session.id).lastExecutedModel).toBeNull();
+    await request(app).patch(`/api/sessions/${session.id}`).send({ model: GROK_MODEL, providerId: xaiProvider.id }).expect(200);
+    expect(resumePointers(session.id)).toEqual([null, null]);
+
+    for (const [conv, own, other] of [[first, 'first answer', 'second answer'], [second, 'second answer', 'first answer']]) {
+      conversations.setActive(conv.id);
+      activeSessions.clear();
+      await continueSessionCore(session.id, 'next', tempDir, { options: { interactive: true }, callbacks: {} });
+      const params = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(params.options.resume ?? null).toBeNull();
+      expect(params.prompt).toContain('<conversation_history>');
+      expect(params.prompt).toContain(own);
+      expect(params.prompt).not.toContain(other);
+      conversations.update(conv.id, { claudeSessionId: `new-${conv.id}` });
+      activeSessions.clear();
+      await continueSessionCore(session.id, 'again', tempDir, { options: { interactive: true }, callbacks: {} });
+      const resumed = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(resumed.options.resume).toBe(`new-${conv.id}`);
+      expect(resumed.prompt).toBe('again');
+    }
+    activeSessions.clear();
   });
 
   it('gemini cross-kind PATCH still 400s with zero mutation — resume pointers untouched (FR3)', async () => {

@@ -378,7 +378,7 @@ describe('sessionContinuation — same-turn failover retry (§5.2)', () => {
     executeScript = [{ error: new Error(QUOTA_ERROR_MESSAGE) }];
 
     await expect(continueSessionCore(session.id, 'Follow-up on hand-picked model', '/tmp/test', {
-      options: { model: 'retry-b', providerId: providerB.id }, callbacks: mockCallbacks,
+      options: { model: 'retry-b', providerId: providerB.id, interactive: true }, callbacks: mockCallbacks,
     })).rejects.toThrow();
     try {
       expect(dispatched).toHaveLength(1);

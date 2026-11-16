@@ -1,9 +1,11 @@
-import { sessions } from '../database.js';
+import { sessions, conversations } from '../database.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import {
   buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
   createCrossKindDispatchError, hasDispatchPairChanged,
+  checkCrossKindSwitch, isCrossKindBlockLiftable, deriveCrossKindAgentTypeUpdate,
+  pendingModelClearanceForKindSwitch, clearResumeChainOnKindSwitch, sessionHasNoAssistantMessages,
 } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
@@ -33,6 +35,20 @@ export function isSameBindingSelection(session, model, providerId) {
     && (isTierRef(model) || providerId == null || providerId === session.providerId);
 }
 
+function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, provider, interactive }) {
+  if (!model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId) || !provider) return {};
+  const block = checkCrossKindSwitch(session, effectiveModel, dispatchedProviderId);
+  if (!block) return {};
+  if (!interactive || !isCrossKindBlockLiftable(session, model, dispatchedProviderId, block)) {
+    throw createCrossKindDispatchError(block);
+  }
+  const update = deriveCrossKindAgentTypeUpdate(session, effectiveModel, dispatchedProviderId);
+  update.providerId = dispatchedProviderId;
+  Object.assign(update, pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType));
+  clearResumeChainOnKindSwitch(session, sessionId, update);
+  return update;
+}
+
 /**
  * Resolve model/provider and build session environment for a continue
  * operation. Also detects model changes and updates the session record.
@@ -44,7 +60,7 @@ export function isSameBindingSelection(session, model, providerId) {
  * `tier::<id>` sentinel is never forwarded to the agent.
  */
 export function buildContinueModelAndEnv(session, sessionId, model, {
-  providerId = null, suppressAdvanceNotice = false, retryMember = null,
+  providerId = null, suppressAdvanceNotice = false, retryMember = null, interactive = false,
 } = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
@@ -84,6 +100,10 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
     ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
 
+  // Concrete overrides on established sessions need the same authorization as
+  // the message route, evaluated against the provider that will dispatch.
+  const interactiveKindUpdate = reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, provider, interactive });
+
   // Visible fallback notice when the own binding silently moved off its
   // previously executed member (review issue 1), or advanced off a cooled
   // snapshot (§5.1). Suppressed on a same-turn retry's second attempt — its
@@ -99,7 +119,7 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
 
   let updatedSession = session;
-  const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
+  const updatePayload = { ...persist, ...agentTypeUpdate, ...interactiveKindUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
   if (Object.keys(updatePayload).length > 0) {
     sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
@@ -124,11 +144,11 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
  * change the previous session can't resume, so history is included as
  * context; `failoverBoundary` appends the same-turn retry marker (§5.2).
  */
-async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt, failoverBoundary = null }) {
+async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt, resumeChainGone, failoverBoundary = null }) {
   if (modelChanged) {
     return buildConversationContextForModelSwitch(conversationId) + (failoverBoundary ?? '') + prompt;
   }
-  if (agent.needsConversationContext()) {
+  if (agent.needsConversationContext() || resumeChainGone) {
     return buildConversationContextForContinuation(conversationId) + prompt;
   }
   return prompt;
@@ -144,7 +164,7 @@ async function buildContinueParams({
   const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
   const promptWithContext = await buildPromptForContinue({
     modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
-    failoverBoundary,
+    resumeChainGone: !canResume && agent.supportsResume(), failoverBoundary,
   });
   const queryParams = buildQueryParams({
     prompt: promptWithContext, workingDirectory, controller, session, sessionId,
@@ -222,13 +242,15 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
         providerId: firstAttempt ? providerId : null,
         suppressAdvanceNotice: !firstAttempt,
         retryMember,
+        interactive: firstAttempt && interactive,
       }
     );
     if (!firstAttempt && resolvesToFailedMember(modelEnv, turn.unsettledError)) {
       throw turn.unsettledError.error;
     }
     const dispatch = await prepareContinueDispatch({
-      session: modelEnv.session, modelEnv, model, systemPrompt, activeConversation,
+      session: modelEnv.session, modelEnv, model, systemPrompt,
+      activeConversation: conversations.getById(activeConversation.id) ?? activeConversation,
       promptWithAttachments, workingDirectory, controller,
       failoverBoundary: turn.failoverBoundary, authorizeFailover: firstAttempt,
     });

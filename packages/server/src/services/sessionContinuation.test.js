@@ -1677,3 +1677,83 @@ describe('sessionContinuation — mid-session tier advance (§5.1)', () => {
     expect(row.resolvedProviderId).toBe(providerB.id);
   });
 });
+
+describe('live continuation cross-kind remediation', () => {
+  let project, source, destination;
+  beforeEach(() => {
+    capturedQueryParams = []; capturedAgentTypes = []; activeSessions.clear();
+    project = projects.create('Cross-kind dispatcher', '/tmp/cross-kind-dispatch');
+    source = modelProviders.create({ name: 'Source', kind: 'anthropic' });
+    destination = modelProviders.create({ name: 'Destination', kind: 'xai' });
+    modelProviders.addModel(source.id, { modelId: 'remediation-claude', displayName: 'Claude' });
+    modelProviders.addModel(destination.id, { modelId: 'remediation-grok', displayName: 'Grok' });
+  });
+
+  function started() {
+    const session = createTestSession(project, { model: 'remediation-claude', providerId: source.id, agentType: 'claude-code', pendingModel: 'remediation-claude' });
+    const conv = conversations.ensureActiveConversation(session.id);
+    conversations.update(conv.id, { claudeSessionId: 'old-thread' });
+    messages.create(session.id, 'user', 'old question', { conversationId: conv.id });
+    messages.create(session.id, 'assistant', 'old answer', { conversationId: conv.id });
+    return { session, conv };
+  }
+
+  it('reconciles an interactive concrete switch before dispatch', async () => {
+    const { session, conv } = started();
+    await continueSessionCore(session.id, 'new question', '/tmp/test', {
+      options: { interactive: true, model: 'remediation-grok' }, callbacks: mockCallbacks,
+    });
+    expect(capturedAgentTypes.at(-1)).toBe('grok-build');
+    expect(sessions.getById(session.id)).toMatchObject({ model: 'remediation-grok', providerId: destination.id, agentType: 'grok-build', pendingModel: null });
+    expect(conversations.getById(conv.id).claudeSessionId).toBeNull();
+    expect(capturedQueryParams.at(-1).prompt).toContain('old answer');
+    expect(capturedQueryParams.at(-1).options.resume ?? null).toBeNull();
+  });
+
+  it.each([
+    ['openai', 'codex'], ['meta', 'muse'], ['anthropic', 'claude-code'],
+  ])('switches between Grok and %s in both directions', async (kind, agentType) => {
+    const other = modelProviders.create({ name: `Other ${kind}`, kind });
+    const otherModel = `remediation-${kind}-model`;
+    modelProviders.addModel(other.id, { modelId: otherModel, displayName: 'Other' });
+    for (const [fromModel, fromProvider, fromKind, toModel, toProvider, toKind] of [
+      [otherModel, other.id, agentType, 'remediation-grok', destination.id, 'grok-build'],
+      ['remediation-grok', destination.id, 'grok-build', otherModel, other.id, agentType],
+    ]) {
+      activeSessions.clear();
+      const session = createTestSession(project, { model: fromModel, providerId: fromProvider, agentType: fromKind });
+      const conv = conversations.ensureActiveConversation(session.id);
+      conversations.update(conv.id, { claudeSessionId: 'old-thread' });
+      messages.create(session.id, 'assistant', 'prior reply', { conversationId: conv.id });
+      await continueSessionCore(session.id, 'switch', '/tmp/test', {
+        options: { interactive: true, model: toModel, providerId: toProvider }, callbacks: mockCallbacks,
+      });
+      expect(capturedAgentTypes.at(-1)).toBe(toKind);
+      expect(sessions.getById(session.id)).toMatchObject({ model: toModel, providerId: toProvider, agentType: toKind });
+      expect(conversations.getById(conv.id).claudeSessionId).toBeNull();
+      expect(capturedQueryParams.at(-1).prompt).toContain('prior reply');
+    }
+  });
+
+  it('uses an explicit owner when a model is registered under different kinds', async () => {
+    const { session } = started();
+    modelProviders.addModel(source.id, { modelId: 'remediation-shared', displayName: 'Shared Claude' });
+    modelProviders.addModel(destination.id, { modelId: 'remediation-shared', displayName: 'Shared Grok' });
+    await continueSessionCore(session.id, 'switch', '/tmp/test', {
+      options: { interactive: true, model: 'remediation-shared', providerId: destination.id }, callbacks: mockCallbacks,
+    });
+    expect(capturedAgentTypes.at(-1)).toBe('grok-build');
+    expect(sessions.getById(session.id).providerId).toBe(destination.id);
+  });
+
+  it('replays history for a resumable conversation whose pointer was cleared', async () => {
+    const { session, conv } = started();
+    sessions.update(session.id, { model: 'remediation-grok', providerId: destination.id, agentType: 'grok-build' });
+    conversations.update(conv.id, { claudeSessionId: null });
+    const { createAgentForSession } = await import('./sessionExecution.js');
+    createAgentForSession.mockImplementationOnce(() => ({ supportsResume: () => true, needsConversationContext: () => false }));
+    await continueSessionCore(session.id, 'new question', '/tmp/test', { options: {}, callbacks: mockCallbacks });
+    expect(capturedQueryParams.at(-1).prompt).toContain('old answer');
+    expect(capturedQueryParams.at(-1).options.resume ?? null).toBeNull();
+  });
+});
