@@ -4,6 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { projects, sessions, messages, conversations, modelProviders } from '../database.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
+import { activeConversationIds } from './streamEventHandler.js';
+import { broadcastToSession } from '../websocket.js';
 
 // Mock websocket before importing the module under test
 vi.mock('../websocket.js', () => ({
@@ -272,5 +274,57 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
     const updated = sessions.getById(session.id);
     expect(updated.model).toBe(GPT_MODEL);
     expect(updated.agentType).toBe('codex');
+  });
+
+  it.each(['sonnet', 'claude-opus-4-6'])('rejects Grok to %s before any continuation state changes', async (model) => {
+    const session = createStartedSession({ name: 'Grok started', model: GROK_MODEL, providerId: xaiProvider.id, expectedAgentType: 'grok-build' });
+    const conversationId = activeConversationId(session.id);
+    conversations.update(conversationId, { isActive: false, claudeSessionId: 'native-grok' });
+    const before = sessions.getById(session.id);
+    const beforeConversations = conversations.getBySessionId(session.id);
+    const beforeMessages = messages.getBySessionId(session.id);
+    vi.mocked(broadcastToSession).mockClear();
+    await expect(continueSessionWithExistingMessage(session.id, conversationId, tempDir, { model }))
+      .rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+    expect(sessions.getById(session.id)).toEqual(before);
+    expect(conversations.getBySessionId(session.id)).toEqual(beforeConversations);
+    expect(messages.getBySessionId(session.id)).toEqual(beforeMessages);
+    expect(activeSessions.has(session.id)).toBe(false);
+    expect(activeConversationIds.has(session.id)).toBe(false);
+    expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(mockCreateAgentForSession).not.toHaveBeenCalled();
+    expect(mockExecuteSession).not.toHaveBeenCalled();
+  });
+
+  it('uses the explicit owner of a duplicate model for admission', async () => {
+    modelProviders.addModel(xaiProvider.id, { modelId: 'shared-branch', displayName: 'Shared Grok' });
+    modelProviders.addModel(googleProvider.id, { modelId: 'shared-branch', displayName: 'Shared Gemini' });
+    const session = createStartedSession({ name: 'Grok duplicate', model: GROK_MODEL, providerId: xaiProvider.id, expectedAgentType: 'grok-build' });
+    const before = sessions.getById(session.id);
+    await expect(continueSessionWithExistingMessage(session.id, activeConversationId(session.id), tempDir, { model: 'shared-branch', providerId: googleProvider.id }))
+      .rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+    expect(sessions.getById(session.id)).toEqual(before);
+    expect(mockCreateAgentForSession).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicit Grok owner when another kind owns the duplicate first', async () => {
+    modelProviders.addModel(googleProvider.id, { modelId: 'shared-reverse', displayName: 'Shared Gemini' });
+    modelProviders.addModel(xaiProvider.id, { modelId: 'shared-reverse', displayName: 'Shared Grok' });
+    const session = createStartedSession({ name: 'Grok duplicate allowed', model: GROK_MODEL, providerId: xaiProvider.id, expectedAgentType: 'grok-build' });
+    await continueSessionWithExistingMessage(session.id, activeConversationId(session.id), tempDir, { model: 'shared-reverse', providerId: xaiProvider.id });
+    expect(mockCreateAgentForSession.mock.calls[0][0]).toBe('grok-build');
+    expect(mockExecuteSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([['high', 'high'], ['auto', null]])('passes Grok identity and %s effort to existing-message dispatch', async (effort, expectedEffort) => {
+    const session = createStartedSession({ name: 'Grok options', model: GROK_MODEL, providerId: xaiProvider.id, expectedAgentType: 'grok-build' });
+    sessions.update(session.id, { effortLevel: effort });
+    const conversationId = activeConversationId(session.id);
+    await continueSessionWithExistingMessage(session.id, conversationId, tempDir, {});
+    expect(mockCreateAgentForSession.mock.calls[0][0]).toBe('grok-build');
+    const options = mockExecuteSession.mock.calls[0][0].queryParams.options;
+    expect(options.sessionId).toBe(session.id);
+    expect(options.conversationId).toBe(conversationId);
+    expect(options.effortLevel).toBe(expectedEffort);
   });
 });

@@ -70,6 +70,8 @@ vi.mock('./gitService.js', () => ({
 
 import { continueSessionWithExistingMessage } from './sessionManager.js';
 import { broadcastSessionStatus } from './streamEventHandler.js';
+import { agentGateway } from '../agents/AgentGateway.js';
+import { assertGrokDispatchPrompts } from './grokDispatchPromptTestHelper.js';
 
 // The exact incident string: a pinned corpus row (family `quota`) that matches
 // BOTH the tight failover gate and the broad reschedule matcher.
@@ -170,6 +172,40 @@ describe('branch-continue immediate failover (checked tier)', () => {
   function failoverEvents() {
     return broadcastCalls.filter(([, type]) => type === WS_MESSAGE_TYPES.TIER_FAILOVER);
   }
+
+  it('builds Grok options after an authorized own-tier advance', async () => {
+    const grok = modelProviders.create({ name: 'Branch Grok', kind: 'xai' });
+    modelProviders.addModel(grok.id, { modelId: 'branch-grok', displayName: 'Grok' });
+    const tier = modelTiers.create({ name: 'Grok advance', members: [
+      { providerId: providerA.id, modelId: 'branch-a', position: 0 },
+      { providerId: grok.id, modelId: 'branch-grok', position: 1 },
+    ], autoFailoverEnabled: true });
+    const row = sessions.create(project.id, 'Grok advance', 'initial', { status: 'waiting' });
+    sessions.update(row.id, { model: buildTierRef(tier.id), agentType: 'claude-code', resolvedModel: 'branch-a', resolvedProviderId: providerA.id, effortLevel: 'high' });
+    const conv = conversations.ensureActiveConversation(row.id);
+    messages.create(row.id, 'user', 'earlier question', { conversationId: conv.id });
+    messages.create(row.id, 'assistant', 'earlier answer', { conversationId: conv.id });
+    conversations.update(conv.id, { claudeSessionId: 'old-claude' });
+    markUnhealthy(providerA.id, 'branch-a');
+    const execute = vi.fn(successScript());
+    const spy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue({ execute, supportsResume: () => true, needsConversationContext: () => false });
+    try {
+      await continueSessionWithExistingMessage(row.id, conv.id, tempDir, {});
+      expect(spy.mock.calls[0][0]).toBe('grok-build');
+      const params = execute.mock.calls[0][0];
+      expect(params.options.sessionId).toBe(row.id);
+      expect(params.options.conversationId).toBe(conv.id);
+      expect(params.options.effortLevel).toBe('high');
+      expect(params.options.resume ?? null).toBeNull();
+      expect(params.prompt).toContain('earlier answer');
+      await assertGrokDispatchPrompts(params.options);
+    } finally {
+      spy.mockRestore();
+      clearUnhealthy(providerA.id, 'branch-a');
+      modelTiers.delete(tier.id);
+      modelProviders.delete(grok.id);
+    }
+  });
 
   it('AC1: advances to the next member in the same turn with no same-model reschedule', async () => {
     const { session, conversationId } = createMidConversationTierSession({ flagOn: true });

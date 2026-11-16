@@ -7,6 +7,7 @@ import { agentGateway } from '../agents/AgentGateway.js';
 import { schedulerService } from './schedulerService.js';
 import * as sessionManager from './sessionManager.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
+import { assertGrokDispatchPrompts } from './grokDispatchPromptTestHelper.js';
 
 vi.mock('../websocket.js', () => ({ broadcast: vi.fn(), broadcastToSession: vi.fn(), broadcastToProject: vi.fn() }));
 vi.mock('./summaryService.js', () => ({ onSessionActivity: vi.fn(), onSessionComplete: vi.fn(), extractPrUrlIfNeeded: vi.fn(), generateSummaryIfNeeded: vi.fn() }));
@@ -43,7 +44,7 @@ describe('scheduled cross-kind existing-message retry', () => {
       messages.create(session.id, 'user', 'earlier question', { conversationId: conv.id });
       messages.create(session.id, 'assistant', 'earlier answer', { conversationId: conv.id });
       conversations.update(conv.id, { claudeSessionId: 'old-claude-id' });
-      sessions.update(session.id, { lastExecutedModel: 'claude-scheduled-retry', lastExecutedProviderId: claude.id, autoRescheduleEnabled: true, rescheduleOnServiceError: true, rescheduleDelayMinutes: 1 });
+      sessions.update(session.id, { lastExecutedModel: 'claude-scheduled-retry', lastExecutedProviderId: claude.id, effortLevel: 'high', autoRescheduleEnabled: true, rescheduleOnServiceError: true, rescheduleDelayMinutes: 1 });
       await sessionManager.continueSession(session.id, 'latest prompt', dir, { interactive: true, model: 'grok-scheduled-retry', providerId: grok.id });
       for (let i = 0; i < 2; i++) {
         const scheduled = sessions.getById(session.id);
@@ -58,10 +59,15 @@ describe('scheduled cross-kind existing-message retry', () => {
       }
       expect(captured).toHaveLength(3);
       for (const params of captured) {
+        expect(params.options.sessionId).toBe(session.id);
+        expect(params.options.effortLevel).toBe('high');
         expect(params.options.resume ?? null).toBeNull();
         expect(params.prompt).toContain('earlier answer');
         expect(params.prompt.match(/latest prompt/g)).toHaveLength(1);
       }
+      for (const params of captured.slice(1)) expect(params.options.conversationId).toBe(conv.id);
+      await assertGrokDispatchPrompts(captured[1].options);
+      expect(spy.mock.calls.every(([kind]) => kind === 'grok-build')).toBe(true);
       expect(messages.getByConversationId(conv.id).filter(m => m.content === 'latest prompt')).toHaveLength(1);
       expect(conversations.getById(conv.id).claudeSessionId).toBe('new-grok-id');
       await sessionManager.continueSession(session.id, 'next prompt', dir, { interactive: true });

@@ -101,7 +101,7 @@ async function openContinueTurn(sessionId, content, fileAttachments) {
   return setup;
 }
 
-function admitConcreteSelection(session, sessionId, { model, providerId, interactive }) {
+export function admitConcreteSelection(session, sessionId, { model, providerId, interactive }) {
   if (interactive || !model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId)) return;
   const owner = resolveDurableProviderId(model, providerId);
   const block = owner && checkCrossKindSwitch(session, model, owner);

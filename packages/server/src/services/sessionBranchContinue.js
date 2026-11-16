@@ -11,16 +11,16 @@
  * `triggerStructuredTransitionAutomation` docs in kanbanService.js).
  */
 import { sessions, conversations } from '../database.js';
-import { resolveDispatchProvider, resolveDurableProviderId, resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import {
   buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
-  checkCrossKindSwitch, clearResumeChainOnKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged,
+  clearResumeChainOnKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged,
 } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { claimSessionExecution } from './sessionExecutionOwnership.js';
-import { validateAndFetchContinueContext } from './sessionContinuation.js';
+import { admitConcreteSelection, validateAndFetchContinueContext } from './sessionContinuation.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { createAgentForSession, handlePreparationFailure, _executeSession } from './sessionExecution.js';
@@ -199,6 +199,7 @@ function buildExistingMessageQueryParams({
     model: effectiveModel,
     sessionEnv,
     conversationId,
+    agentType,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
@@ -226,21 +227,6 @@ function buildExistingMessageQueryParams({
  */
 function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller, failoverDeps, authorizeFailover = false, failoverBoundary = null, skipClaim = false, settleArmedError = false, suppressAdvanceNotice = false, retryMember = null, retryResolution = null }) {
   const { systemPrompt = null, model = null, providerId = null } = options;
-  // Fail closed on cross-kind model overrides (FR9): the branch-continue
-  // path only permits kind changes from its own tier advancing. Reject explicit
-  // cross-kind overrides with the existing
-  // CROSS_KIND_MODEL_SWITCH semantics BEFORE claiming execution or writing
-  // anything — no model/agentType/providerId/pendingModel update, no
-  // adapter creation, no status side effects left behind.
-  //
-  // Only enforce for positively-known models: an unregistered id carries
-  // no kind information (resolution merely guesses 'claude-code'), and the
-  // established branch-continue contract lets such overrides proceed on
-  // the existing adapter.
-  const crossKindError = model && resolveProviderFromModel(model) && checkCrossKindSwitch(session, model);
-  if (crossKindError) {
-    throw Object.assign(new Error(crossKindError.message), { code: crossKindError.error, statusCode: 400 });
-  }
   // The retry's second attempt reuses the turn's ownership (re-armed by
   // `armContinueFailoverRetry` after the failed attempt released it) —
   // re-claiming would conflict with the turn itself.
@@ -409,6 +395,10 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
+
+  // Admit exact concrete selections before claiming or mutating state. Tier
+  // references remain eligible for the authorized own-binding advance.
+  admitConcreteSelection(session, sessionId, options);
 
   const controller = new AbortController();
   const failoverDeps = await loadBranchFailoverDeps();
