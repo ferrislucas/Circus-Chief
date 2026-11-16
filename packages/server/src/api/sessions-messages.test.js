@@ -29,9 +29,14 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
   let project;
   let claudeSession;
   let codexSession;
+  let startedClaudeSession;
+  let startedGrokSession;
   let anthropicProvider;
   let openaiProvider;
   let googleProvider;
+  let xaiProvider;
+
+  const GROK_MESSAGE_MODEL = 'grok-message-test';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,6 +97,19 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       tier: 'custom',
     });
 
+    // xAI-kind provider for Grok Build models (FR1/FR2/FR7).
+    xaiProvider = modelProviders.create({
+      name: 'xAI Provider',
+      baseUrl: null,
+      authToken: null,
+      kind: 'xai',
+    });
+    modelProviders.addModel(xaiProvider.id, {
+      modelId: GROK_MESSAGE_MODEL,
+      displayName: 'Grok Message Test',
+      tier: 'custom',
+    });
+
     // Two sessions, one per agent kind, both stopped so messages are accepted.
     claudeSession = sessions.create(project.id, 'Claude Session', 'hi', {
       agentType: 'claude-code',
@@ -104,6 +122,23 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       model: 'gpt-4o-test',
     });
     sessions.update(codexSession.id, { status: 'stopped' });
+
+    // Started Claude session (has an assistant message) for the in-scope
+    // switch path under test.
+    startedClaudeSession = sessions.create(project.id, 'Started Claude Session', 'hi', {
+      agentType: 'claude-code',
+      model: 'claude-sonnet-test',
+    });
+    sessions.update(startedClaudeSession.id, { status: 'stopped' });
+    conversationMessages.create(startedClaudeSession.id, 'assistant', 'prior answer');
+
+    // Started Grok session for the grok → gemini block pin (FR7).
+    startedGrokSession = sessions.create(project.id, 'Started Grok Session', 'hi', {
+      model: GROK_MESSAGE_MODEL,
+      providerId: xaiProvider.id,
+    });
+    sessions.update(startedGrokSession.id, { status: 'stopped' });
+    conversationMessages.create(startedGrokSession.id, 'assistant', 'prior grok answer');
   });
 
   afterEach(() => {
@@ -114,6 +149,16 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     }
     try {
       sessions.delete(codexSession.id);
+    } catch {
+      /* noop */
+    }
+    try {
+      sessions.delete(startedClaudeSession.id);
+    } catch {
+      /* noop */
+    }
+    try {
+      sessions.delete(startedGrokSession.id);
     } catch {
       /* noop */
     }
@@ -129,6 +174,11 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     }
     try {
       modelProviders.delete(googleProvider.id);
+    } catch {
+      /* noop */
+    }
+    try {
+      modelProviders.delete(xaiProvider.id);
     } catch {
       /* noop */
     }
@@ -229,6 +279,36 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
       expect.anything(),
       expect.objectContaining({ model: 'claude-sonnet-test' }),
     );
+  });
+
+  it('Started Claude session + Grok model (in-scope cross-kind) → 200 and dispatched (FR1/FR2)', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${startedClaudeSession.id}/message`)
+      .send({ content: 'follow-up', model: GROK_MESSAGE_MODEL });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(continueSession).toHaveBeenCalledTimes(1);
+    expect(continueSession).toHaveBeenCalledWith(
+      startedClaudeSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: GROK_MESSAGE_MODEL, interactive: true }),
+    );
+  });
+
+  it('Started Grok session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR7 pin)', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${startedGrokSession.id}/message`)
+      .send({ content: 'follow-up', model: 'gemini-flash-test' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    expect(continueSession).not.toHaveBeenCalled();
+
+    const refreshed = sessions.getById(startedGrokSession.id);
+    expect(refreshed.model).toBe(GROK_MESSAGE_MODEL);
+    expect(refreshed.agentType).toBe('grok-build');
   });
 
   it('Claude session with no explicit model falls back to session.model (same-kind) → 200', async () => {

@@ -53,11 +53,13 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
   let openaiProvider;
   let anthropicProvider;
   let googleProvider;
+  let xaiProvider;
 
   const GPT_MODEL = 'gpt-branch-guard';
   const GPT_MODEL_2 = 'gpt-branch-guard-2';
   const CLAUDE_MODEL = 'claude-branch-guard';
   const GEMINI_MODEL = 'gemini-branch-guard';
+  const GROK_MODEL = 'grok-branch-guard';
 
   function stubAgent() {
     return {
@@ -120,6 +122,11 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
       name: 'Google Branch Guard', baseUrl: 'https://generativelanguage.branch', authToken: 'key-g-branch', kind: 'google',
     });
     modelProviders.addModel(googleProvider.id, { modelId: GEMINI_MODEL, displayName: 'Gemini Branch', tier: 'custom' });
+
+    xaiProvider = modelProviders.create({
+      name: 'xAI Branch Guard', baseUrl: null, authToken: null, kind: 'xai',
+    });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_MODEL, displayName: 'Grok Branch', tier: 'custom' });
   });
 
   afterEach(() => {
@@ -132,6 +139,7 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
     try { modelProviders.delete(openaiProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
     try { projects.delete(project.id); } catch { /* noop */ }
     if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
   });
@@ -192,6 +200,22 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
 
     await expect(
       continueSessionWithExistingMessage(session.id, activeConversationId(session.id), tempDir, { model: GPT_MODEL }),
+    ).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+
+    expect(snapshotRow(session.id)).toEqual(before);
+    expect(mockCreateAgentForSession).not.toHaveBeenCalled();
+    expect(mockExecuteSession).not.toHaveBeenCalled();
+    expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('claude session + grok model → CROSS_KIND_MODEL_SWITCH, zero mutation, no adapter turn (FR8 pin)', async () => {
+    const session = createStartedSession({
+      name: 'Claude Started Grok', model: CLAUDE_MODEL, providerId: anthropicProvider.id, expectedAgentType: 'claude-code',
+    });
+    const before = snapshotRow(session.id);
+
+    await expect(
+      continueSessionWithExistingMessage(session.id, activeConversationId(session.id), tempDir, { model: GROK_MODEL }),
     ).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
 
     expect(snapshotRow(session.id)).toEqual(before);

@@ -325,6 +325,38 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(sessions.getById(session.id).pendingModel).toBeNull();
   });
 
+  it('returns 400 for a cross-kind Grok model switch on a started session (FR8 pin)', async () => {
+    const xaiProvider = modelProviders.create({
+      name: 'xAI Schedule Test',
+      baseUrl: null,
+      authToken: null,
+      kind: 'xai',
+    });
+    try {
+      modelProviders.addModel(xaiProvider.id, {
+        modelId: 'grok-schedule-cross-kind',
+        displayName: 'Grok Schedule Cross Kind',
+        tier: 'custom',
+      });
+
+      messages.create(session.id, 'assistant', 'Started response');
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({
+          prompt: 'Continue',
+          scheduledAt: Date.now() + 3600000,
+          model: 'grok-schedule-cross-kind',
+        })
+        .expect(400);
+
+      expect(response.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+      expect(sessions.getById(session.id).pendingModel).toBeNull();
+    } finally {
+      try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
+    }
+  });
+
   it('broadcasts SESSION_STATUS and SESSION_UPDATED on success', async () => {
     const scheduledAt = Date.now() + 3600000;
 

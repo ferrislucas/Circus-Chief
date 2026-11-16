@@ -16,11 +16,12 @@ export const AGENT_TYPE_LABELS = Object.freeze({
 });
 
 /**
- * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4).
- * `gemini` is deliberately excluded: any kind change involving it keeps the
- * old `CROSS_KIND_MODEL_SWITCH` rejection.
+ * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4):
+ * claude-code, codex, muse, and grok-build. `gemini` is deliberately
+ * excluded: any kind change involving it keeps the old
+ * `CROSS_KIND_MODEL_SWITCH` rejection.
  */
-export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse']);
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse', 'grok-build']);
 
 /**
  * Whether a model switch out of `sessionAgentType` is an allowed in-place
@@ -697,9 +698,12 @@ export function clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate
  * member belongs to another kind derives that kind (never the 'claude-code'
  * default a raw `tier::` sentinel would fall through to), while an
  * unresolvable tier (or any concrete model) derives from the id as given.
+ * For a concrete model the explicit `suppliedProviderId` is the hint when
+ * present (FR3/E1): the agent of the explicit (model, providerId) pair —
+ * not catalog lookup order — decides when one model id spans providers.
  */
 function resolveKindDerivationPair(newModel, suppliedProviderId, session) {
-  if (!isTierRef(newModel)) return { model: newModel, providerHint: undefined };
+  if (!isTierRef(newModel)) return { model: newModel, providerHint: suppliedProviderId ?? undefined };
   const resolved = resolveModelForAgentKind(newModel, suppliedProviderId ?? undefined, session);
   if (resolved.unresolved) return { model: newModel, providerHint: undefined };
   return { model: resolved.modelId, providerHint: resolved.providerIdHint };

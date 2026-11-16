@@ -11,8 +11,8 @@ import {
  * so this file fails at import until Phase 2 implements it.
  *
  * Scope rule: a kind change is allowed iff BOTH sides are in
- * { claude-code, codex, muse }. Gemini anywhere on a kind change stays
- * blocked; same-kind is trivially allowed.
+ * { claude-code, codex, muse, grok-build }. Gemini anywhere on a kind change
+ * stays blocked; same-kind is trivially allowed.
  */
 describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
   let project;
@@ -20,12 +20,15 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
   let openaiProvider;
   let metaProvider;
   let googleProvider;
+  let xaiProvider;
 
   const CLAUDE_A = 'claude-allowlist-a';
   const CLAUDE_B = 'claude-allowlist-b';
   const GPT_A = 'gpt-allowlist-a';
   const MUSE_A = 'muse-allowlist-a';
   const GEMINI_A = 'gemini-allowlist-a';
+  const GROK_A = 'grok-allowlist-a';
+  const GROK_B = 'grok-allowlist-b';
 
   beforeEach(() => {
     project = projects.create('Allowlist Test Project', '/tmp/allowlist-test');
@@ -62,6 +65,15 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
       kind: 'google',
     });
     modelProviders.addModel(googleProvider.id, { modelId: GEMINI_A, displayName: 'Gemini A', tier: 'custom' });
+
+    xaiProvider = modelProviders.create({
+      name: 'xAI Allowlist',
+      baseUrl: null,
+      authToken: null,
+      kind: 'xai',
+    });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_A, displayName: 'Grok A', tier: 'custom' });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_B, displayName: 'Grok B', tier: 'custom' });
   });
 
   afterEach(() => {
@@ -69,11 +81,12 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
     try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(metaProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
     try { projects.delete(project.id); } catch { /* noop */ }
   });
 
-  it('scopes the switch to claude-code, codex, and muse (gemini excluded)', () => {
-    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'muse']);
+  it('scopes the switch to claude-code, codex, muse, and grok-build (gemini excluded)', () => {
+    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'grok-build', 'muse']);
   });
 
   it('allows codex <-> claude-code in both directions', () => {
@@ -88,6 +101,15 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
     expect(isCrossKindSwitchAllowed('muse', GPT_A)).toBe(true);
   });
 
+  it('allows every direction involving grok-build', () => {
+    expect(isCrossKindSwitchAllowed('claude-code', GROK_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('grok-build', CLAUDE_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('codex', GROK_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('grok-build', GPT_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('muse', GROK_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('grok-build', MUSE_A)).toBe(true);
+  });
+
   it('blocks any kind change involving gemini, either direction', () => {
     expect(isCrossKindSwitchAllowed('claude-code', GEMINI_A)).toBe(false);
     expect(isCrossKindSwitchAllowed('gemini', CLAUDE_A)).toBe(false);
@@ -95,6 +117,12 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
     expect(isCrossKindSwitchAllowed('gemini', GPT_A)).toBe(false);
     expect(isCrossKindSwitchAllowed('muse', GEMINI_A)).toBe(false);
     expect(isCrossKindSwitchAllowed('gemini', MUSE_A)).toBe(false);
+    expect(isCrossKindSwitchAllowed('grok-build', GEMINI_A)).toBe(false);
+    expect(isCrossKindSwitchAllowed('gemini', GROK_A)).toBe(false);
+  });
+
+  it('allows same-kind Grok model changes', () => {
+    expect(isCrossKindSwitchAllowed('grok-build', GROK_B)).toBe(true);
   });
 
   it('allows same-kind model changes (existing behavior pinned)', () => {

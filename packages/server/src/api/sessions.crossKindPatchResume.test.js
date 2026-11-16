@@ -58,11 +58,13 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
   let anthropicProvider;
   let metaProvider;
   let googleProvider;
+  let xaiProvider;
 
   const GPT_MODEL = 'gpt-patch-resume-test';
   const CLAUDE_MODEL = 'claude-patch-resume-test';
   const MUSE_MODEL = 'muse-patch-resume-test';
   const GEMINI_MODEL = 'gemini-patch-resume-test';
+  const GROK_MODEL = 'grok-patch-resume-test';
 
   /** Stub adapter mirroring the real kind's resume/context capabilities. */
   function stubAgentFor(kind) {
@@ -124,6 +126,11 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
       name: 'Google Patch Resume', baseUrl: 'https://generativelanguage.patch-resume', authToken: 'key-g', kind: 'google',
     });
     modelProviders.addModel(googleProvider.id, { modelId: GEMINI_MODEL, displayName: 'Gemini Patch Resume', tier: 'custom' });
+
+    xaiProvider = modelProviders.create({
+      name: 'xAI Patch Resume', baseUrl: null, authToken: null, kind: 'xai',
+    });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_MODEL, displayName: 'Grok Patch Resume', tier: 'custom' });
   });
 
   afterEach(() => {
@@ -131,6 +138,7 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(metaProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
     try { projects.delete(project.id); } catch { /* noop */ }
     if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
   });
@@ -235,6 +243,57 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
       });
 
       expect(createAgentSpy.mock.calls[0][0]).toBe('codex');
+      expect(queryParams.options.resume).toBeUndefined();
+      expect(queryParams.prompt.startsWith('<conversation_history>')).toBe(true);
+      expect(queryParams.prompt).toContain('first answer');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('claude-code → grok picker flow: PATCH clears EVERY conversation pointer; follow-up sends no resume (E2)', async () => {
+    // Two conversations, each with a stale native pointer; the transcript
+    // lives in the (second, active) conversation the follow-up turn reads.
+    const session = sessions.create(project.id, 'Claude To Grok', 'Initial prompt', {
+      model: CLAUDE_MODEL,
+      providerId: anthropicProvider.id,
+      status: 'waiting',
+    });
+    const firstConv = conversations.ensureActiveConversation(session.id);
+    conversations.update(firstConv.id, { claudeSessionId: 'stale-a' });
+    const activeConv = conversations.create(session.id, 'Side conversation', true);
+    messages.create(session.id, 'user', 'first question', { conversationId: activeConv.id });
+    messages.create(session.id, 'assistant', 'first answer', { conversationId: activeConv.id });
+    conversations.update(activeConv.id, { claudeSessionId: 'stale-b' });
+    expect(resumePointers(session.id)).toEqual(['stale-a', 'stale-b']);
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: GROK_MODEL, providerId: xaiProvider.id })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(GROK_MODEL);
+    expect(updated.agentType).toBe('grok-build');
+    expect(updated.providerId).toBe(xaiProvider.id);
+    // Every conversation's native pointer is discarded (FR5/E2).
+    expect(resumePointers(session.id)).toEqual([null, null]);
+
+    // Follow-up send on the switched session: resumable Grok stub, but the
+    // turn must open a fresh native thread with the transcript injected.
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgentFor('grok-build'));
+    try {
+      const { queryParams } = await prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'follow-up on grok',
+        workingDirectory: tempDir,
+        options: { model: GROK_MODEL, interactive: true },
+        controller: new AbortController(),
+      });
+
+      expect(createAgentSpy.mock.calls[0][0]).toBe('grok-build');
       expect(queryParams.options.resume).toBeUndefined();
       expect(queryParams.prompt.startsWith('<conversation_history>')).toBe(true);
       expect(queryParams.prompt).toContain('first answer');

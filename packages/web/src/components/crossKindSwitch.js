@@ -11,7 +11,7 @@
  */
 
 /** Agent kinds eligible for an in-place switch (mirrors the server guard). */
-export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse']);
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse', 'grok-build']);
 
 const AGENT_LABELS = Object.freeze({
   'claude-code': 'Claude Code',

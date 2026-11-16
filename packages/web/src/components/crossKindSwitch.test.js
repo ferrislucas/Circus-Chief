@@ -16,8 +16,8 @@ import {
  * until the GREEN step implements it.
  */
 describe('crossKindSwitch picker helper', () => {
-  it('scopes confirmation to claude-code, codex, and muse', () => {
-    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'muse']);
+  it('scopes confirmation to claude-code, codex, muse, and grok-build', () => {
+    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'grok-build', 'muse']);
   });
 
   it('maps provider kinds to agent types (unknown kinds stay Claude Code)', () => {
@@ -81,6 +81,30 @@ describe('crossKindSwitch picker helper', () => {
     );
   });
 
+  it('claude-code→grok-build confirms with the Grok Build label', () => {
+    const plan = planModelSwitch({ fromAgentType: 'claude-code', toAgentType: 'grok-build', isStarted: true });
+    expect(plan?.action).toBe('confirm');
+    expect(plan.copy).toBe(
+      'Switch from Claude Code to Grok Build? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
+  it('grok-build→muse confirms with the Muse / Grok Build labels', () => {
+    const plan = planModelSwitch({ fromAgentType: 'grok-build', toAgentType: 'muse', isStarted: true });
+    expect(plan?.action).toBe('confirm');
+    expect(plan.copy).toBe(
+      'Switch from Grok Build to Muse? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
+  it('codex→grok-build confirms with the Codex / Grok Build labels', () => {
+    const plan = planModelSwitch({ fromAgentType: 'codex', toAgentType: 'grok-build', isStarted: true });
+    expect(plan?.action).toBe('confirm');
+    expect(plan.copy).toBe(
+      'Switch from Codex to Grok Build? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
   it('same-kind changes need no confirmation', () => {
     expect(planModelSwitch({ fromAgentType: 'claude-code', toAgentType: 'claude-code', isStarted: true })).toBeNull();
     expect(planModelSwitch({ fromAgentType: 'codex', toAgentType: 'codex', isStarted: true })).toBeNull();
@@ -95,6 +119,15 @@ describe('crossKindSwitch picker helper', () => {
       action: 'backend',
     });
     expect(planModelSwitch({ fromAgentType: 'gemini', toAgentType: 'claude-code', isStarted: true })).toEqual({
+      action: 'backend',
+    });
+  });
+
+  it('grok-build ↔ gemini also defer to the backend guard (gemini stays out of the set)', () => {
+    expect(planModelSwitch({ fromAgentType: 'grok-build', toAgentType: 'gemini', isStarted: true })).toEqual({
+      action: 'backend',
+    });
+    expect(planModelSwitch({ fromAgentType: 'gemini', toAgentType: 'grok-build', isStarted: true })).toEqual({
       action: 'backend',
     });
   });
@@ -184,6 +217,24 @@ describe('persistModelSelectionWithConfirm', () => {
     expect(result).toBe('cancelled');
     expect(persistFn).not.toHaveBeenCalled();
     expect(revertFn).toHaveBeenCalledWith('claude-x', 'a');
+  });
+
+  it('cancelling a Claude → Grok switch reverts to the old model+provider and never persists (FR4)', async () => {
+    const { persistFn, onError, revertFn } = fns();
+    const confirmFn = vi.fn().mockReturnValue(false);
+    const result = await persistModelSelectionWithConfirm({
+      ...base,
+      newModel: 'grok-x', newProviderId: 'x',
+      fromAgentType: 'claude-code', toAgentType: 'grok-build',
+      confirmFn, persistFn, onError, revertFn,
+    });
+    expect(result).toBe('cancelled');
+    expect(confirmFn).toHaveBeenCalledWith(
+      'Switch from Claude Code to Grok Build? Native context is cleared; full text history is passed to the new provider.',
+    );
+    expect(persistFn).not.toHaveBeenCalled();
+    expect(revertFn).toHaveBeenCalledWith('claude-x', 'a');
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('4xx refusal surfaces the backend copy and reverts (gemini 400 shape)', async () => {

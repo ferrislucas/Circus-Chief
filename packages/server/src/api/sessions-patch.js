@@ -178,7 +178,12 @@ function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId
   // tier-kind changes and dead tiers stay rejected here.
   const pairError = checkStartedSelectionPairs(session, updateData);
   if (pairError) return { driftError: pairError, agentTypeUpdate: {} };
-  if (!checkCrossKindSwitch(session, newModel)) {
+  // Judge the switch by the exact pair being persisted (FR3/E1): an explicit
+  // providerId decides the kind when one model id is registered under
+  // several providers — catalog lookup order must not win — mirroring the
+  // pair-aware validation in checkStartedSelectionPairs above. An absent
+  // providerId falls through to the catalog owner exactly as before.
+  if (!checkCrossKindSwitch(session, newModel, updateData.providerId)) {
     return { driftError: null, agentTypeUpdate: {} };
   }
   // Allowed in-place switch: persist the re-derived kind (+ auto providerId
