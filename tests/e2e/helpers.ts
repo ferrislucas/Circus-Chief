@@ -1265,7 +1265,7 @@ export async function waitForCommandCompletion(
  */
 export async function createProvider(data: {
   name: string;
-  kind?: 'anthropic' | 'openai';
+  kind?: 'anthropic' | 'openai' | 'google' | 'meta' | 'xai';
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;

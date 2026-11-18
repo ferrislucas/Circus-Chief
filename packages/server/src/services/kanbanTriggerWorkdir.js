@@ -1,9 +1,22 @@
 import { setupGitForSession } from './gitSessionSetup.js';
 import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
 import * as gitService from './gitService.js';
+import { normalizeFinalErrorMessage } from './visibleFinalErrorMessage.js';
 
 export function throwIfAborted(controller) {
   if (controller?.signal.aborted) throw controller.signal.reason || new Error('Lane-entry delivery was aborted');
+}
+
+/**
+ * True when a lane child's Git setup failure is terminally classified: the
+ * cause is the shared-config contention error that already spent its own
+ * bounded retry budget inside ensureWorktreeConfigEnabled. Re-delivering such
+ * an error cannot succeed, so the delivery boundary may fail the child and
+ * its run immediately instead of consuming the outbox's retry window.
+ */
+export function isTerminalLaneGitSetupFailure(error) {
+  return error?.code === 'LANE_CHILD_GIT_SETUP_FAILED'
+    && error?.cause?.code === 'GIT_SHARED_CONFIG_CONTENTION';
 }
 
 /**
@@ -75,6 +88,14 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       sessionId: gitOptions.sessionId,
       worktreeBasePath: project.worktreePath || null,
       commitAttributionOverride: resolveCommitAttributionOverrideForModel(gitOptions.model),
+    }).catch((error) => {
+      if (gitOptions.abortController?.signal.aborted) throw error;
+      // The sanitized cause text is the wrapper's message so the outbox's
+      // last_error (and an exhausted run's failure_reason) stays meaningful
+      // and credential-free for every retryable setup failure.
+      const failure = new Error(normalizeFinalErrorMessage(error), { cause: error });
+      failure.code = 'LANE_CHILD_GIT_SETUP_FAILED';
+      throw failure;
     });
     await assertSetupNotAborted(project, gitSetup, gitOptions);
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree, allocatedWorktree: gitSetup.gitWorktree };

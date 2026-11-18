@@ -1,8 +1,11 @@
+import { conversations } from '../database.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import {
   buildLastExecutedUpdate, checkContinuationDispatchKind,
   createCrossKindDispatchError, hasDispatchPairChanged,
+  checkCrossKindSwitch, isCrossKindBlockLiftable, deriveCrossKindAgentTypeUpdate,
+  pendingModelClearanceForKindSwitch, sessionHasNoAssistantMessages,
 } from './sessionAgentGuard.js';
 import { applyContinueResolution, resolveContinueAgentTypeUpdate } from './sessionContinueKindSwitch.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
@@ -31,6 +34,19 @@ import { shouldRethrowForTierFailover } from './tierFailureHealth.js';
 export function isSameBindingSelection(session, model, providerId) {
   return model === session.model
     && (isTierRef(model) || providerId == null || providerId === session.providerId);
+}
+
+function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, interactive }) {
+  if (!model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId) || !dispatchedProviderId) return {};
+  const block = checkCrossKindSwitch(session, effectiveModel, dispatchedProviderId);
+  if (!block) return {};
+  if (!interactive || !isCrossKindBlockLiftable(session, model, dispatchedProviderId, block)) {
+    throw createCrossKindDispatchError(block);
+  }
+  const update = deriveCrossKindAgentTypeUpdate(session, effectiveModel, dispatchedProviderId);
+  update.providerId = dispatchedProviderId;
+  Object.assign(update, pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType));
+  return update;
 }
 
 /**
@@ -84,6 +100,10 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
     ?? providerIdHint ?? null;
   const dispatchedPair = { model: effectiveModel, providerId: dispatchedProviderId };
 
+  // Concrete overrides on established sessions need the same authorization as
+  // the message route, evaluated against the provider that will dispatch.
+  const interactiveKindUpdate = reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, dispatchedProviderId, interactive });
+
   // Visible fallback notice when the own binding silently moved off its
   // previously executed member (review issue 1), or advanced off a cooled
   // snapshot (§5.1). Suppressed on a same-turn retry's second attempt — its
@@ -94,20 +114,24 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   // newly validated candidate — not the model string or tier sentinel alone.
   const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
-  // Explicit off-binding kind mismatches throw here, before the row write.
-  // Interactive in-scope concrete switches retarget; tier advances stay on
-  // the advance-aware path. A null model keeps the current snapshot.
-  const agentTypeUpdate = resolveContinueAgentTypeUpdate({
-    session,
-    sessionId,
-    requestedModel: model,
-    requestedProviderId: providerId,
-    interactive,
-    sameBinding: model == null || isSameBindingSelection(session, model, providerId),
-    effectiveModel,
-    providerIdHint,
-    persist,
-  });
+  // Explicit off-binding mismatches throw here, before the row write.
+  // A concrete switch is judged again against the provider that will
+  // dispatch, and that update wins. A null model stays on the advance path.
+  // The resume chain drops only after this write.
+  const agentTypeUpdate = {
+    ...resolveContinueAgentTypeUpdate({
+      session,
+      sessionId,
+      requestedModel: model,
+      requestedProviderId: providerId,
+      interactive,
+      sameBinding: model == null || isSameBindingSelection(session, model, providerId),
+      effectiveModel,
+      providerIdHint,
+      persist,
+    }),
+    ...interactiveKindUpdate,
+  };
   const updatedSession = applyContinueResolution({
     session,
     sessionId,
@@ -135,11 +159,11 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
  * change the previous session can't resume, so history is included as
  * context; `failoverBoundary` appends the same-turn retry marker (§5.2).
  */
-async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt, failoverBoundary = null }) {
+async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt, resumeChainGone, failoverBoundary = null }) {
   if (modelChanged) {
     return buildConversationContextForModelSwitch(conversationId) + (failoverBoundary ?? '') + prompt;
   }
-  if (agent.needsConversationContext()) {
+  if (agent.needsConversationContext() || resumeChainGone) {
     return buildConversationContextForContinuation(conversationId) + prompt;
   }
   return prompt;
@@ -155,7 +179,7 @@ async function buildContinueParams({
   const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
   const promptWithContext = await buildPromptForContinue({
     modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
-    failoverBoundary,
+    resumeChainGone: !canResume && agent.supportsResume(), failoverBoundary,
   });
   const queryParams = buildQueryParams({
     prompt: promptWithContext, workingDirectory, controller, session, sessionId,
@@ -201,7 +225,7 @@ async function prepareContinueDispatch({
     sessionId: session.id, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     commitAttributionOverride: modelEnv.commitAttributionOverride,
-    modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
+    modelChanged: modelEnv.modelChanged, activeConversation: conversations.getById(activeConversation.id), promptWithAttachments,
     workingDirectory, controller, agentType, agent, failoverBoundary,
   });
   return { tierContext, agentType, agent, queryParams, agentCallMeta, dispatchedPair: modelEnv.dispatchedPair };
@@ -233,14 +257,15 @@ export async function prepareContinueAttempt(sessionId, turn, opts) {
         providerId: firstAttempt ? providerId : null,
         suppressAdvanceNotice: !firstAttempt,
         retryMember,
-        interactive,
+        interactive: firstAttempt && interactive,
       }
     );
     if (!firstAttempt && resolvesToFailedMember(modelEnv, turn.unsettledError)) {
       throw turn.unsettledError.error;
     }
     const dispatch = await prepareContinueDispatch({
-      session: modelEnv.session, modelEnv, model, systemPrompt, activeConversation,
+      session: modelEnv.session, modelEnv, model, systemPrompt,
+      activeConversation: conversations.getById(activeConversation.id) ?? activeConversation,
       promptWithAttachments, workingDirectory, controller,
       failoverBoundary: turn.failoverBoundary, authorizeFailover: firstAttempt,
     });

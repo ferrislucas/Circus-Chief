@@ -104,7 +104,8 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * Resolve model/provider and build session environment for a continue operation.
  *
  * In-place cross-kind switch (FRD §7): when the requested model resolves to a
- * different agent kind, the switch is in scope (claude-code ↔ codex ↔ muse),
+ * different agent kind, the switch is in scope
+ * (claude-code ↔ codex ↔ muse ↔ grok-build),
  * and the turn is interactive, the session row follows the new kind
  * ({ model, agentType, providerId }) and the turn takes the model-switch
  * context path with resume forced off. Non-interactive turns (scheduled
@@ -169,11 +170,11 @@ function buildContinueModelAndEnv(session, sessionId, model, { interactive = fal
 /**
  * Detect an allowed in-place kind switch for a continue turn: the request
  * carried an explicit model override that resolves to a different agent
- * kind, both kinds are in scope (claude-code ↔ codex ↔ muse), and the turn
- * is interactive. A turn with no override is never a switch — even when the
- * stored model id has gone stale and falls back to 'claude-code'
- * resolution. Anything else (same kind, gemini, non-interactive) is not a
- * switch.
+ * kind, both kinds are in scope (claude-code ↔ codex ↔ muse ↔ grok-build),
+ * and the turn is interactive. A turn with no override is never a switch —
+ * even when the stored model id has gone stale and falls back to
+ * 'claude-code' resolution. Anything else (same kind, gemini,
+ * non-interactive) is not a switch.
  * @returns {{ kindChanged: boolean, newAgentType: string }}
  */
 function resolveKindSwitch(session, effectiveModel, interactive, hasExplicitModel = false) {

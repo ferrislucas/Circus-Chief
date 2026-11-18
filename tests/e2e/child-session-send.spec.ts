@@ -69,9 +69,11 @@ test.describe('Child Session Start from Overlay', () => {
     await expect(textarea).toBeVisible({ timeout: 5000 });
     await textarea.fill(CHILD_PROMPT);
 
-    // 7. Wait for draft auto-save to complete, then click Send.
-    //    The Send button is disabled while saveStatus === 'saving', so waiting
-    //    for it to be enabled ensures auto-save has finished.
+    // 7. Wait for the actual draft to reach the server. The button is enabled
+    //    during the debounce interval, before saving has started.
+    await expect.poll(async () => (await getSession(childSession.id))?.pendingPrompt, {
+      timeout: 10000,
+    }).toBe(CHILD_PROMPT);
     const sendBtn = overlay.locator('.btn-send-full');
     await expect(sendBtn).toBeVisible();
     await expect(sendBtn).toBeEnabled({ timeout: 5000 });

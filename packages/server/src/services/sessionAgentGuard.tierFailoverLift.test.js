@@ -15,7 +15,8 @@ import { markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
  *
  * Lift rule: an established session advancing OFF a cooled snapshot of its
  * OWN tier binding may cross agent kinds iff both sides are in
- * { claude-code, codex, muse }. Gemini anywhere stays blocked (NG3), and so
+ * { claude-code, codex, muse, grok-build }. Gemini anywhere stays blocked
+ * (NG3), and so
  * does every non-advance candidate (uncooled snapshot, flag off, explicit
  * different-tier selection).
  */
@@ -24,12 +25,14 @@ describe('tier-failover lift (§5.1)', () => {
   let anthropicProvider;
   let openaiProvider;
   let googleProvider;
+  let xaiProvider;
   let tier;
   let tierRef;
 
   const CLAUDE_MODEL = 'claude-lift';
   const GPT_MODEL = 'gpt-lift';
   const GEMINI_MODEL = 'gemini-lift';
+  const GROK_MODEL = 'grok-lift';
 
   beforeEach(() => {
     project = projects.create('Lift Test Project', '/tmp/lift-test');
@@ -43,11 +46,15 @@ describe('tier-failover lift (§5.1)', () => {
     googleProvider = modelProviders.create({ name: 'Google Lift', kind: 'google' });
     modelProviders.addModel(googleProvider.id, { modelId: GEMINI_MODEL, displayName: 'Gemini Lift' });
 
+    xaiProvider = modelProviders.create({ name: 'xAI Lift', kind: 'xai' });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_MODEL, displayName: 'Grok Lift' });
+
     tier = modelTiers.create({
       name: 'Lift Tier',
       members: [
         { providerId: anthropicProvider.id, modelId: CLAUDE_MODEL, position: 0 },
         { providerId: openaiProvider.id, modelId: GPT_MODEL, position: 1 },
+        { providerId: xaiProvider.id, modelId: GROK_MODEL, position: 2 },
       ],
     });
     tierRef = buildTierRef(tier.id);
@@ -58,6 +65,7 @@ describe('tier-failover lift (§5.1)', () => {
     try { modelTiers.delete(tier.id); } catch { /* noop */ }
     try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(openaiProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
     try { projects.delete(project.id); } catch { /* noop */ }
   });
@@ -84,9 +92,19 @@ describe('tier-failover lift (§5.1)', () => {
       expect(isTierFailoverLiftable('codex', CLAUDE_MODEL, anthropicProvider.id)).toBe(true);
     });
 
+    it('lifts claude-code → grok-build', () => {
+      expect(isTierFailoverLiftable('claude-code', GROK_MODEL, xaiProvider.id)).toBe(true);
+    });
+
+    it('lifts grok-build → codex', () => {
+      expect(isTierFailoverLiftable('grok-build', GPT_MODEL, openaiProvider.id)).toBe(true);
+    });
+
     it('blocks any switch involving gemini, either direction', () => {
       expect(isTierFailoverLiftable('claude-code', GEMINI_MODEL, googleProvider.id)).toBe(false);
       expect(isTierFailoverLiftable('gemini', GPT_MODEL, openaiProvider.id)).toBe(false);
+      expect(isTierFailoverLiftable('grok-build', GEMINI_MODEL, googleProvider.id)).toBe(false);
+      expect(isTierFailoverLiftable('gemini', GROK_MODEL, xaiProvider.id)).toBe(false);
     });
 
     it('rejects tier-ref candidates', () => {
@@ -111,6 +129,36 @@ describe('tier-failover lift (§5.1)', () => {
       const candidate = { effectiveModel: GPT_MODEL, providerIdHint: openaiProvider.id };
       expect(checkContinuationDispatchKind(session, session.id, null, candidate)?.error)
         .toBe('CROSS_KIND_MODEL_SWITCH');
+    });
+
+    it('lifts CROSS_KIND for a cooled-snapshot advance onto a Grok member', () => {
+      const session = createEstablishedTierSession();
+      markUnhealthy(anthropicProvider.id, CLAUDE_MODEL);
+      const candidate = { effectiveModel: GROK_MODEL, providerIdHint: xaiProvider.id };
+      expect(checkContinuationDispatchKind(session, session.id, null, candidate)).toBeNull();
+    });
+
+    it('keeps the block for an uncooled advance onto a Grok member', () => {
+      const session = createEstablishedTierSession();
+      const candidate = { effectiveModel: GROK_MODEL, providerIdHint: xaiProvider.id };
+      expect(checkContinuationDispatchKind(session, session.id, null, candidate)?.error)
+        .toBe('CROSS_KIND_MODEL_SWITCH');
+    });
+
+    it('keeps the block for an explicit different-tier selection of the Grok member', () => {
+      const session = createEstablishedTierSession();
+      const otherTier = modelTiers.create({
+        name: 'Other Lift Tier Grok',
+        members: [{ providerId: xaiProvider.id, modelId: GROK_MODEL, position: 0 }],
+      });
+      try {
+        const candidate = { effectiveModel: GROK_MODEL, providerIdHint: xaiProvider.id };
+        expect(
+          checkContinuationDispatchKind(session, session.id, buildTierRef(otherTier.id), candidate)?.error
+        ).toBe('CROSS_KIND_MODEL_SWITCH');
+      } finally {
+        try { modelTiers.delete(otherTier.id); } catch { /* noop */ }
+      }
     });
 
     it('keeps the block when the tier disabled automatic failover', () => {

@@ -259,6 +259,9 @@ describe('useWorkLogFollow content-growth regression (Issue 2)', () => {
     pinToBottom(wrapper, container);
     expect(wrapper.vm.isNearBottom).toBe(true);
     container.setScrollHeight(container.el.scrollHeight + 120);
+    // A queued browser scroll event for the return arrives after growth.
+    wrapper.vm.handleScroll({ target: container.el });
+    expect(wrapper.vm.isNearBottom).toBe(true);
     for (const cb of liveCallbacksFor(content)) cb();
     await flushPromises();
     await nextTick();
