@@ -409,10 +409,14 @@ describe('Explicit provider pairs on PATCH (finding 7)', () => {
   let claudeProviderA;
   let claudeProviderB;
   let codexProvider;
+  let xaiProvider;
 
   const SHARED_MODEL = 'shared-pair-model';
   const CODEX_ONLY_MODEL = 'codex-only-pair-model';
   const CLAUDE_MODEL = 'claude-pair-model';
+  // One id registered under an Anthropic provider created FIRST and an xAI
+  // provider created SECOND, so catalog order resolves the owner to Claude.
+  const SHARED_GROK_MODEL = 'shared-grok-pair-model';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -431,10 +435,16 @@ describe('Explicit provider pairs on PATCH (finding 7)', () => {
     }
     modelProviders.addModel(codexProvider.id, { modelId: CODEX_ONLY_MODEL, displayName: 'Codex Only' });
     modelProviders.addModel(claudeProviderA.id, { modelId: CLAUDE_MODEL, displayName: 'Claude' });
+
+    // Created AFTER claudeProviderA so the catalog owner of SHARED_GROK_MODEL
+    // is the Anthropic provider (creation order = lookup order).
+    xaiProvider = modelProviders.create({ name: 'Grok Pair', kind: 'xai' });
+    modelProviders.addModel(claudeProviderA.id, { modelId: SHARED_GROK_MODEL, displayName: 'Shared Grok (Claude owner)' });
+    modelProviders.addModel(xaiProvider.id, { modelId: SHARED_GROK_MODEL, displayName: 'Shared Grok (xAI owner)' });
   });
 
   afterEach(() => {
-    for (const provider of [claudeProviderA, claudeProviderB, codexProvider]) {
+    for (const provider of [claudeProviderA, claudeProviderB, codexProvider, xaiProvider]) {
       try { modelProviders.delete(provider.id); } catch { /* noop */ }
     }
     try { projects.delete(project.id); } catch { /* noop */ }
@@ -478,6 +488,52 @@ describe('Explicit provider pairs on PATCH (finding 7)', () => {
     expect(unchanged.model).toBe(SHARED_MODEL);
     expect(unchanged.providerId).toBe(claudeProviderA.id);
     expect(unchanged.agentType).toBe('claude-code');
+  });
+
+  it('explicit providerId decides the kind for a shared model id (catalog order must not win) (FR3)', async () => {
+    // Started Claude session bound to a different Claude-only model.
+    const session = sessions.create(project.id, 'Shared Grok Pair Session', 'Initial prompt', {
+      model: CLAUDE_MODEL,
+      providerId: claudeProviderA.id,
+      status: 'waiting',
+    });
+    sessions.update(session.id, { agentType: 'claude-code' });
+    messages.create(session.id, 'assistant', 'Prior answer.');
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+
+    // The explicit xAI provider owns the same model id the Anthropic catalog
+    // owner also registers: the explicit pair must win (FR3/E1).
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: SHARED_GROK_MODEL, providerId: xaiProvider.id });
+    expect(res.status).toBe(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(SHARED_GROK_MODEL);
+    expect(updated.agentType).toBe('grok-build');
+    expect(updated.providerId).toBe(xaiProvider.id);
+  });
+
+  it('control: a shared model id without a providerId resolves through the catalog owner (FR3 control)', async () => {
+    const session = sessions.create(project.id, 'Shared Grok Catalog Session', 'Initial prompt', {
+      model: CLAUDE_MODEL,
+      providerId: claudeProviderA.id,
+      status: 'waiting',
+    });
+    sessions.update(session.id, { agentType: 'claude-code' });
+    messages.create(session.id, 'assistant', 'Prior answer.');
+
+    const res = await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: SHARED_GROK_MODEL });
+    expect(res.status).toBe(200);
+
+    // The catalog owner (Anthropic, created first) decides: same-kind change,
+    // agentType stays claude-code and the stored provider is the Anthropic owner.
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(SHARED_GROK_MODEL);
+    expect(updated.providerId).toBe(claudeProviderA.id);
+    expect(updated.agentType).toBe('claude-code');
   });
 
   it('rejects a provider-only switch to an incompatible owner', async () => {
@@ -710,7 +766,8 @@ describe('PATCH binding snapshot reconciliation (finding 1)', () => {
 /**
  * RED (plan Phase 1, FR1/FR2/FR9): in-place cross-provider switch on
  * STARTED sessions (has ≥1 assistant message) for in-scope kinds
- * (claude-code ↔ codex ↔ muse). Gemini stays blocked everywhere, and the
+ * (claude-code ↔ codex ↔ muse ↔ grok-build). Gemini stays blocked everywhere,
+ * and the
  * non-interactive schedule path stays strict.
  */
 describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {

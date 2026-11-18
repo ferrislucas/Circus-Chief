@@ -11,16 +11,16 @@
  * `triggerStructuredTransitionAutomation` docs in kanbanService.js).
  */
 import { sessions, conversations } from '../database.js';
-import { resolveDispatchProvider, resolveDurableProviderId, resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
 import {
   buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
-  checkCrossKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged,
+  clearResumeChainOnKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged,
 } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { claimSessionExecution } from './sessionExecutionOwnership.js';
-import { validateAndFetchContinueContext } from './sessionContinuation.js';
+import { admitConcreteSelection, validateAndFetchContinueContext } from './sessionContinuation.js';
 import { activeLaneRunOwnsSession } from './workflowSessionService.js';
 import { rejectedSessionExecution, startedSessionExecution } from './sessionStartResult.js';
 import { createAgentForSession, handlePreparationFailure, _executeSession } from './sessionExecution.js';
@@ -139,24 +139,11 @@ function buildModelAndProvider(session, sessionId, model, {
   const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
   let updatedSession = session;
-  // Defense in depth: if this is still a draft (no assistant messages),
-  // re-derive agentType so it stays in sync with the effective model. After
-  // the first assistant turn this is locked. Only reconcile agentType here —
-  // providerId is managed by PATCH and SessionRepository.create for non-tier
-  // sessions. Suppress providerId auto-set by passing the resolved hint (or
-  // the current value) as the explicit override (mirrors sessionExecution.js).
-  //
-  // Work Item 4: gate on `effectiveModel`, not the raw `model` override param.
-  // A tier-bound draft session may have been created with a wrong initial
-  // agentType (e.g. a template/lane/draft path that resolved the tier's kind
-  // incorrectly before Work Item 2 closed that gap) — that must still be
-  // corrected on its very first continuation, even when the caller passes no
-  // explicit model override and is simply continuing on the existing
-  // binding. This mirrors `sessionContinuation.buildContinueModelAndEnv`,
-  // which already reconciles unconditionally on `effectiveModel`.
-  // Advance-aware agentType reconciliation (§5.1): shared with
-  // sessionContinuation.buildContinueModelAndEnv.
+  // Reconcile drafts and authorized own-tier advances against the resolved
+  // member, just as the ordinary continuation path does. Clear old handles
+  // before persisting a new kind, including on a same-turn retry.
   const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
+  clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate);
   // Record the durable last-executed identity alongside any other persistence
   // (see sessionContinuation.js). Written only when it differs.
   const updatePayload = { ...persist, ...agentTypeUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
@@ -190,9 +177,9 @@ function buildExistingMessageQueryParams({
   }
   let conversationContext = buildContextForType(conversationId, contextType);
 
-  // Fallback: if no specific context was built but the adapter needs
-  // conversation context (i.e. it can't resume), inject continuation history.
-  if (!conversationContext && agent.needsConversationContext()) {
+  const canResume = conversation.claudeSessionId && !modelChanged && agent.supportsResume();
+  // A resumable adapter also needs history until it has a usable native chain.
+  if (!conversationContext && (agent.needsConversationContext() || (!canResume && agent.supportsResume()))) {
     conversationContext = buildConversationContextForContinuation(conversationId);
   }
 
@@ -201,10 +188,6 @@ function buildExistingMessageQueryParams({
   // continues the failed turn instead of re-executing it (§5.2 — mirrors
   // `buildPromptForContinue`'s marker placement on the new-message path).
   const promptWithContext = conversationContext + (failoverBoundary ?? '') + lastUserMessage.content;
-
-  // Only resume if we have a session ID AND model hasn't changed AND the
-  // agent supports resume.
-  const canResume = conversation.claudeSessionId && !modelChanged && agent.supportsResume();
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,
@@ -216,6 +199,7 @@ function buildExistingMessageQueryParams({
     model: effectiveModel,
     sessionEnv,
     conversationId,
+    agentType,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
@@ -243,21 +227,6 @@ function buildExistingMessageQueryParams({
  */
 function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller, failoverDeps, authorizeFailover = false, failoverBoundary = null, skipClaim = false, settleArmedError = false, suppressAdvanceNotice = false, retryMember = null, retryResolution = null }) {
   const { systemPrompt = null, model = null, providerId = null } = options;
-  // Fail closed on cross-kind model overrides (FR9): the branch-continue
-  // path never re-derives the kind, so a kind change here would strand
-  // the row (adapter-kind != model-kind). Reject with the existing
-  // CROSS_KIND_MODEL_SWITCH semantics BEFORE claiming execution or writing
-  // anything — no model/agentType/providerId/pendingModel update, no
-  // adapter creation, no status side effects left behind.
-  //
-  // Only enforce for positively-known models: an unregistered id carries
-  // no kind information (resolution merely guesses 'claude-code'), and the
-  // established branch-continue contract lets such overrides proceed on
-  // the existing adapter.
-  const crossKindError = model && resolveProviderFromModel(model) && checkCrossKindSwitch(session, model);
-  if (crossKindError) {
-    throw Object.assign(new Error(crossKindError.message), { code: crossKindError.error, statusCode: 400 });
-  }
   // The retry's second attempt reuses the turn's ownership (re-armed by
   // `armContinueFailoverRetry` after the failed attempt released it) —
   // re-claiming would conflict with the turn itself.
@@ -306,7 +275,7 @@ function prepareBranchContinueTurn({ session, sessionId, conversationId, convers
     const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
       sessionId, conversationId, session: updatedSession, model, systemPrompt,
       effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
-      modelChanged: modelEnv.modelChanged, conversation,
+      modelChanged: modelEnv.modelChanged, conversation: conversations.getById(conversationId),
       lastUserMessage, workingDirectory, controller, agentType, agent,
       failoverBoundary,
     });
@@ -426,6 +395,10 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   if (!interactive && session.laneRunId && !activeLaneRunOwnsSession(sessionId)) {
     return rejectedSessionExecution(sessionId, 'lane_run_ownership_lost');
   }
+
+  // Admit exact concrete selections before claiming or mutating state. Tier
+  // references remain eligible for the authorized own-binding advance.
+  admitConcreteSelection(session, sessionId, options);
 
   const controller = new AbortController();
   const failoverDeps = await loadBranchFailoverDeps();

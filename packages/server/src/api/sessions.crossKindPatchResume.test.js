@@ -4,9 +4,21 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { projects, sessions, messages, conversations, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
+import { markUnhealthy, clearUnhealthy } from '../services/tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { prepareContinueTurn } from '../services/sessionTurnSetup.js';
+import { continueSessionCore } from '../services/sessionContinuation.js';
+import { activeSessions } from '../services/sessionExecutionOwnership.js';
+import { _executeSession } from '../services/sessionExecution.js';
+import { resolveProviderFromModel } from '../services/sessionProvider.js';
+
+vi.mock('../services/sessionExecution.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  createAgentForSession: vi.fn(() => ({ supportsResume: () => true, needsConversationContext: () => false })),
+  _executeSession: vi.fn(async () => {}),
+}));
 
 // Mock websocket so PATCH doesn't try to reach real subscribers.
 vi.mock('../websocket.js', () => ({
@@ -58,11 +70,13 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
   let anthropicProvider;
   let metaProvider;
   let googleProvider;
+  let xaiProvider;
 
   const GPT_MODEL = 'gpt-patch-resume-test';
   const CLAUDE_MODEL = 'claude-patch-resume-test';
   const MUSE_MODEL = 'muse-patch-resume-test';
   const GEMINI_MODEL = 'gemini-patch-resume-test';
+  const GROK_MODEL = 'grok-patch-resume-test';
 
   /** Stub adapter mirroring the real kind's resume/context capabilities. */
   function stubAgentFor(kind) {
@@ -95,6 +109,75 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     return conversations.getBySessionId(sessionId).map((c) => c.claudeSessionId);
   }
 
+  it.each(['claude-opus-4-8', 'sonnet'])('model-only Grok to official Claude PATCH persists owner for %s', async (model) => {
+    const session = createStartedSessionWithResume({ name: 'Grok to official', model: GROK_MODEL, providerId: xaiProvider.id });
+    const side = conversations.create(session.id, 'Side', true);
+    conversations.update(side.id, { claudeSessionId: 'side-native' });
+    const response = await request(app).patch(`/api/sessions/${session.id}`).send({ model }).expect(200);
+    expect(response.body).toMatchObject({ model, agentType: 'claude-code', providerId: 'anthropic-default' });
+    expect(sessions.getById(session.id)).toMatchObject({ model, agentType: 'claude-code', providerId: 'anthropic-default' });
+    expect(resumePointers(session.id)).toEqual([null, null]);
+    expect(resolveProviderFromModel(model)).toBeNull();
+    const spy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgentFor('claude-code'));
+    try {
+      const { queryParams } = await prepareContinueTurn({
+        session: sessions.getById(session.id), sessionId: session.id, content: 'continue',
+        workingDirectory: tempDir, options: { interactive: true }, controller: new AbortController(),
+      });
+      expect(queryParams.options.providerId).toBe('anthropic-default');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each([
+    ['claude-code', CLAUDE_MODEL, 'grok-build', GROK_MODEL],
+    ['grok-build', GROK_MODEL, 'claude-code', CLAUDE_MODEL],
+  ])('tier advance %s to %s clears every native chain before existing-message dispatch', async (sourceKind, sourceModel, destinationKind, destinationModel) => {
+    const { continueSessionWithExistingMessage } = await import('../services/sessionBranchContinue.js');
+    const source = sourceKind === 'claude-code' ? anthropicProvider : xaiProvider;
+    const destination = destinationKind === 'claude-code' ? anthropicProvider : xaiProvider;
+    const tier = modelTiers.create({ name: 'Cross kind branch', members: [
+      { providerId: source.id, modelId: sourceModel, position: 0 },
+      { providerId: destination.id, modelId: destinationModel, position: 1 },
+    ] });
+    const session = createStartedSessionWithResume({ name: 'Tier branch', model: sourceModel, providerId: source.id });
+    const root = conversations.ensureActiveConversation(session.id);
+    const side = conversations.create(session.id, 'Side', true);
+    messages.create(session.id, 'user', 'side prompt', { conversationId: side.id });
+    conversations.update(side.id, { claudeSessionId: 'side-native' });
+    sessions.update(session.id, { model: buildTierRef(tier.id), agentType: sourceKind, resolvedModel: sourceModel, resolvedProviderId: source.id, lastExecutedModel: sourceModel, lastExecutedProviderId: source.id });
+    markUnhealthy(source.id, sourceModel);
+    try {
+      let pointersAtDispatch;
+      _executeSession.mockImplementationOnce(async () => { pointersAtDispatch = resumePointers(session.id); });
+      await continueSessionWithExistingMessage(session.id, side.id, tempDir, {});
+      expect(pointersAtDispatch).toEqual([null, null]);
+      expect(resumePointers(session.id)).toEqual([null, null]);
+      const params = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(params.options.resume ?? null).toBeNull();
+      expect(params.prompt).toContain('side prompt');
+      expect(params.prompt).not.toContain('first answer');
+      activeSessions.clear();
+      messages.create(session.id, 'user', 'root follow-up', { conversationId: root.id });
+      await continueSessionWithExistingMessage(session.id, root.id, tempDir, {});
+      const rootParams = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(rootParams.options.resume ?? null).toBeNull();
+      expect(rootParams.prompt).toContain('first answer');
+      expect(rootParams.prompt).not.toContain('side prompt');
+      conversations.update(root.id, { claudeSessionId: 'destination-native' });
+      activeSessions.clear();
+      messages.create(session.id, 'user', 'resume prompt', { conversationId: root.id });
+      await continueSessionWithExistingMessage(session.id, root.id, tempDir, {});
+      const resumed = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(resumed.options.resume).toBe('destination-native');
+      expect(resumed.prompt).toBe('resume prompt');
+    } finally {
+      clearUnhealthy(source.id, sourceModel);
+      activeSessions.clear();
+    }
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -124,6 +207,11 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
       name: 'Google Patch Resume', baseUrl: 'https://generativelanguage.patch-resume', authToken: 'key-g', kind: 'google',
     });
     modelProviders.addModel(googleProvider.id, { modelId: GEMINI_MODEL, displayName: 'Gemini Patch Resume', tier: 'custom' });
+
+    xaiProvider = modelProviders.create({
+      name: 'xAI Patch Resume', baseUrl: null, authToken: null, kind: 'xai',
+    });
+    modelProviders.addModel(xaiProvider.id, { modelId: GROK_MODEL, displayName: 'Grok Patch Resume', tier: 'custom' });
   });
 
   afterEach(() => {
@@ -131,6 +219,7 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(metaProvider.id); } catch { /* noop */ }
     try { modelProviders.delete(googleProvider.id); } catch { /* noop */ }
+    try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
     try { projects.delete(project.id); } catch { /* noop */ }
     if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
   });
@@ -241,6 +330,87 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     } finally {
       createAgentSpy.mockRestore();
     }
+  });
+
+  it('claude-code → grok picker flow: PATCH clears EVERY conversation pointer; follow-up sends no resume (E2)', async () => {
+    // Two conversations, each with a stale native pointer; the transcript
+    // lives in the (second, active) conversation the follow-up turn reads.
+    const session = sessions.create(project.id, 'Claude To Grok', 'Initial prompt', {
+      model: CLAUDE_MODEL,
+      providerId: anthropicProvider.id,
+      status: 'waiting',
+    });
+    const firstConv = conversations.ensureActiveConversation(session.id);
+    conversations.update(firstConv.id, { claudeSessionId: 'stale-a' });
+    const activeConv = conversations.create(session.id, 'Side conversation', true);
+    messages.create(session.id, 'user', 'first question', { conversationId: activeConv.id });
+    messages.create(session.id, 'assistant', 'first answer', { conversationId: activeConv.id });
+    conversations.update(activeConv.id, { claudeSessionId: 'stale-b' });
+    expect(resumePointers(session.id)).toEqual(['stale-a', 'stale-b']);
+    expect(sessions.getById(session.id).agentType).toBe('claude-code');
+
+    await request(app)
+      .patch(`/api/sessions/${session.id}`)
+      .send({ model: GROK_MODEL, providerId: xaiProvider.id })
+      .expect(200);
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(GROK_MODEL);
+    expect(updated.agentType).toBe('grok-build');
+    expect(updated.providerId).toBe(xaiProvider.id);
+    // Every conversation's native pointer is discarded (FR5/E2).
+    expect(resumePointers(session.id)).toEqual([null, null]);
+
+    // Follow-up send on the switched session: resumable Grok stub, but the
+    // turn must open a fresh native thread with the transcript injected.
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgentFor('grok-build'));
+    try {
+      const { queryParams } = await prepareContinueTurn({
+        session: sessions.getById(session.id),
+        sessionId: session.id,
+        content: 'follow-up on grok',
+        workingDirectory: tempDir,
+        options: { model: GROK_MODEL, interactive: true },
+        controller: new AbortController(),
+      });
+
+      expect(createAgentSpy.mock.calls[0][0]).toBe('grok-build');
+      expect(queryParams.options.resume).toBeUndefined();
+      expect(queryParams.prompt.startsWith('<conversation_history>')).toBe(true);
+      expect(queryParams.prompt).toContain('first answer');
+    } finally {
+      createAgentSpy.mockRestore();
+    }
+  });
+
+  it('PATCH transfers each conversation history once through the live dispatcher', async () => {
+    const session = createStartedSessionWithResume({ name: 'Legacy', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
+    const first = conversations.ensureActiveConversation(session.id);
+    const second = conversations.create(session.id, 'Second', true);
+    messages.create(session.id, 'user', 'second question', { conversationId: second.id });
+    messages.create(session.id, 'assistant', 'second answer', { conversationId: second.id });
+    conversations.update(second.id, { claudeSessionId: 'old-second' });
+    expect(sessions.getById(session.id).lastExecutedModel).toBeNull();
+    await request(app).patch(`/api/sessions/${session.id}`).send({ model: GROK_MODEL, providerId: xaiProvider.id }).expect(200);
+    expect(resumePointers(session.id)).toEqual([null, null]);
+
+    for (const [conv, own, other] of [[first, 'first answer', 'second answer'], [second, 'second answer', 'first answer']]) {
+      conversations.setActive(conv.id);
+      activeSessions.clear();
+      await continueSessionCore(session.id, 'next', tempDir, { options: { interactive: true }, callbacks: {} });
+      const params = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(params.options.resume ?? null).toBeNull();
+      expect(params.prompt).toContain('<conversation_history>');
+      expect(params.prompt).toContain(own);
+      expect(params.prompt).not.toContain(other);
+      conversations.update(conv.id, { claudeSessionId: `new-${conv.id}` });
+      activeSessions.clear();
+      await continueSessionCore(session.id, 'again', tempDir, { options: { interactive: true }, callbacks: {} });
+      const resumed = _executeSession.mock.calls.at(-1)[0].queryParams;
+      expect(resumed.options.resume).toBe(`new-${conv.id}`);
+      expect(resumed.prompt).toBe('again');
+    }
+    activeSessions.clear();
   });
 
   it('gemini cross-kind PATCH still 400s with zero mutation — resume pointers untouched (FR3)', async () => {

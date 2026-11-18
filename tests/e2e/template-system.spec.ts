@@ -949,8 +949,7 @@ test.describe('Self-Chaining Template', () => {
     await expect(nextTemplateSelect).toBeVisible({ timeout: 10000 });
 
     // Verify the self-chain selection is shown
-    const selectedBefore = await nextTemplateSelect.inputValue();
-    expect(selectedBefore).toBe(template.id);
+    await expect(nextTemplateSelect).toHaveValue(template.id, { timeout: 10000 });
 
     // Select None to clear the chain (the None option has :value="null" in Vue which
     // renders without a value attribute, so select by label text)

@@ -32,6 +32,21 @@ async function seedOpenAIProvider(modelId: string) {
   return provider;
 }
 
+async function seedXAIProvider(modelId: string) {
+  const provider = await createProvider({
+    name: `${TEST_PREFIX}Cross Kind xAI`,
+    kind: 'xai',
+    baseUrl: null,
+    authToken: null,
+  });
+  await addProviderModel(provider.id, {
+    modelId,
+    displayName: modelId,
+    tier: 'custom',
+  });
+  return provider;
+}
+
 async function sendMessage(sessionId: string, content: string, model: string | null = null) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
     method: 'POST',
@@ -158,6 +173,38 @@ test.describe('Cross-kind model switching', () => {
       message: expect.stringContaining('Gemini'),
     });
     expect((await getSession(geminiSession.id)).agentType).toBe('gemini');
+  });
+
+  test('API PATCH persists a Claude → Grok switch on a started session, re-deriving agentType and provider', async () => {
+    const xaiProvider = await seedXAIProvider('grok-cross-kind-api');
+    const project = await seedProject('Cross Kind Grok API Project', process.cwd());
+
+    // Seed a started session (user + assistant transcript) with
+    // startImmediately: false, so the started-session guard is the path
+    // under test — not the draft path.
+    const session = await seedSession(project.id, {
+      prompt: 'Grok PATCH root',
+      model: 'claude-sonnet-5',
+      startImmediately: false,
+    });
+    await seedUserMessage(session.id, 'Grok PATCH root');
+    await seedAssistantMessage(session.id, 'Grok PATCH prior response');
+
+    // PATCH (not send): an accepted send would start a real turn, and its
+    // async completion could race the agentType assertion. PATCH persists
+    // agentType and providerId synchronously in the response.
+    const patchResponse = await patchSessionModel(session.id, 'grok-cross-kind-api');
+    expect(patchResponse.status).toBe(200);
+    const switched = await patchResponse.json();
+    expect(switched.model).toBe('grok-cross-kind-api');
+    expect(switched.agentType).toBe('grok-build');
+    expect(switched.providerId).toBe(xaiProvider.id);
+
+    // The persisted row agrees.
+    const stored = await getSession(session.id);
+    expect(stored.model).toBe('grok-cross-kind-api');
+    expect(stored.agentType).toBe('grok-build');
+    expect(stored.providerId).toBe(xaiProvider.id);
   });
 
   test('UI confirms in-scope switches and surfaces the gemini rejection', async ({ page }) => {
