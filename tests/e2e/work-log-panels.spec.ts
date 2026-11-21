@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
@@ -14,6 +14,14 @@ import {
 } from './helpers';
 
 const API_URL = getAPIURL();
+
+async function expandLiveWorkLog(page: Page) {
+  const toggle = page.locator('.running-state .running-status');
+  if (await toggle.getAttribute('aria-expanded') !== 'true') {
+    await toggle.click();
+  }
+  await expect(page.locator('.running-state .live-work-log-panel')).toBeVisible();
+}
 
 // Helper to wait for session to reach a specific status (for non-UI tests)
 async function waitForSessionStatus(sessionId: string, targetStatus: string, timeoutMs = 10000) {
@@ -47,6 +55,29 @@ test.describe('Work Log Panels', () => {
   // Category 2: LiveWorkLogPanel — Real-Time Display (Fastest Feedback Loop)
   // ========================================================================
   test.describe('Category 2: LiveWorkLogPanel — Real-Time Display', () => {
+    test('live work log panel is collapsed until the status control is clicked', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: 'Test collapsed live work logs',
+        name: `${TEST_PREFIX} Collapsed WorkLog Test`,
+        startImmediately: false,
+      });
+
+      await updateSessionStatus(session.id, 'running');
+      await page.goto(`${API_URL}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+      await page.waitForSelector('.running-state', { timeout: 10000 });
+
+      await expect(page.locator('.running-state')).toBeVisible();
+      await expect(page.locator('.running-title')).toHaveText('Agent is working...');
+      await expect(page.locator('.running-state .btn-stop')).toBeVisible();
+      await expect(page.locator('.running-state .running-status')).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('.running-state .live-work-log-panel')).toHaveCount(0);
+
+      await page.locator('.running-state .running-status').click();
+      await expect(page.locator('.running-state .running-status')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('.running-state .live-work-log-panel')).toBeVisible();
+    });
+
     test('running state shows live work log panel container', async ({ page }) => {
       // Create session but DO NOT auto-start
       const session = await seedSession(project.id, {
@@ -64,6 +95,7 @@ test.describe('Work Log Panels', () => {
 
       // Wait for the running-state branch to render
       await page.waitForSelector('.running-state', { timeout: 10000 });
+      await expandLiveWorkLog(page);
 
       // Assertions
       await expect(page.locator('.running-state')).toBeVisible();
@@ -82,6 +114,7 @@ test.describe('Work Log Panels', () => {
       await page.goto(`${API_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
       await page.waitForSelector('.running-state', { timeout: 10000 });
+      await expandLiveWorkLog(page);
 
       // Seed a work log after page is loaded
       await seedWorkLog(session.id, {
@@ -109,6 +142,7 @@ test.describe('Work Log Panels', () => {
       await page.goto(`${API_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
       await page.waitForSelector('.running-state', { timeout: 10000 });
+      await expandLiveWorkLog(page);
 
       // Seed 3 work logs sequentially with delays
       await seedWorkLog(session.id, {
@@ -154,6 +188,7 @@ test.describe('Work Log Panels', () => {
       await page.goto(`${API_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
       await page.waitForSelector('.running-state', { timeout: 10000 });
+      await expandLiveWorkLog(page);
 
       // Seed a thinking work log
       await seedWorkLog(session.id, {
@@ -180,6 +215,7 @@ test.describe('Work Log Panels', () => {
       await page.goto(`${API_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
       await page.waitForSelector('.running-state', { timeout: 10000 });
+      await expandLiveWorkLog(page);
 
       // Seed a tool_input work log
       await seedWorkLog(session.id, {

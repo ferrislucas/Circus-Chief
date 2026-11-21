@@ -25,6 +25,12 @@ function mountComponent(props = {}) {
   });
 }
 
+async function expandLogs(wrapper) {
+  const toggle = wrapper.find('.running-status');
+  await toggle.trigger('click');
+  return wrapper.findComponent({ name: 'LiveWorkLogPanel' });
+}
+
 describe('RunningState', () => {
   describe('rendering', () => {
     it('should render "Agent is working..." message', () => {
@@ -93,23 +99,76 @@ describe('RunningState', () => {
   });
 
   describe('work logs', () => {
-    it('should pass work logs to LiveWorkLogPanel', () => {
+    it('should pass work logs to LiveWorkLogPanel', async () => {
       const workLogs = [{ id: 'wl-1', type: 'file_read' }];
       const wrapper = mountComponent({ workLogs });
-      const panel = wrapper.findComponent({ name: 'LiveWorkLogPanel' });
+      const panel = await expandLogs(wrapper);
       expect(panel.props('workLogs')).toEqual(workLogs);
     });
 
-    it('should pass partialThinking to LiveWorkLogPanel', () => {
+    it('should pass partialThinking to LiveWorkLogPanel', async () => {
       const wrapper = mountComponent({ partialThinking: 'Thinking about...' });
-      const panel = wrapper.findComponent({ name: 'LiveWorkLogPanel' });
+      const panel = await expandLogs(wrapper);
       expect(panel.props('partialThinking')).toBe('Thinking about...');
     });
 
-    it('should pass showHeader=false to LiveWorkLogPanel', () => {
+    it('should pass showHeader=false to LiveWorkLogPanel', async () => {
       const wrapper = mountComponent();
-      const panel = wrapper.findComponent({ name: 'LiveWorkLogPanel' });
+      const panel = await expandLogs(wrapper);
       expect(panel.props('showHeader')).toBe(false);
+    });
+  });
+
+  describe('activity panel', () => {
+    it('should collapse the work log pane by default', () => {
+      const wrapper = mountComponent({
+        workLogs: [{ id: 'wl-1', type: 'thinking' }],
+        partialThinking: 'still thinking',
+      });
+      const toggle = wrapper.find('.running-status');
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+      expect(toggle.attributes('aria-controls')).toBe('running-work-logs');
+      expect(wrapper.findComponent({ name: 'LiveWorkLogPanel' }).exists()).toBe(false);
+    });
+
+    it('should expand and collapse the work log pane', async () => {
+      const wrapper = mountComponent();
+      const toggle = wrapper.find('.running-status');
+
+      await toggle.trigger('click');
+      expect(toggle.attributes('aria-expanded')).toBe('true');
+      const panel = wrapper.findComponent({ name: 'LiveWorkLogPanel' });
+      expect(panel.exists()).toBe(true);
+      expect(panel.attributes('id')).toBe('running-work-logs');
+
+      await toggle.trigger('click');
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+      expect(wrapper.findComponent({ name: 'LiveWorkLogPanel' }).exists()).toBe(false);
+    });
+
+    it('should not toggle the pane when stopping the agent', async () => {
+      const wrapper = mountComponent();
+      await wrapper.find('.btn-stop').trigger('click');
+      expect(wrapper.find('.running-status').attributes('aria-expanded')).toBe('false');
+      expect(wrapper.findComponent({ name: 'LiveWorkLogPanel' }).exists()).toBe(false);
+    });
+
+    it('should show an activity count for logs and partial thinking', () => {
+      const wrapper = mountComponent({
+        workLogs: [{ id: 'wl-1' }, { id: 'wl-2' }],
+        partialThinking: 'partial',
+      });
+      expect(wrapper.find('.running-count').text()).toBe('(3)');
+    });
+
+    it('should count partial thinking when there are no logs yet', () => {
+      const wrapper = mountComponent({ partialThinking: 'partial' });
+      expect(wrapper.find('.running-count').text()).toBe('(1)');
+    });
+
+    it('should hide the activity count when there is no activity', () => {
+      const wrapper = mountComponent({ workLogs: [], partialThinking: '' });
+      expect(wrapper.find('.running-count').exists()).toBe(false);
     });
   });
 

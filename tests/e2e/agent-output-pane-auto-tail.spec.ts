@@ -39,6 +39,9 @@ async function openRunningPane(page: Page, sessionId: string) {
   await page.goto(`${API_URL}/sessions/${sessionId}/summary`);
   await openSessionOverlay(page);
   await page.waitForSelector('.running-state', { timeout: 10000 });
+  const toggle = page.locator('.running-state .running-status');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
   await expect(page.locator('.running-state .live-work-log-panel')).toBeVisible();
 }
 
