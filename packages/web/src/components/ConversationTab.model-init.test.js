@@ -187,6 +187,8 @@ describe('ConversationTab - Model Initialization Bug', () => {
       clearPartialThinking: vi.fn(),
       finalizeUsage: vi.fn(),
       updateRunningUsage: vi.fn(),
+      updateSessionModel: vi.fn().mockResolvedValue(),
+      sessions: [],
     });
 
     mockDefaultsStore = {
@@ -484,16 +486,119 @@ describe('ConversationTab - Model Initialization Bug', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      // BUG: sendMessage is called with null model
-      // Expected: called with 'sonnet' (system default). The send path also
-      // carries the resolved provider alongside a concrete model.
+      // An untouched follow-up omits the picker. The server keeps the session
+      // binding instead of treating the displayed default as a switch.
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
-        [], // attachments
-        'sonnet', // model - should NOT be null
+        [],
+        null
+      );
+    });
+  });
+
+  describe('Untouched follow-up keeps this session binding', () => {
+    const TIER = 'tier::high';
+
+    function rootAndChild() {
+      mockSessionsStore.currentSession = {
+        id: 'root-1',
+        status: 'waiting',
+        model: 'haiku',
+        providerId: 'zai',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.sessions = [{
+        id: 'sess-123',
+        status: 'waiting',
+        model: TIER,
+        providerId: null,
+        projectId: 'proj-1',
+        mode: 'standard',
+      }];
+      mockDefaultsStore.getDefaultsForProject.mockReturnValue({
+        model: 'haiku',
+        providerId: 'zai',
+      });
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(false);
+    }
+
+    it('shows the tab session tier and omits the model when the picker was not edited', async () => {
+      rootAndChild();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelSelector = wrapper.findComponent(ModelSelector);
+      expect(modelSelector.props('modelValue')).toBe(TIER);
+
+      await wrapper.find('textarea').setValue('Walk me through the issue');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
+        'sess-123',
+        'Walk me through the issue',
+        [],
+        null
+      );
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    });
+
+    it('sends the pair after the user changes the dropdown', async () => {
+      rootAndChild();
+
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelSelector = wrapper.findComponent(ModelSelector);
+      modelSelector.vm.$emit('update:modelValue', 'opus');
+      modelSelector.vm.$emit('update:providerId', 'anthropic');
+      modelSelector.vm.$emit('model-selected', { modelId: 'opus', providerId: 'anthropic' });
+      await flushAll(wrapper);
+      confirm.mockRestore();
+
+      await wrapper.find('textarea').setValue('Use opus');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
+        'sess-123',
+        'Use opus',
+        [],
+        'opus',
         { providerId: 'anthropic' }
       );
+    });
+
+    it('adopts the tab session model when it arrives and does not PATCH', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'root-1',
+        status: 'waiting',
+        model: 'haiku',
+        providerId: 'zai',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.sessions = [];
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockSessionsStore.sessions = [{
+        id: 'sess-123',
+        status: 'waiting',
+        model: TIER,
+        providerId: null,
+        projectId: 'proj-1',
+      }];
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent(ModelSelector).props('modelValue')).toBe(TIER);
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
     });
   });
 

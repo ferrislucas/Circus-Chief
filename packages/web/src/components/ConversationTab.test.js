@@ -501,7 +501,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('clears input after sending', async () => {
@@ -775,7 +775,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', metaKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('calls handleSend on Ctrl+Enter when not a draft', async () => {
@@ -788,7 +788,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], 'claude-sonnet-4-5');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('does NOT submit on plain Enter', async () => {
@@ -1093,7 +1093,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', [], 'claude-sonnet-4-5');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', [], null);
     });
   });
 
@@ -1425,12 +1425,12 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      // Verify sendMessage was called with the correct model
+      // The picker shows the session model. An untouched follow-up omits it.
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
         [],
-        'claude-opus-4-20250514'
+        null
       );
     });
   });
@@ -2460,12 +2460,13 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      // Verify sendMessage was called with the shared default model (the fallback)
+      // An untouched follow-up omits the displayed fallback. The server keeps
+      // the session binding.
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
         [],
-        'claude-sonnet-4-5'
+        null
       );
     });
 
@@ -2482,12 +2483,13 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      // Verify sendMessage was called with 'haiku' (the session model)
+      // The picker shows haiku, and the follow-up omits it so the server
+      // continues the session's own binding.
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'sess-123',
         'Test message',
         [],
-        'haiku'
+        null
       );
     });
   });
@@ -4391,7 +4393,7 @@ describe('ConversationTab - Input clearing on submit', () => {
         'sess-123',
         'Follow-up message',
         [],
-        'claude-sonnet-4-5'
+        null
       );
       // After successful send, textarea should be cleared
       expect(textarea.element.value).toBe('');
