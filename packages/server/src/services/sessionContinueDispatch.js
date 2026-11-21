@@ -1,12 +1,13 @@
-import { sessions, conversations } from '../database.js';
+import { conversations } from '../database.js';
 import { isTierRef } from '@circuschief/shared';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import {
-  buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
+  buildLastExecutedUpdate, checkContinuationDispatchKind,
   createCrossKindDispatchError, hasDispatchPairChanged,
   checkCrossKindSwitch, isCrossKindBlockLiftable, deriveCrossKindAgentTypeUpdate,
-  pendingModelClearanceForKindSwitch, clearResumeChainOnKindSwitch, sessionHasNoAssistantMessages,
+  pendingModelClearanceForKindSwitch, sessionHasNoAssistantMessages,
 } from './sessionAgentGuard.js';
+import { applyContinueResolution, resolveContinueAgentTypeUpdate } from './sessionContinueKindSwitch.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { buildQueryParams } from './queryParamBuilder.js';
@@ -45,7 +46,6 @@ function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, di
   const update = deriveCrossKindAgentTypeUpdate(session, effectiveModel, dispatchedProviderId);
   update.providerId = dispatchedProviderId;
   Object.assign(update, pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType));
-  clearResumeChainOnKindSwitch(session, sessionId, update);
   return update;
 }
 
@@ -114,17 +114,31 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   // newly validated candidate — not the model string or tier sentinel alone.
   const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
-  // Advance-aware agentType reconciliation (§5.1): shared with
-  // sessionManager.buildModelAndProvider.
-  const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
-  clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate);
-
-  let updatedSession = session;
-  const updatePayload = { ...persist, ...agentTypeUpdate, ...interactiveKindUpdate, ...buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId) };
-  if (Object.keys(updatePayload).length > 0) {
-    sessions.update(sessionId, updatePayload);
-    updatedSession = sessions.getById(sessionId);
-  }
+  // Explicit off-binding mismatches throw here, before the row write.
+  // A concrete switch is judged again against the provider that will
+  // dispatch, and that update wins. A null model stays on the advance path.
+  // The resume chain drops only after this write.
+  const agentTypeUpdate = {
+    ...resolveContinueAgentTypeUpdate({
+      session,
+      sessionId,
+      requestedModel: model,
+      requestedProviderId: providerId,
+      interactive,
+      sameBinding: model == null || isSameBindingSelection(session, model, providerId),
+      effectiveModel,
+      providerIdHint,
+      persist,
+    }),
+    ...interactiveKindUpdate,
+  };
+  const updatedSession = applyContinueResolution({
+    session,
+    sessionId,
+    persist,
+    agentTypeUpdate,
+    lastExecutedUpdate: buildLastExecutedUpdate(session, effectiveModel, dispatchedProviderId),
+  });
 
   // An explicit request that moves OFF the session's own (model, providerId)
   // binding (a concrete-model pick, a different tier ref, or a provider-only
