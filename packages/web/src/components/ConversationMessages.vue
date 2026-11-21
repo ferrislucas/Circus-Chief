@@ -105,8 +105,7 @@ const partialText = computed(() => sessionsStore.partialText);
 // Persisted `tierFailover` agent-call entries are interleaved chronologically
 // with messages so each automatic switch reads as a system timeline entry at
 // the point it happened. Live TIER_FAILOVER events reload the list without a
-// page refresh. Deliberately no session-header badge (see TierFailoverHistory
-// for the separate audit-trail panel).
+// page refresh. There is no session-header badge.
 const failovers = ref([]);
 let failoverRequestVersion = 0;
 const { on, off } = useWebSocket();
