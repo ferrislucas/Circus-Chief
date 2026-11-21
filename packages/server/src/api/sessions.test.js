@@ -308,6 +308,16 @@ describe('Sessions API - workflow summary routes', () => {
     expect(res.body.error).toContain('muse auth');
   });
 
+  it('returns the Grok remediation error as an actionable 422', async () => {
+    summaryService.regenerateSummary.mockRejectedValueOnce(Object.assign(new Error('Grok is not authenticated.'), {
+      isGrokSummaryError: true,
+      publicMessage: 'Grok is not authenticated. Run `grok login` and try again.',
+    }));
+    const res = await request(app).post(`/api/sessions/${child.id}/summary`);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('grok login');
+  });
+
   it('preserves meaningful non-Codex summary failures as 500 responses', async () => {
     summaryService.regenerateSummary.mockRejectedValueOnce(new Error('Custom OpenAI provider rejected the request'));
     const res = await request(app).post(`/api/sessions/${child.id}/summary`);

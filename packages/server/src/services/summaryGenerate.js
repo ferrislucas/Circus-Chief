@@ -200,6 +200,12 @@ function logOnlyFailureDetail(error) {
   return typeof error?.detail === 'string' && error.detail ? { detail: error.detail } : {};
 }
 
+function isUserFacingSummaryError(error) {
+  return Boolean(
+    error?.isCodexSummaryError || error?.isMuseSummaryError || error?.isGrokSummaryError,
+  );
+}
+
 /** Log the reason why summary generation is proceeding (diagnostic, no summary text). */
 function _logGenerationReason(sessionId, force, existingSummary) {
   const pfx = `[SummaryService] Generating summary for session ${sessionId}:`;
@@ -249,13 +255,13 @@ export async function _doGenerateSummary(sessionId, retryCount = 0, force = fals
     if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId);
     return summary;
   } catch (error) {
-    const isUserFacingSummaryError = Boolean(error?.isCodexSummaryError || error?.isMuseSummaryError);
+    const userFacing = isUserFacingSummaryError(error);
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
-      error: isUserFacingSummaryError ? error.publicMessage : error.message,
+      error: userFacing ? error.publicMessage : error.message,
       category: error.code || 'unknown', sessionId,
       ...logOnlyFailureDetail(error),
     });
-    if (userInitiated && isUserFacingSummaryError) throw error;
+    if (userInitiated && userFacing) throw error;
     return null;
   } finally {
     broadcastGeneratingStatus(sessionId, false);

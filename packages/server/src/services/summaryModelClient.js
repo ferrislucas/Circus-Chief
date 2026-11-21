@@ -1,10 +1,11 @@
 import OpenAI from 'openai';
 import { callClaude, SESSION_SUMMARY_SCHEMA } from './summaryClaudeClient.js';
-import { startOpenAISummaryLog, logOpenAIUsage } from './summaryCallLog.js';
+import {
+  startOpenAISummaryLog, logOpenAIUsage, callBuiltInCodexSummary, callGrokSummaryModel, callMuseSummaryModel,
+} from './summaryCallLog.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { buildProviderEnv } from './sessionProvider.js';
 import { BUILT_IN_OPENAI_PROVIDER_ID, resolveSummaryModel, resolveExplicitSummaryModel } from './summaryModelResolver.js';
-import { callCodexSummary } from './summaryCodexClient.js';
 import { getTierMembersResolved, markUnhealthy, isUnhealthy } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { sanitizeTierFailureReason } from './tierFailureReason.js';
@@ -12,7 +13,6 @@ import { isTierRef, parseTierRef } from '@circuschief/shared';
 import { modelTiers } from '../database.js';
 import { SummaryTierExhaustedError } from './summaryTierExhaustedError.js';
 import { createTierCooldownUnavailableError } from './tierCooldownUnavailableError.js';
-import { callMuseSummary } from './summaryMuseClient.js';
 import { googleSummarySchema } from './googleSummarySchema.js';
 
 export { SummaryTierExhaustedError, SESSION_SUMMARY_SCHEMA };
@@ -62,6 +62,9 @@ function dispatchSummaryResolution(resolution, { prompt, recentMessages, session
   }
   if (resolution.kind === 'google') {
     return callGoogleSummaryModel(prompt, resolution, options);
+  }
+  if (resolution.kind === 'xai') {
+    return callGrokSummaryModel(prompt, resolution, options);
   }
   return callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options });
 }
@@ -185,23 +188,6 @@ function logSummaryFailoverEvent({ options, failedMember, tierRef, nextMember, e
   }
 }
 
-async function callBuiltInCodexSummary(prompt, resolution, options) {
-  const callId = startOpenAISummaryLog(options.logMeta, resolution, prompt.length, 'codex-cli');
-  try {
-    const result = await callCodexSummary({
-      prompt,
-      systemPrompt: options.systemPrompt,
-      model: resolution.model,
-      jsonSchema: options.jsonSchema || SESSION_SUMMARY_SCHEMA,
-    }, options.codexDependencies);
-    if (callId) agentCallLogger.completeCall(callId, { success: true });
-    return result;
-  } catch (error) {
-    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
-    throw error;
-  }
-}
-
 export function isBuiltInCodexResolution(resolution) {
   return resolution?.providerId === BUILT_IN_OPENAI_PROVIDER_ID
     && resolution?.provider?.isBuiltIn === true
@@ -210,25 +196,6 @@ export function isBuiltInCodexResolution(resolution) {
 
 export function isMuseResolution(resolution) {
   return resolution?.kind === 'meta';
-}
-
-async function callMuseSummaryModel(prompt, resolution, options) {
-  const callId = startOpenAISummaryLog(options.logMeta, resolution, prompt.length, 'muse-cli');
-  try {
-    const result = await callMuseSummary({
-      prompt,
-      systemPrompt: options.systemPrompt,
-      model: resolution.model,
-      jsonSchema: options.jsonSchema || SESSION_SUMMARY_SCHEMA,
-      ...(options.cwd ? { cwd: options.cwd } : {}),
-      ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
-    }, options.museDependencies);
-    if (callId) agentCallLogger.completeCall(callId, { success: true });
-    return result;
-  } catch (error) {
-    if (callId) agentCallLogger.completeCall(callId, { success: false, error });
-    throw error;
-  }
 }
 
 function callAnthropicSummaryModel({ prompt, recentMessages, sessionStatus, resolution, options }) {
