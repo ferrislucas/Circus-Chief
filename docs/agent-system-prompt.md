@@ -45,6 +45,7 @@ The prompt provides the agent with its own session ID, project ID, and current w
 | POST | `/api/projects/{projectId}/workspaces` | Create a new workspace. Required body field: `prompt`. See optional fields below. |
 | POST | `/api/workspaces/{workspaceId}/sessions` | Add a session to the current workspace. Required body fields: `prompt`, `parentSessionId`. `parentSessionId` must reference a session in this workspace (the root or a descendant); pass the current session ID to chain, or the workspace ID to attach directly to the root. Unknown or cross-workspace values are rejected — there is no fallback. |
 | GET | `/api/providers` | List configured providers. Each entry has `kind` (`anthropic`/`openai`/`google`) and a `models` array of `{modelId, displayName, tier, enabled, lifecycle}`. Use listed `modelId` values to discover currently available choices for new workspaces/sessions; the endpoint is not an exhaustive validation contract because SDK tier aliases (such as `fable`, `opus`, `sonnet`, and `haiku`) and retained historical model IDs may also be accepted. |
+| GET | `/api/tiers` | List named model tiers and their members. |
 | POST | `/api/sessions/{session_id}/message` | Send a follow-up message. Body: `{"content": "..."}` |
 | GET | `/api/sessions` | List all active sessions |
 | GET | `/api/sessions/{session_id}` | Get session details |
@@ -55,6 +56,10 @@ The prompt provides the agent with its own session ID, project ID, and current w
 | POST | `/api/sessions/{session_id}/restart` | Restart a session |
 | DELETE | `/api/sessions/{session_id}` | Delete a session |
 | PATCH | `/api/sessions/{session_id}` | Update session settings. Example body: `{"thinkingEnabled": true, "effortLevel": "high"}` |
+
+`models[].tier` is the SDK class (`fable`, `opus`, `sonnet`, `haiku`, or `custom`), not a named model tier; SDK aliases remain valid single-model values. For a named tier, query `/api/tiers` and match `name` case-insensitively, ignoring a leading "the" and a trailing "tier". Set session `model` to `tier::<tierId>`. Set `providerId` to `null`. Copying a member `modelId` selects only that model and drops the rest of the tier. If several tiers match, list their names and IDs and do not pick one; if none match, say so and do not substitute a concrete model. `effortLevel: "medium"` sets reasoning effort and does not select a tier named Medium.
+
+The schedule `model` field sets `pendingModel` to `tier::<tierId>` for a named tier with a null provider id; the existing cross-kind guard applies. Lane `onEnterModel` also uses `tier::<tierId>`, with `onEnterProviderId` set to null.
 
 **Optional fields for workspace/session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, and `rescheduleAtTokenCount`. `parentSessionId` is **required** (not optional) when adding a session to an existing workspace via `POST /api/workspaces/{workspaceId}/sessions`; it is not accepted at all when creating a new workspace (`parentSessionId` is always forced to `null` there).
 

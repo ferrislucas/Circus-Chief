@@ -417,6 +417,25 @@ describe('sessionPrompts', () => {
     const sessionId = 'sess-abc';
     const projectId = 'proj-xyz';
 
+    it('explains how to discover and bind named model tiers', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      for (const phrase of [
+        '/api/tiers', 'tier::<tierId>', 'Set `providerId` to `null`',
+        'Copying a member `modelId`', 'not a named model tier', 'case-insensitive',
+        'leading "the"', 'trailing "tier"', 'does not select a tier named Medium',
+        'do not pick one', '"model":"tier::<tierId>","providerId":null',
+        'currently available model choices', 'not an exhaustive validation contract',
+        'SDK tier aliases', 'historical model IDs', '`fable`, `opus`, `sonnet`, and `haiku`',
+      ]) expect(result).toContain(phrase);
+    });
+
+    it('documents named tiers in the schedule model field', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const line = result.split('\n').find((entry) => entry.includes('sets pendingModel'));
+      expect(line).toContain('tier::<tierId>');
+      expect(line).toContain('validated and guarded against cross-kind switches');
+    });
+
     it('includes plan mode prompt when mode is plan', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'plan');
       expect(result).toContain('Plan Mode Active');
@@ -615,6 +634,9 @@ describe('sessionPrompts', () => {
       expect(reference).not.toContain('workflowTurnToken');
       expect(reference).not.toContain('buildWorkflowCompletionInstructions');
       expect(reference).toContain('A plain successful turn end means the worker\'s own work is complete');
+      for (const phrase of ['/api/tiers', 'tier::<tierId>', 'Set `providerId` to `null`', 'not a named model tier']) {
+        expect(reference).toContain(phrase);
+      }
     });
 
     it('uses a future-safe placeholder in the session schedule example', () => {
@@ -1130,6 +1152,16 @@ describe('self-signed agent API trust (Finding 1)', () => {
     delete process.env.CIRCUSCHIEF_CA_CERT;
     const plain = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
     expect(plain).not.toContain('## TLS Trust');
+  });
+
+  it('documents named tiers in lane model fields', () => {
+    projects.getById.mockReturnValue({ id: projectId });
+    const instructions = buildKanbanApiInstructions(sessionId, projectId);
+    const modelLine = instructions.split('\n').find((line) => line.startsWith('- `onEnterModel`'));
+    const providerLine = instructions.split('\n').find((line) => line.startsWith('- `onEnterProviderId`'));
+    expect(modelLine).toContain('tier::<tierId>');
+    expect(providerLine).toContain('null for a tier reference');
+    expect(instructions).toContain('"onEnterModel":"gpt-5.6"');
   });
 
   it('dynamic Kanban instructions pin --cacert in self-signed mode', () => {
