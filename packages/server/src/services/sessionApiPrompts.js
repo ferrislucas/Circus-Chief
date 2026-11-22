@@ -2,6 +2,24 @@ import { sessions, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { getApiBaseUrl } from './apiBaseUrl.js';
 import { getApiCurlCommand } from './tlsTrust.js';
 
+const namedTierValue = 'For a named tier, use `tier::<tierId>`';
+
+function buildModelDiscoveryOps(apiUrl, apiCurl) {
+  return `### List Providers & Available Models
+\`\`\`bash
+${apiCurl} ${apiUrl}/api/providers
+\`\`\`
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
+
+\`models[].tier\` is the SDK class (\`fable\`, \`opus\`, \`sonnet\`, \`haiku\`, or \`custom\`), not a named model tier. SDK aliases remain valid single-model values.
+
+### List Named Model Tiers
+\`\`\`bash
+${apiCurl} ${apiUrl}/api/tiers
+\`\`\`
+For a named tier (such as "the medium tier", "medium tier", or "Medium"), match its \`name\` case-insensitively, ignoring a leading "the" and a trailing "tier". ${namedTierValue} as \`model\`. Set \`providerId\` to \`null\`. Copying a member \`modelId\` selects only that model and drops the rest of the tier. If several tiers match, list their names and IDs and do not pick one. If none match, say so and do not substitute a concrete model. \`effortLevel: "medium"\` sets reasoning effort; it does not select a tier named Medium.`;
+}
+
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
   const apiCurl = getApiCurlCommand();
@@ -23,13 +41,16 @@ ${apiCurl} -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
 Use this to **continue work inside the current workspace**. \`parentSessionId\` is required — pass \`"parentSessionId": "${sessionId}"\` to chain the new session directly after the current one, or \`"parentSessionId": "${workspaceId}"\` to attach it directly to the workspace root instead.
 Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule the new session without starting it immediately. Only schedule a new *workspace* when starting genuinely independent work; for continuations, schedule a *session within this workspace* instead.
 
+To bind a named tier when adding a session:
+\`\`\`bash
+${apiCurl} -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt":"Your task description here","parentSessionId":"${sessionId}","model":"tier::<tierId>","providerId":null}'
+\`\`\`
+
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
-### List Providers & Available Models
-\`\`\`bash
-${apiCurl} ${apiUrl}/api/providers
-\`\`\`
-Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
+${buildModelDiscoveryOps(apiUrl, apiCurl)}
 
 ### Send a Follow-up Message
 \`\`\`bash
@@ -75,7 +96,7 @@ ${apiCurl} -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
   -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "<future ISO 8601 timestamp>"}'
 \`\`\`
 Required fields: \`prompt\` (string), \`scheduledAt\` (ISO 8601 string or epoch ms, must be in the future).
-Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches.
+Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches. ${namedTierValue} for pendingModel, with a null provider id.
 Only \`prompt\`, \`scheduledAt\`, and \`model\` are honored by this endpoint. Set reschedule policy fields via session creation or \`PATCH /api/sessions/:id\`.`;
 }
 
@@ -146,8 +167,8 @@ For \`POST /lanes\`, \`name\` is the only required field (a non-empty string). A
 - \`onEnterTemplateId\` — UUID string or null; template used for entry automation.
 - \`onEnterPrompt\` — string or null; prompt used for entry automation.
 - \`onEnterMode\` — \`plan\`, \`standard\`, or \`yolo\`, or null; entry session mode.
-- \`onEnterModel\` — string or null; entry session model identifier.
-- \`onEnterProviderId\` — UUID string or null; provider that owns \`onEnterModel\`. Only needed to disambiguate when the same model id is registered under more than one provider; \`null\` lets the server resolve the provider from the model.
+- \`onEnterModel\` — string or null; entry session model identifier. ${namedTierValue} and set \`onEnterProviderId\` to \`null\`.
+- \`onEnterProviderId\` — UUID string or null; provider that owns \`onEnterModel\`. Use null for a tier reference. Only needed to disambiguate when the same model id is registered under more than one provider; \`null\` lets the server resolve the provider from the model.
 - \`onEnterEffortLevel\` — \`low\`, \`medium\`, \`high\`, \`max\`, or \`auto\`, or null; entry session reasoning effort.
 - \`onEnterThinkingEnabled\` — boolean or null; entry session thinking setting.
 - \`onEnterAutoRescheduleEnabled\` — boolean; enables automatic rescheduling.
