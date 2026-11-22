@@ -4,6 +4,22 @@ import { getApiCurlCommand } from './tlsTrust.js';
 
 const namedTierValue = 'For a named tier, use `tier::<tierId>`';
 
+function buildModelDiscoveryOps(apiUrl, apiCurl) {
+  return `### List Providers & Available Models
+\`\`\`bash
+${apiCurl} ${apiUrl}/api/providers
+\`\`\`
+Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
+
+\`models[].tier\` is the SDK class (\`fable\`, \`opus\`, \`sonnet\`, \`haiku\`, or \`custom\`), not a named model tier. SDK aliases remain valid single-model values.
+
+### List Named Model Tiers
+\`\`\`bash
+${apiCurl} ${apiUrl}/api/tiers
+\`\`\`
+For a named tier (such as "the medium tier", "medium tier", or "Medium"), match its \`name\` case-insensitively, ignoring a leading "the" and a trailing "tier". ${namedTierValue} as \`model\`. Set \`providerId\` to \`null\`. Copying a member \`modelId\` selects only that model and drops the rest of the tier. If several tiers match, list their names and IDs and do not pick one. If none match, say so and do not substitute a concrete model. \`effortLevel: "medium"\` sets reasoning effort; it does not select a tier named Medium.`;
+}
+
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
   const apiCurl = getApiCurlCommand();
@@ -34,19 +50,7 @@ ${apiCurl} -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
 
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
-### List Providers & Available Models
-\`\`\`bash
-${apiCurl} ${apiUrl}/api/providers
-\`\`\`
-Returns configured providers, each with \`kind\` (\`anthropic\` | \`openai\` | \`google\`) and a \`models\` array of \`{modelId, displayName, tier, enabled, lifecycle}\`. Use a listed \`models[].modelId\` to discover the currently available model choices for new workspaces/sessions. This is a discoverability list, not an exhaustive validation contract: validation also accepts SDK tier aliases (such as \`fable\`, \`opus\`, \`sonnet\`, and \`haiku\`) and can retain historical model IDs that are not listed.
-
-\`models[].tier\` is the SDK class (\`fable\`, \`opus\`, \`sonnet\`, \`haiku\`, or \`custom\`), not a named model tier. SDK aliases remain valid single-model values.
-
-### List Named Model Tiers
-\`\`\`bash
-${apiCurl} ${apiUrl}/api/tiers
-\`\`\`
-For a named tier (such as "the medium tier", "medium tier", or "Medium"), match its \`name\` case-insensitively, ignoring a leading "the" and a trailing "tier". ${namedTierValue} as \`model\`. Set \`providerId\` to \`null\`. Copying a member \`modelId\` selects only that model and drops the rest of the tier. If several tiers match, list their names and IDs and do not pick one. If none match, say so and do not substitute a concrete model. \`effortLevel: "medium"\` sets reasoning effort; it does not select a tier named Medium.
+${buildModelDiscoveryOps(apiUrl, apiCurl)}
 
 ### Send a Follow-up Message
 \`\`\`bash
