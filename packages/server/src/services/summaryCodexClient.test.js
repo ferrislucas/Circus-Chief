@@ -4,6 +4,7 @@ import { Writable } from 'stream';
 import {
   buildCodexSummaryArgs, buildCodexSummaryEnv, callCodexSummary, CODEX_SUMMARY_TIMEOUT_MS,
 } from './summaryCodexClient.js';
+import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 
 function successfulChild() {
   const child = new EventEmitter();
@@ -145,6 +146,24 @@ describe('summaryCodexClient', () => {
     expect(error.reason).toContain('usage limit');
     expect(error.reason).not.toContain('sk-codex-secret');
     expect(error.reason).toContain('[redacted]');
+  });
+
+  it('still fails over when a usage-limit sentence contains the word login', async () => {
+    const fs = { mkdtemp: vi.fn().mockResolvedValue('/tmp/isolated'), writeFile: vi.fn(), readFile: vi.fn(), rm: vi.fn().mockResolvedValue() };
+    const quota = "You've hit your usage limit. Visit https://chatgpt.com/login to upgrade.";
+    const stdout = `${JSON.stringify({
+      type: 'event_msg',
+      payload: { type: 'task_complete', error: { message: quota, codex_error_info: 'usage_limit_exceeded' } },
+    })}\n`;
+    const error = await callCodexSummary(
+      { prompt: 'x', model: 'gpt-5.4-mini', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => exitingChild({ exitCode: 1, stdout })) },
+    ).catch((err) => err);
+
+    expect(error.code).toBe('CODEX_SUMMARY_NON_ZERO_EXIT');
+    expect(error.reason).toContain('usage limit');
+    expect(error.reason).toContain('login');
+    expect(matchesStartFailoverEligibleError(error)).toBe(true);
   });
 
   it('uses a reasoning-safe default timeout and honors an override', async () => {

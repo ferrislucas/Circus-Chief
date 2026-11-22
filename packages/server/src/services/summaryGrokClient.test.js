@@ -44,9 +44,12 @@ describe('summaryGrokClient', () => {
       '--sandbox', 'read-only',
       '--permission-mode', 'dontAsk',
     ]));
-    const env = buildGrokSummaryEnv({ PATH: '/bin', XAI_API_KEY: 'secret', OPENAI_API_KEY: 'secret', HOME: '/users/me' });
+    const env = buildGrokSummaryEnv({
+      PATH: '/bin', XAI_API_KEY: 'secret', GROK_CODE_XAI_API_KEY: 'legacy', OPENAI_API_KEY: 'secret', HOME: '/users/me',
+    });
     expect(env).toMatchObject({ PATH: '/bin', HOME: '/users/me' });
     expect(env).not.toHaveProperty('XAI_API_KEY');
+    expect(env).not.toHaveProperty('GROK_CODE_XAI_API_KEY');
     expect(env).not.toHaveProperty('OPENAI_API_KEY');
   });
 
@@ -67,13 +70,13 @@ describe('summaryGrokClient', () => {
     const spawn = vi.fn(() => childWith({ stdout: JSON.stringify({ text: '{"short_summary":"ok"}', stopReason: 'end_turn' }) }));
     const result = await callGrokSummary(
       { prompt: 'conversation', systemPrompt: 'system', model: 'grok-4.7-build-fast', jsonSchema: { type: 'object' } },
-      { fs, spawn, env: { PATH: '/bin', XAI_API_KEY: 'secret' } },
+      { fs, spawn, env: { PATH: '/bin', XAI_API_KEY: 'secret', GROK_CODE_XAI_API_KEY: 'legacy' } },
     );
     expect(result).toBe('{"short_summary":"ok"}');
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       command: 'grok',
       cwd: '/tmp/grok-summary',
-      env: expect.not.objectContaining({ XAI_API_KEY: expect.anything() }),
+      env: expect.not.objectContaining({ XAI_API_KEY: expect.anything(), GROK_CODE_XAI_API_KEY: expect.anything() }),
       args: expect.arrayContaining(['-m', 'grok-4.7-build-fast']),
     }));
     expect(fs.rm).toHaveBeenCalledWith('/tmp/grok-summary', { recursive: true, force: true });
@@ -118,5 +121,38 @@ describe('summaryGrokClient', () => {
     expect(error.code).toBe('GROK_SUMMARY_NON_ZERO_EXIT');
     expect(error.reason).toBeUndefined();
     expect(matchesStartFailoverEligibleError(error)).toBe(false);
+  });
+
+  it('reports a timeout when abort emits AbortError synchronously', async () => {
+    vi.useFakeTimers();
+    try {
+      const fs = fakeFs();
+      const kill = vi.fn();
+      const spawn = vi.fn(({ signal }) => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = kill;
+        signal.addEventListener('abort', () => {
+          const error = new Error('The operation was aborted');
+          error.code = 'ABORT_ERR';
+          child.emit('error', error);
+        });
+        return child;
+      });
+      const pending = callGrokSummary(
+        { prompt: 'x', model: 'grok-4.7-build-fast', jsonSchema: {}, timeoutMs: 5_000 },
+        { fs, spawn, killProcessGroup: vi.fn() },
+      );
+      const expectation = expect(pending).rejects.toMatchObject({
+        code: 'GROK_SUMMARY_TIMEOUT',
+        publicMessage: 'Grok summary generation timed out. Please try again.',
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expectation;
+      expect(kill).toHaveBeenCalledWith('SIGTERM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

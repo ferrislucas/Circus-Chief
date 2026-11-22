@@ -12,7 +12,7 @@ export const CODEX_SUMMARY_TIMEOUT_MS = 180_000;
 const MAX_STDERR_BYTES = 16 * 1024;
 const MAX_STDOUT_BYTES = 64 * 1024;
 const MAX_FAILOVER_REASON_CHARS = 500;
-const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized'];
+const AUTH_FAILURE_PATTERNS = ['not logged in', 'codex login', 'authentication', 'authenticate', 'unauthorized'];
 const SCRUBBED_ENV_KEYS = new Set([
   'OPENAI_API_KEY', 'OPENAI_API_BASE', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_ORG_ID',
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'PROVIDER_TOKEN',

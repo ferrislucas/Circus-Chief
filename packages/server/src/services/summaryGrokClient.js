@@ -15,6 +15,8 @@ const MAX_FAILOVER_REASON_CHARS = 500;
 const AUTH_FAILURE_PATTERNS = ['not logged in', 'grok login', 'authentication', 'authenticate', 'unauthorized'];
 const SCRUBBED_ENV_KEYS = new Set([
   'XAI_API_KEY',
+  // Grok CLI 1.0.70 reads this name as the same global Bearer fallback.
+  'GROK_CODE_XAI_API_KEY',
   'OPENAI_API_KEY', 'OPENAI_API_BASE', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_ORG_ID',
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'PROVIDER_TOKEN',
 ]);
@@ -136,9 +138,11 @@ function runChild({ child, timeoutMs, abortController, setTimer, killProcessGrou
       if (error) reject(error); else resolve(stdout);
     };
     const timer = setTimeout(() => {
+      // Settle before abort(). Node emits AbortError synchronously from abort(),
+      // and that listener would otherwise classify the timeout as a generic exit.
+      finish(new GrokSummaryError('GROK_SUMMARY_TIMEOUT', 'Grok summary generation timed out. Please try again.'));
       abortController.abort();
       killGrokSummaryChild(child, killProcessGroup);
-      finish(new GrokSummaryError('GROK_SUMMARY_TIMEOUT', 'Grok summary generation timed out. Please try again.'));
     }, timeoutMs);
     setTimer(timer);
     let stdout = '';
