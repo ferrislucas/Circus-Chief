@@ -122,6 +122,7 @@ vi.mock('../components/KanbanLaneSelectorModal.vue', () => ({
 }));
 vi.mock('../composables/useApi.js', () => ({
   api: {
+    getSessionAgentCalls: vi.fn(),
     getSessionSummary: vi.fn().mockResolvedValue(null),
     updateSession: vi.fn(),
     getSession: vi.fn(),
@@ -220,6 +221,8 @@ describe('SessionDetailView', () => {
       writable: true,
       value: 640,
     });
+    api.getSessionAgentCalls.mockReset();
+    api.getSessionAgentCalls.mockRejectedValue(new Error('agent-call log unavailable'));
     websocketHandlers.clear();
     websocketSend.mockClear();
     projectSubscriptionIds.clear();
@@ -275,6 +278,61 @@ describe('SessionDetailView', () => {
     mountedWrappers.push(wrapper);
     return wrapper;
   }
+
+  describe('model tier failover banner', () => {
+    function failoverCall(id, reason) {
+      return { id, callType: 'tierFailover', metadata: {
+        fromProviderId: 'anthropic', fromModel: 'claude-opus',
+        toProviderId: 'openai', toModel: 'gpt-5', tierName: 'Reliable tier', reason,
+      } };
+    }
+
+    async function mountSession() {
+      sessionsStore.currentSession = { id: 'session-1', name: 'Test Session', status: 'waiting', projectId: 'project-1' };
+      await router.push('/sessions/session-1');
+      await router.isReady();
+      const wrapper = trackedMount(SessionDetailView, { global: {
+        plugins: [pinia, router],
+        stubs: { ChangesTab: true, CanvasTab: true, SummaryTab: true, CommandsTab: true, PrIndicators: true, SchedulingInfo: true },
+      } });
+      await flushPromises();
+      expect(wrapper.get('.session-name').text()).toBe('Test Session');
+      expect(wrapper.findComponent({ name: 'SessionTabsPanel' }).exists()).toBe(true);
+      return wrapper;
+    }
+
+    function expectNoBanner(wrapper) {
+      expect(wrapper.find('[data-testid="tier-failover-history"]').exists()).toBe(false);
+      expect(wrapper.find('[aria-label="Model tier failover history"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('Model tier failover');
+    }
+
+    it('does not render a banner for persisted failover rows', async () => {
+      api.getSessionAgentCalls.mockResolvedValue([
+        failoverCall('failover-1', 'Rate limit reached'),
+        failoverCall('failover-2', 'Quota exhausted'),
+      ]);
+      const wrapper = await mountSession();
+      expectNoBanner(wrapper);
+      expect(wrapper.text()).not.toContain('Rate limit reached');
+      expect(wrapper.text()).not.toContain('Quota exhausted');
+    });
+
+    it('does not insert a banner on a live failover event', async () => {
+      api.getSessionAgentCalls.mockResolvedValue([]);
+      const wrapper = await mountSession();
+      expectNoBanner(wrapper);
+      api.getSessionAgentCalls.mockResolvedValue([failoverCall('failover-live', 'Live reason')]);
+      const handler = websocketHandlers.get(WS_MESSAGE_TYPES.TIER_FAILOVER);
+      if (handler) {
+        handler({ sessionId: 'session-1' });
+        await flushPromises();
+      }
+      expect(handler).toBeUndefined();
+      expectNoBanner(wrapper);
+      expect(wrapper.text()).not.toContain('Live reason');
+    });
+  });
 
   describe('tabs configuration', () => {
     it('passes the expected tab labels to SessionTabsPanel', async () => {

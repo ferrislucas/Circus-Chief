@@ -75,6 +75,7 @@ vi.mock('../stores/providers.js', () => ({
       },
     ],
     fetchProviders: vi.fn().mockResolvedValue(undefined),
+    fetchHistoricalModel: vi.fn().mockResolvedValue(null),
   })),
 }));
 

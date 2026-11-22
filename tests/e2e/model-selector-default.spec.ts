@@ -141,7 +141,7 @@ test.describe('Model Selector Default Value', () => {
     await request.delete(`${baseUrl}/api/sessions/${sessionId}`);
   });
 
-  test('inspect what value the model selector actually has', async ({ page, request }) => {
+  test('draft session has a selected model option', async ({ page, request }) => {
     // Create a draft session via API
     const sessionRes = await request.post(`${baseUrl}/api/projects/${projectId}/sessions`, {
       data: {
@@ -157,41 +157,10 @@ test.describe('Model Selector Default Value', () => {
     await page.goto(`/sessions/${sessionId}/summary`);
     await page.waitForLoadState('networkidle');
     await openSessionOverlay(page);
-    await page.waitForTimeout(2000);
-
-    // Take screenshot
-    await page.screenshot({ path: 'test-results/debug-model-selector.png', fullPage: true });
-
-    // Find model selector
     const modelSelect = page.locator('#model-select');
-    if (await modelSelect.count() > 0) {
-      const value = await modelSelect.inputValue();
-      const selectedOption = await modelSelect.locator('option:checked').textContent();
-
-      console.log('========================================');
-      console.log('MODEL SELECTOR DEBUG INFO:');
-      console.log('  Raw value:', JSON.stringify(value));
-      console.log('  Value length:', value?.length || 0);
-      console.log('  Value is truthy:', !!value);
-      console.log('  Selected option text:', selectedOption);
-      console.log('========================================');
-
-      // List all options
-      const options = await modelSelect.locator('option').all();
-      console.log('All options:');
-      for (const opt of options) {
-        const optValue = await opt.getAttribute('value');
-        const optText = await opt.textContent();
-        console.log(`  - value="${optValue}", text="${optText}"`);
-      }
-
-      // This is the critical assertion
-      if (!value || value.length === 0) {
-        console.log('BUG CONFIRMED: Model selector has no value!');
-      }
-
-      expect(value, 'Model selector must have a value').toBeTruthy();
-    }
+    await expect(modelSelect).toBeVisible();
+    await expect(modelSelect).not.toHaveValue('');
+    await expect(modelSelect.locator('option:checked')).toHaveCount(1);
 
     // Clean up
     await request.delete(`${baseUrl}/api/sessions/${sessionId}`);
