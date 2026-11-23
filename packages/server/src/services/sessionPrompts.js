@@ -252,6 +252,16 @@ Then use the Read tool on the returned filePath to view the content.
 
 Supported types: images, PDFs, markdown, text, JSON
 
+### Canvas file content
+
+To read the newest active version of a canvas file in the response (text, markdown, code, and JSON):
+
+\`\`\`bash
+${apiCurl} ${canvasUrl}/canvas/file/{url-encoded-filename}/content
+\`\`\`
+
+The response is JSON \`{ content, data, type, mimeType, filename }\` for the newest active version of that exact filename. Omit \`version\`. Text, markdown, and code are in \`content\`. Valid JSON is returned as a parsed JSON value in \`data\`. Unparseable JSON content is retained as a string in \`data\`. Images and PDFs are base64 in \`data\`; for those, use the metadata call above and open \`filePath\` with the Read tool. A missing name, or a name that exists only in canvas trash, returns \`404 { error: "File not found" }\`. Percent-encode reserved filename characters (for example, \`quarterly%20report%20%231.md\`).
+
 ### Accessing Historical Versions
 
 If you need to access an earlier version of a file:

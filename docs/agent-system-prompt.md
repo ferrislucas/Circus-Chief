@@ -31,6 +31,7 @@ Agents can post artifacts to the canvas and read them back.
 | POST | `/api/workspaces/{workspaceId}/canvas` | Add a file to the canvas. Body: `{"filePath": "/path/to/file"}`. File type auto-detected from extension. |
 | GET | `/api/workspaces/{workspaceId}/canvas` | List all files on the canvas |
 | GET | `/api/workspaces/{workspaceId}/canvas/file/{filename}` | Get metadata for a canvas file. Response: `{ filePath, type, mimeType, createdAt, version, totalVersions }` |
+| GET | `/api/workspaces/{workspaceId}/canvas/file/{filename}/content` | Return the newest active version of that exact filename as JSON `{ content, data, type, mimeType, filename }`. Text, markdown, and code are in `content`. Valid JSON is returned as a parsed JSON value in `data`. Unparseable JSON content is retained as a string in `data`. Images and PDFs are base64 in `data`. Omit `version` for the newest active version. A missing name, or a name whose versions are all in canvas trash, returns `404 { error: "File not found" }`. Percent-encode reserved filename characters. |
 | GET | `/api/workspaces/{workspaceId}/canvas/file/{filename}/history/{version}` | Get a historical version of a canvas file. Version 1 = oldest. |
 | DELETE | `/api/workspaces/{workspaceId}/canvas/file/{filename}` | Move every active version of the exact filename to recoverable canvas trash. Response: `{ filename, trashedCount }`; returns `404 { error: "File not found on canvas" }` when no active version exists. URL-encode reserved filename characters (for example, `quarterly%20report%20%231.md`). |
 
