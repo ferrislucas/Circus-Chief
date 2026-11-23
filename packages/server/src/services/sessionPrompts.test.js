@@ -495,6 +495,41 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain('/api/sessions/root-123/canvas');
     });
 
+    it('documents the canvas content endpoint for a child session', () => {
+      sessions.getById.mockReturnValue({ id: 'child-456', parentSessionId: 'parent-789', gitWorktree: null, gitBranch: null });
+      sessions.getRootSessionId.mockReturnValue('root-123');
+      const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
+      const start = result.indexOf('### Canvas file content');
+      const end = result.indexOf('### Accessing Historical Versions');
+      const section = start < 0 || end < 0 ? '' : result.slice(start, end);
+      for (const expected of [
+        '/api/workspaces/root-123/canvas/file/{url-encoded-filename}/content',
+        '`{ content, data, type, mimeType, filename }`', 'newest active version',
+        'Text, markdown, and code are in `content`', 'JSON text is in `data`',
+        'Images and PDFs are base64 in `data`', '404 { error: "File not found" }',
+        'Omit `version`', 'quarterly%20report%20%231.md', 'filePath', 'Read tool',
+      ]) expect(section).toContain(expected);
+      for (const forbidden of ['/api/sessions/', '/api/workspaces/child-456/canvas', '/stream', '/tmp/canvas-']) {
+        expect(section).not.toContain(forbidden);
+      }
+      expect(start).toBeGreaterThan(result.indexOf('## Reading from Canvas'));
+      expect(start).toBeGreaterThan(result.indexOf('Then use the Read tool on the returned filePath'));
+      expect(end).toBeGreaterThan(start);
+    });
+
+    it('documents the canvas content endpoint in the agent system-prompt reference', () => {
+      const reference = readFileSync(new URL('../../../../docs/agent-system-prompt.md', import.meta.url), 'utf8');
+      const row = reference.split('\n').find((line) => line.includes('`/api/workspaces/{workspaceId}/canvas/file/{filename}/content`')) ?? '';
+      for (const expected of [
+        '`{ content, data, type, mimeType, filename }`', 'Text, markdown, and code are in `content`',
+        'JSON text is in `data`', 'Images and PDFs are base64 in `data`', 'Omit `version`',
+        'newest active version', '`404 { error: "File not found" }`', 'Percent-encode reserved filename characters',
+      ]) expect(row).toContain(expected);
+      expect(row).not.toContain('File not found on canvas');
+      expect(row).not.toContain('/stream');
+      expect(reference).toContain('`/api/workspaces/{workspaceId}/canvas/file/{filename}`');
+    });
+
     it('includes canvas read instructions', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       expect(result).toContain('Reading from Canvas');
