@@ -505,10 +505,12 @@ describe('sessionPrompts', () => {
       for (const expected of [
         '/api/workspaces/root-123/canvas/file/{url-encoded-filename}/content',
         '`{ content, data, type, mimeType, filename }`', 'newest active version',
-        'Text, markdown, and code are in `content`', 'JSON text is in `data`',
+        'Text, markdown, and code are in `content`', 'Valid JSON is returned as a parsed JSON value in `data`',
+        'Unparseable JSON content is retained as a string in `data`',
         'Images and PDFs are base64 in `data`', '404 { error: "File not found" }',
         'Omit `version`', 'quarterly%20report%20%231.md', 'filePath', 'Read tool',
       ]) expect(section).toContain(expected);
+      expect(section).not.toContain('JSON text is in `data`');
       for (const forbidden of ['/api/sessions/', '/api/workspaces/child-456/canvas', '/stream', '/tmp/canvas-']) {
         expect(section).not.toContain(forbidden);
       }
@@ -522,9 +524,11 @@ describe('sessionPrompts', () => {
       const row = reference.split('\n').find((line) => line.includes('`/api/workspaces/{workspaceId}/canvas/file/{filename}/content`')) ?? '';
       for (const expected of [
         '`{ content, data, type, mimeType, filename }`', 'Text, markdown, and code are in `content`',
-        'JSON text is in `data`', 'Images and PDFs are base64 in `data`', 'Omit `version`',
+        'Valid JSON is returned as a parsed JSON value in `data`',
+        'Unparseable JSON content is retained as a string in `data`', 'Images and PDFs are base64 in `data`', 'Omit `version`',
         'newest active version', '`404 { error: "File not found" }`', 'Percent-encode reserved filename characters',
       ]) expect(row).toContain(expected);
+      expect(row).not.toContain('JSON text is in `data`');
       expect(row).not.toContain('File not found on canvas');
       expect(row).not.toContain('/stream');
       expect(reference).toContain('`/api/workspaces/{workspaceId}/canvas/file/{filename}`');
