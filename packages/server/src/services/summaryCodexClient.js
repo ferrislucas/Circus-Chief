@@ -3,12 +3,16 @@ import os from 'os';
 import path from 'path';
 import { CODEX_SUMMARY_MODELS } from '@circuschief/shared';
 import { createCodexSpawner } from './codexSpawnHelper.js';
+import { sanitizeString } from './errorSanitizer.js';
+import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 
 // Reasoning models can take longer than an ordinary chat completion. Callers
 // may still supply a shorter timeout for an explicitly latency-sensitive flow.
 export const CODEX_SUMMARY_TIMEOUT_MS = 180_000;
 const MAX_STDERR_BYTES = 16 * 1024;
-const AUTH_FAILURE_PATTERNS = ['not logged in', 'login', 'authentication', 'authenticate', 'unauthorized'];
+const MAX_STDOUT_BYTES = 64 * 1024;
+const MAX_FAILOVER_REASON_CHARS = 500;
+const AUTH_FAILURE_PATTERNS = ['not logged in', 'codex login', 'authentication', 'authenticate', 'unauthorized'];
 const SCRUBBED_ENV_KEYS = new Set([
   'OPENAI_API_KEY', 'OPENAI_API_BASE', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_ORG_ID',
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'PROVIDER_TOKEN',
@@ -113,26 +117,92 @@ function runChild({ child, stdin, timeoutMs, abortController, setTimer }) {
     setTimer(timer);
     // Codex emits JSONL progress and diagnostics. Consume both streams even
     // though the structured result comes from --output-last-message; otherwise
-    // a full OS pipe can block the child before it exits.
+    // a full OS pipe can block the child before it exits. The quota failure
+    // arrives on stdout (`task_complete.error.message`), so keep a tail.
     let stderr = '';
-    child.stdout?.on('data', () => {});
+    let stdout = '';
+    child.stdout?.on('data', (chunk) => {
+      stdout = appendBounded(stdout, chunk, MAX_STDOUT_BYTES);
+    });
     child.stderr?.on('data', (chunk) => {
-      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-      stderr = `${stderr}${text}`.slice(-MAX_STDERR_BYTES);
+      stderr = appendBounded(stderr, chunk, MAX_STDERR_BYTES);
     });
     child.once('error', finish);
-    child.once('exit', (code) => finish(code === 0 ? null : Object.assign(new Error('Codex exited'), { exitCode: code, stderr })));
+    child.once('exit', (code) => finish(code === 0 ? null : Object.assign(new Error('Codex exited'), {
+      exitCode: code, stderr, stdout,
+    })));
     try { child.stdin?.end(stdin); } catch (error) { finish(error); }
   });
+}
+
+function appendBounded(current, chunk, maxBytes) {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+  return `${current}${text}`.slice(-maxBytes);
+}
+
+/**
+ * Provider sentence from a Codex `--json` stream. The usage-limit failure is
+ * a `task_complete` event on stdout, not stderr. Returns the last such
+ * sentence, or null when the stream has none.
+ * @param {string} stdout
+ * @returns {string|null}
+ */
+export function extractCodexTerminalErrorMessage(stdout) {
+  let found = null;
+  for (const event of jsonObjects(stdout)) {
+    const message = terminalErrorMessage(event);
+    if (message) found = message;
+  }
+  return found;
+}
+
+function jsonObjects(stdout) {
+  const objects = [];
+  for (const line of String(stdout || '').split('\n')) {
+    const candidate = line.trim();
+    if (!candidate.startsWith('{')) continue;
+    try { objects.push(JSON.parse(candidate)); } catch { /* partial or non-JSON diagnostic */ }
+  }
+  return objects;
+}
+
+function terminalErrorMessage(event) {
+  const payload = event?.payload && typeof event.payload === 'object' ? event.payload : event;
+  const error = payload?.error;
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (error && typeof error.message === 'string' && error.message.trim()) return error.message.trim();
+  if (payload?.type === 'error' && typeof payload.message === 'string' && payload.message.trim()) {
+    return payload.message.trim();
+  }
+  return null;
 }
 
 function classifyCodexError(error) {
   if (error?.code === 'ENOENT') {
     return new CodexSummaryError('CODEX_SUMMARY_CLI_NOT_FOUND', 'Codex CLI is not installed. Install Codex and run `codex login`.');
   }
-  const detail = `${error?.message || ''} ${error?.stderr || ''}`.toLowerCase();
+  const providerMessage = extractCodexTerminalErrorMessage(error?.stdout);
+  const detail = `${error?.message || ''} ${error?.stderr || ''} ${providerMessage || ''}`.toLowerCase();
   if (AUTH_FAILURE_PATTERNS.some((pattern) => detail.includes(pattern))) {
     return new CodexSummaryError('CODEX_SUMMARY_AUTHENTICATION', 'Codex is not authenticated. Run `codex login` and try again.');
   }
-  return new CodexSummaryError('CODEX_SUMMARY_NON_ZERO_EXIT', 'Codex could not generate a summary. Please try again.');
+  const classified = new CodexSummaryError('CODEX_SUMMARY_NON_ZERO_EXIT', 'Codex could not generate a summary. Please try again.');
+  const sentence = failoverSentence(providerMessage, error?.stderr);
+  if (sentence) {
+    // Public message stays generic. `reason` is what the summary tier gate
+    // reads, so a quota sentence still advances to the next member.
+    classified.reason = sentence;
+    classified.detail = sentence;
+  }
+  return classified;
+}
+
+function failoverSentence(providerMessage, stderr) {
+  for (const candidate of [providerMessage, stderr]) {
+    if (typeof candidate !== 'string' || !candidate.trim()) continue;
+    if (!matchesStartFailoverEligibleError(candidate)) continue;
+    const sanitized = sanitizeString(candidate).replace(/[\r\n\t]+/g, ' ').trim();
+    if (sanitized) return sanitized.slice(0, MAX_FAILOVER_REASON_CHARS);
+  }
+  return null;
 }

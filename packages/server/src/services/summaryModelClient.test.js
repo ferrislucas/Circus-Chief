@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   buildProviderEnv: vi.fn(),
   callCodexSummary: vi.fn(),
   callMuseSummary: vi.fn(),
+  callGrokSummary: vi.fn(),
   agentCallLogger: {
     startCall: vi.fn(),
     updateUsage: vi.fn(),
@@ -49,6 +50,10 @@ vi.mock('./summaryMuseClient.js', () => ({
   callMuseSummary: mocks.callMuseSummary,
 }));
 
+vi.mock('./summaryGrokClient.js', () => ({
+  callGrokSummary: mocks.callGrokSummary,
+}));
+
 import { SESSION_SUMMARY_SCHEMA, callSummaryModel, SummaryTierExhaustedError } from './summaryModelClient.js';
 import { modelProviders, modelTiers } from '../database.js';
 import { isUnhealthy, markUnhealthy, clearUnhealthy } from './tierResolutionService.js';
@@ -67,6 +72,7 @@ describe('summaryModelClient', () => {
     mocks.callClaude.mockResolvedValue('{"short_summary":"ok"}');
     mocks.callCodexSummary.mockResolvedValue('{"short_summary":"codex"}');
     mocks.callMuseSummary.mockResolvedValue('{"short_summary":"muse"}');
+    mocks.callGrokSummary.mockResolvedValue('{"short_summary":"grok"}');
     mocks.buildProviderEnv.mockReturnValue({ ANTHROPIC_API_KEY: 'custom-token' });
     mocks.agentCallLogger.startCall.mockReturnValue('call-1');
     vi.stubGlobal('fetch', vi.fn());
@@ -322,6 +328,30 @@ describe('summaryModelClient', () => {
     })).rejects.toThrow('Muse failed');
 
     expect(mocks.agentCallLogger.completeCall).toHaveBeenCalledWith('call-1', { success: false, error });
+  });
+
+  it('routes xAI resolutions through Grok instead of Claude', async () => {
+    const resolution = {
+      model: 'grok-4.7-build-fast',
+      providerId: 'xai-default',
+      provider: { id: 'xai-default', isBuiltIn: true, kind: 'xai' },
+      kind: 'xai',
+      selectionReason: 'explicit',
+    };
+
+    const result = await callSummaryModel('prompt', [], 'completed', {
+      resolvedModel: resolution,
+      logMeta: { sessionId: 'session-1', conversationId: 'conversation-1', callType: 'session-summary' },
+    });
+
+    expect(result).toBe('{"short_summary":"grok"}');
+    expect(mocks.callGrokSummary).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'grok-4.7-build-fast', prompt: 'prompt',
+    }), undefined);
+    expect(mocks.callClaude).not.toHaveBeenCalled();
+    expect(mocks.agentCallLogger.startCall).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ route: 'grok-cli' }),
+    }));
   });
 });
 
@@ -592,5 +622,77 @@ describe('callSummaryModel tier failover (Work Item 2)', () => {
 
     clearUnhealthy(providerA.id, 'summary-model-a');
     clearUnhealthy(providerB.id, 'summary-model-b');
+  });
+
+  function ensureSummaryModel(providerId, modelId, displayName) {
+    const provider = modelProviders.getById(providerId);
+    if (provider?.models?.some((model) => model.modelId === modelId)) return;
+    modelProviders.addModel(providerId, { modelId, displayName });
+  }
+
+  it('advances from a Codex usage-limit failure to the xAI member', async () => {
+    ensureSummaryModel('openai-default', 'gpt-5.6-luna', 'Luna');
+    ensureSummaryModel('xai-default', 'grok-4.7-build-fast', 'Grok');
+    const lowTier = modelTiers.create({
+      name: 'Low Summary Tier',
+      members: [
+        { providerId: 'openai-default', modelId: 'gpt-5.6-luna', position: 0 },
+        { providerId: 'xai-default', modelId: 'grok-4.7-build-fast', position: 1 },
+      ],
+    });
+    const quota = new Error('Codex could not generate a summary. Please try again.');
+    quota.code = 'CODEX_SUMMARY_NON_ZERO_EXIT';
+    quota.reason = "You've hit your usage limit. Try again later.";
+    mocks.callCodexSummary.mockRejectedValueOnce(quota);
+    mocks.callGrokSummary.mockResolvedValueOnce('{"short_summary":"from grok"}');
+
+    try {
+      const result = await callSummaryModel('prompt', [], 'completed', {
+        summarySettings: tierSettings(lowTier.id),
+        logMeta: { sessionId: 'summary-session-grok', callType: 'generateSessionSummary' },
+      });
+
+      expect(result).toBe('{"short_summary":"from grok"}');
+      expect(mocks.callCodexSummary).toHaveBeenCalledTimes(1);
+      expect(mocks.callGrokSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'grok-4.7-build-fast' }),
+        undefined,
+      );
+      expect(mocks.callClaude).not.toHaveBeenCalled();
+      expect(isUnhealthy('openai-default', 'gpt-5.6-luna')).toBe(true);
+      expect(mocks.agentCallLogger._logFailoverEvent).toHaveBeenCalledWith(
+        'summary-session-grok',
+        expect.objectContaining({
+          fromModel: 'gpt-5.6-luna',
+          toModel: 'grok-4.7-build-fast',
+          reason: expect.stringContaining('usage limit'),
+        }),
+      );
+    } finally {
+      clearUnhealthy('openai-default', 'gpt-5.6-luna');
+    }
+  });
+
+  it('does not advance past a generic Codex summary failure', async () => {
+    ensureSummaryModel('openai-default', 'gpt-5.6-luna', 'Luna');
+    ensureSummaryModel('xai-default', 'grok-4.7-build-fast', 'Grok');
+    const lowTier = modelTiers.create({
+      name: 'Low Summary Tier Generic',
+      members: [
+        { providerId: 'openai-default', modelId: 'gpt-5.6-luna', position: 0 },
+        { providerId: 'xai-default', modelId: 'grok-4.7-build-fast', position: 1 },
+      ],
+    });
+    const generic = new Error('Codex could not generate a summary. Please try again.');
+    generic.code = 'CODEX_SUMMARY_NON_ZERO_EXIT';
+    mocks.callCodexSummary.mockRejectedValueOnce(generic);
+
+    await expect(callSummaryModel('prompt', [], 'completed', {
+      summarySettings: tierSettings(lowTier.id),
+      logMeta: { sessionId: 'summary-session-generic', callType: 'generateSessionSummary' },
+    })).rejects.toThrow('Codex could not generate a summary');
+
+    expect(mocks.callGrokSummary).not.toHaveBeenCalled();
+    expect(isUnhealthy('openai-default', 'gpt-5.6-luna')).toBe(false);
   });
 });

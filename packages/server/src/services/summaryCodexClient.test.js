@@ -4,6 +4,7 @@ import { Writable } from 'stream';
 import {
   buildCodexSummaryArgs, buildCodexSummaryEnv, callCodexSummary, CODEX_SUMMARY_TIMEOUT_MS,
 } from './summaryCodexClient.js';
+import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 
 function successfulChild() {
   const child = new EventEmitter();
@@ -14,7 +15,20 @@ function successfulChild() {
   return child;
 }
 
-function streamingChild({ exitCode = 0, stderr = '' } = {}) {
+function exitingChild({ exitCode = 1, stderr = '', stdout = '' } = {}) {
+  const child = new EventEmitter();
+  child.stdin = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  process.nextTick(() => {
+    if (stdout) child.stdout.emit('data', Buffer.from(stdout));
+    if (stderr) child.stderr.emit('data', Buffer.from(stderr));
+    child.emit('exit', exitCode);
+  });
+  return child;
+}
+
+function streamingChild({ exitCode = 0, stderr = '', stdout = '' } = {}) {
   const child = new EventEmitter();
   child.stdin = new Writable({ write(_chunk, _encoding, done) { done(); } });
   child.stdout = new EventEmitter();
@@ -33,6 +47,7 @@ function streamingChild({ exitCode = 0, stderr = '' } = {}) {
   };
   process.nextTick(() => {
     for (let index = 0; index < 300; index += 1) child.stdout.emit('data', Buffer.alloc(1024));
+    if (stdout) child.stdout.emit('data', Buffer.from(stdout));
     if (stderr) child.stderr.emit('data', Buffer.from(stderr));
     child.emit('exit', exitCode);
   });
@@ -101,8 +116,54 @@ describe('summaryCodexClient', () => {
 
   it('keeps generic non-zero exits distinct after streamed stderr', async () => {
     const fs = { mkdtemp: vi.fn().mockResolvedValue('/tmp/isolated'), writeFile: vi.fn(), readFile: vi.fn(), rm: vi.fn().mockResolvedValue() };
-    await expect(callCodexSummary({ prompt: 'x', model: 'gpt-5.4-mini', jsonSchema: {} }, { fs, spawn: vi.fn(() => streamingChild({ exitCode: 1, stderr: 'unexpected failure' })) }))
-      .rejects.toMatchObject({ code: 'CODEX_SUMMARY_NON_ZERO_EXIT' });
+    const error = await callCodexSummary(
+      { prompt: 'x', model: 'gpt-5.4-mini', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => streamingChild({ exitCode: 1, stderr: 'unexpected failure' })) },
+    ).catch((err) => err);
+    expect(error).toMatchObject({ code: 'CODEX_SUMMARY_NON_ZERO_EXIT' });
+    expect(error.reason).toBeUndefined();
+  });
+
+  it('keeps a Codex usage-limit sentence on reason without replacing the public message', async () => {
+    const fs = { mkdtemp: vi.fn().mockResolvedValue('/tmp/isolated'), writeFile: vi.fn(), readFile: vi.fn(), rm: vi.fn().mockResolvedValue() };
+    const quota = "You've hit your usage limit. Try again at Nov 21st, 2026 10:50 AM. token=sk-codex-secret";
+    const stdout = `${JSON.stringify({
+      type: 'event_msg',
+      payload: { type: 'task_complete', error: { message: quota, codex_error_info: 'usage_limit_exceeded' } },
+    })}\n`;
+    const child = exitingChild({ exitCode: 1, stdout, stderr: 'ordinary diagnostic' });
+    const error = await callCodexSummary(
+      { prompt: 'x', model: 'gpt-5.4-mini', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => child) },
+    ).catch((err) => err);
+
+    expect(error).toMatchObject({
+      code: 'CODEX_SUMMARY_NON_ZERO_EXIT',
+      publicMessage: 'Codex could not generate a summary. Please try again.',
+    });
+    expect(error.message).toBe(error.publicMessage);
+    expect(error.message).not.toContain('usage limit');
+    expect(error.reason).toContain('usage limit');
+    expect(error.reason).not.toContain('sk-codex-secret');
+    expect(error.reason).toContain('[redacted]');
+  });
+
+  it('still fails over when a usage-limit sentence contains the word login', async () => {
+    const fs = { mkdtemp: vi.fn().mockResolvedValue('/tmp/isolated'), writeFile: vi.fn(), readFile: vi.fn(), rm: vi.fn().mockResolvedValue() };
+    const quota = "You've hit your usage limit. Visit https://chatgpt.com/login to upgrade.";
+    const stdout = `${JSON.stringify({
+      type: 'event_msg',
+      payload: { type: 'task_complete', error: { message: quota, codex_error_info: 'usage_limit_exceeded' } },
+    })}\n`;
+    const error = await callCodexSummary(
+      { prompt: 'x', model: 'gpt-5.4-mini', jsonSchema: {} },
+      { fs, spawn: vi.fn(() => exitingChild({ exitCode: 1, stdout })) },
+    ).catch((err) => err);
+
+    expect(error.code).toBe('CODEX_SUMMARY_NON_ZERO_EXIT');
+    expect(error.reason).toContain('usage limit');
+    expect(error.reason).toContain('login');
+    expect(matchesStartFailoverEligibleError(error)).toBe(true);
   });
 
   it('uses a reasoning-safe default timeout and honors an override', async () => {

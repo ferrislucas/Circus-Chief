@@ -66,6 +66,15 @@ describe('sanitizeTierFailureReason', () => {
     expect(reason).not.toContain('sk-super-secret');
     expect(reason).not.toContain('\n');
   });
+
+  it('keeps a summary runner quota sentence ahead of the generic public message', () => {
+    const error = new Error('Codex could not generate a summary. Please try again.');
+    error.reason = "You've hit your usage limit. token=sk-super-secret";
+    const reason = sanitizeTierFailureReason(error);
+    expect(reason.startsWith("You've hit your usage limit.")).toBe(true);
+    expect(reason).toContain('[redacted]');
+    expect(reason).not.toContain('sk-super-secret');
+  });
 });
 
 describe('runSessionCore tier failover (integration)', () => {
