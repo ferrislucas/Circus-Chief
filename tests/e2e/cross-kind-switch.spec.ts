@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createTierViaApi, deleteTierViaApi } from './tier-test-helpers';
 import {
   addProviderModel,
   cleanupCreatedResources,
@@ -66,8 +67,7 @@ async function patchSessionModel(sessionId: string, model: string) {
 }
 
 // Gemini models come from the built-in google-default provider, which
-// cleanupProviders() preserves. Gemini is deliberately excluded from
-// in-place cross-kind switching, so it is the blocking-path fixture.
+// cleanupProviders() preserves. Gemini is an in-place switch, same as Codex.
 const GEMINI_MODEL = 'gemini-2.5-pro';
 
 test.describe('Cross-kind model switching', () => {
@@ -81,7 +81,7 @@ test.describe('Cross-kind model switching', () => {
     await cleanupCreatedResources();
   });
 
-  test('API allows in-scope cross-kind continuation, re-derives agentType, and still blocks gemini', async () => {
+  test('API allows in-scope cross-kind continuation, including Gemini and a Codex-first tier', async () => {
     const openaiProvider = await seedOpenAIProvider('gpt-4o-cross-kind-api');
     const project = await seedProject('Cross Kind API Project', process.cwd());
 
@@ -136,43 +136,50 @@ test.describe('Cross-kind model switching', () => {
     expect(switched.agentType).toBe('codex');
     expect(switched.providerId).toBe(openaiProvider.id);
 
-    // Gemini stays rejected: into gemini from a codex session ... (a fresh
-    // session keeps agentType deterministically 'codex' for the assertions).
+    // Into Gemini from a started Codex session, and back out to Claude.
     const geminiOutSession = await seedSession(project.id, {
-      prompt: 'Blocked gemini root',
+      prompt: 'Gemini switch root',
       model: 'gpt-4o-cross-kind-api',
       startImmediately: false,
     });
-    await seedUserMessage(geminiOutSession.id, 'Blocked gemini root');
-    await seedAssistantMessage(geminiOutSession.id, 'Blocked gemini prior response');
-    response = await sendMessage(geminiOutSession.id, 'blocked gemini', GEMINI_MODEL);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      error: 'CROSS_KIND_MODEL_SWITCH',
-      message: expect.stringContaining('Gemini'),
-    });
-    expect((await getSession(geminiOutSession.id)).agentType).toBe('codex');
-
-    // ... via PATCH on a started session (no mutation) ...
+    await seedUserMessage(geminiOutSession.id, 'Gemini switch root');
+    await seedAssistantMessage(geminiOutSession.id, 'Gemini switch prior response');
     const geminiPatch = await patchSessionModel(geminiOutSession.id, GEMINI_MODEL);
-    expect(geminiPatch.status).toBe(400);
-    const unmoved = await getSession(geminiOutSession.id);
-    expect(unmoved.agentType).toBe('codex');
+    expect(geminiPatch.status).toBe(200);
+    const moved = await getSession(geminiOutSession.id);
+    expect(moved.model).toBe(GEMINI_MODEL);
+    expect(moved.agentType).toBe('gemini');
 
-    // ... and out of gemini to a claude-code model.
     const geminiSession = await seedSession(project.id, {
       prompt: 'Gemini root',
       model: GEMINI_MODEL,
       startImmediately: false,
     });
     expect((await getSession(geminiSession.id)).agentType).toBe('gemini');
-    response = await sendMessage(geminiSession.id, 'blocked from gemini', 'claude-haiku-4-5-20251001');
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      error: 'CROSS_KIND_MODEL_SWITCH',
-      message: expect.stringContaining('Gemini'),
+    await seedUserMessage(geminiSession.id, 'Gemini root');
+    await seedAssistantMessage(geminiSession.id, 'Gemini prior response');
+    response = await sendMessage(geminiSession.id, 'leave gemini', 'claude-haiku-4-5-20251001');
+    expect(response.status).toBe(200);
+    await expect.poll(async () => (await getSession(geminiSession.id)).agentType, { timeout: 10000 }).toBe('claude-code');
+    expect((await getSession(geminiSession.id)).model).toBe('claude-haiku-4-5-20251001');
+
+    const tier = await createTierViaApi({
+      name: `${TEST_PREFIX} Codex-first tier`,
+      members: [{ providerId: openaiProvider.id, modelId: 'gpt-4o-cross-kind-api', position: 0 }],
     });
-    expect((await getSession(geminiSession.id)).agentType).toBe('gemini');
+    try {
+      const tierSession = await claudeSession('Tier PATCH root');
+      await seedUserMessage(tierSession.id, 'Tier PATCH root');
+      await seedAssistantMessage(tierSession.id, 'Tier PATCH prior response');
+      const tierPatch = await patchSessionModel(tierSession.id, `tier::${tier.id}`);
+      expect(tierPatch.status).toBe(200);
+      const bound = await getSession(tierSession.id);
+      expect(bound.model).toBe(`tier::${tier.id}`);
+      expect(bound.agentType).toBe('codex');
+      expect(bound.providerId).toBeNull();
+    } finally {
+      await deleteTierViaApi(tier.id);
+    }
   });
 
   test('API PATCH persists a Claude → Grok switch on a started session, re-deriving agentType and provider', async () => {
@@ -207,7 +214,7 @@ test.describe('Cross-kind model switching', () => {
     expect(stored.providerId).toBe(xaiProvider.id);
   });
 
-  test('UI confirms in-scope switches and surfaces the gemini rejection', async ({ page }) => {
+  test('UI confirms in-scope switches, including Gemini', async ({ page }) => {
     await seedOpenAIProvider('gpt-4o-cross-kind-ui');
     const project = await seedProject('Cross Kind UI Project', process.cwd());
     const session = await seedSession(project.id, {
@@ -245,13 +252,13 @@ test.describe('Cross-kind model switching', () => {
     expect(dialogs[0]).toContain('Switch from Claude Code to Codex');
     expect((await getSession(session.id)).model).toBe('gpt-4o-cross-kind-ui');
 
-    // Gemini switches skip confirmation because the backend still rejects
-    // them: the picker surfaces the human-readable error and rolls back.
+    // Gemini confirms with the same from/to sentence, then the session follows it.
     await overlay.locator('#model-select').selectOption('Gemini 2.5 Pro');
-    await expect(page.locator('.toast-message')).toContainText('Cannot switch agent kind mid-session');
-    expect(dialogs).toHaveLength(1);
-    const reverted = await getSession(session.id);
-    expect(reverted.agentType).toBe('codex');
-    expect(reverted.model).toBe('gpt-4o-cross-kind-ui');
+    await expect
+      .poll(async () => (await getSession(session.id)).agentType, { timeout: 10000 })
+      .toBe('gemini');
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[1]).toContain('Switch from Codex to Gemini');
+    expect((await getSession(session.id)).model).toBe(GEMINI_MODEL);
   });
 });

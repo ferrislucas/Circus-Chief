@@ -21,6 +21,7 @@ import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
   deriveAgentTypeUpdate,
+  isCrossKindBlockLiftable,
 } from '../services/sessionAgentGuard.js';
 
 const router = Router();
@@ -138,13 +139,15 @@ function buildScheduleUpdate(req) {
     return { status: 400, error: { error: 'scheduledAt must be in the future' } };
   }
 
+  // Trust is whether a provider turn owns the session, not pendingInteractive
+  // (that bit is written after this check, and a later lane detach forces it).
+  const scheduleOrigin = deriveScheduleOrigin(req.params.id);
+
   // Validate model if provided, applying the cross-kind drift guard
-  const modelResult = resolveScheduleModel(req, model, providerId);
+  const modelResult = resolveScheduleModel(req, model, providerId, scheduleOrigin);
   if (modelResult.error) {
     return modelResult;
   }
-
-  const scheduleOrigin = deriveScheduleOrigin(req.params.id);
   const updateData = {
     status: scheduleOrigin.hasActiveProviderTurn ? req.session_.status : 'scheduled',
     scheduledAt,
@@ -164,7 +167,7 @@ function buildScheduleUpdate(req) {
 // Validate the optional model field for /schedule and resolve the agentType update.
 // Returns { pendingModel, agentTypeUpdate } when model is supplied,
 // { agentTypeUpdate } when omitted, or { status, error } on failure.
-function resolveScheduleModel(req, model, providerId) {
+function resolveScheduleModel(req, model, providerId, scheduleOrigin = null) {
   if (model === undefined || model === null || model === '') {
     return { agentTypeUpdate: {} };
   }
@@ -182,10 +185,12 @@ function resolveScheduleModel(req, model, providerId) {
     return { pendingModel, pendingProviderId, agentTypeUpdate };
   }
 
-  // Started session: reject cross-kind switches, validating the explicit
-  // pending pair with its own provider.
+  // Started session: an idle user may store a cross-kind pendingModel.
+  // The current agentType stays until the fire. A provider-only rebind is
+  // not liftable. A live provider turn is not a user switch.
   const driftError = checkCrossKindSwitch(req.session_, pendingModel, pendingProviderId);
-  if (driftError) {
+  if (driftError && !(scheduleOrigin?.isTrustedUserSchedule
+    && isCrossKindBlockLiftable(req.session_, pendingModel, pendingProviderId, driftError))) {
     return { status: 400, error: driftError };
   }
   return { pendingModel, pendingProviderId, agentTypeUpdate: {} };

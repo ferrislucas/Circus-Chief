@@ -2086,7 +2086,7 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
       expect(row.lastExecutedProviderId).toBe(providerB.id);
     });
 
-    it('releases active state, flags error status, and dispatches nothing when a newly selected tier has every member cooling down', async () => {
+    it('continues on the structural first member when a newly selected tier has every member cooling down', async () => {
       markUnhealthy(provider.id, 'finding4-branch-model', 60_000);
       markUnhealthy(provider.id, 'finding4-branch-model-2', 60_000);
       try {
@@ -2095,22 +2095,17 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
         const conversation = conversationRepo.create(coolingSession.id, 'Branch Conv');
         messageRepo.create(coolingSession.id, 'user', 'Existing message', { conversationId: conversation.id });
 
-        const queryCallsBefore = vi.mocked(query).mock.calls.length;
-        await expect(continueSessionWithExistingMessage(coolingSession.id, conversation.id, tempDir, {
+        await continueSessionWithExistingMessage(coolingSession.id, conversation.id, tempDir, {
           model: tierRef,
-        })).rejects.toThrow(/currently healthy/);
+        });
 
-        // No provider dispatch happened.
-        expect(vi.mocked(query).mock.calls.length).toBe(queryCallsBefore);
-
-        // Sanitized visible error + error status.
+        expect(capturedModel).toBe('finding4-branch-model');
         const row = sessionRepo.getById(coolingSession.id);
-        expect(row.status).toBe('error');
-        expect(row.error).toMatch(/currently healthy/);
-
-        // Active state fully released.
+        expect(row.model).toBe(tierRef);
+        expect(row.providerId).toBeNull();
+        expect(row.resolvedModel).toBe('finding4-branch-model');
+        expect(row.status).not.toBe('error');
         expect(activeSessions.has(coolingSession.id)).toBe(false);
-        expect(activeConversationIds.has(coolingSession.id)).toBe(false);
       } finally {
         clearUnhealthy(provider.id, 'finding4-branch-model');
         clearUnhealthy(provider.id, 'finding4-branch-model-2');

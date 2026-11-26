@@ -100,11 +100,11 @@ describe('tier-failover lift (§5.1)', () => {
       expect(isTierFailoverLiftable('grok-build', GPT_MODEL, openaiProvider.id)).toBe(true);
     });
 
-    it('blocks any switch involving gemini, either direction', () => {
-      expect(isTierFailoverLiftable('claude-code', GEMINI_MODEL, googleProvider.id)).toBe(false);
-      expect(isTierFailoverLiftable('gemini', GPT_MODEL, openaiProvider.id)).toBe(false);
-      expect(isTierFailoverLiftable('grok-build', GEMINI_MODEL, googleProvider.id)).toBe(false);
-      expect(isTierFailoverLiftable('gemini', GROK_MODEL, xaiProvider.id)).toBe(false);
+    it('lifts any switch involving gemini, either direction', () => {
+      expect(isTierFailoverLiftable('claude-code', GEMINI_MODEL, googleProvider.id)).toBe(true);
+      expect(isTierFailoverLiftable('gemini', GPT_MODEL, openaiProvider.id)).toBe(true);
+      expect(isTierFailoverLiftable('grok-build', GEMINI_MODEL, googleProvider.id)).toBe(true);
+      expect(isTierFailoverLiftable('gemini', GROK_MODEL, xaiProvider.id)).toBe(true);
     });
 
     it('rejects tier-ref candidates', () => {
@@ -170,7 +170,7 @@ describe('tier-failover lift (§5.1)', () => {
         .toBe('CROSS_KIND_MODEL_SWITCH');
     });
 
-    it('keeps the block for a gemini advance', () => {
+    it('lifts a cooled-snapshot advance onto a Gemini member', () => {
       const geminiTier = modelTiers.create({
         name: 'Gemini Lift Tier',
         members: [
@@ -191,8 +191,7 @@ describe('tier-failover lift (§5.1)', () => {
         const session = sessions.getById(row.id);
         markUnhealthy(anthropicProvider.id, CLAUDE_MODEL);
         const candidate = { effectiveModel: GEMINI_MODEL, providerIdHint: googleProvider.id };
-        expect(checkContinuationDispatchKind(session, session.id, null, candidate)?.error)
-          .toBe('CROSS_KIND_MODEL_SWITCH');
+        expect(checkContinuationDispatchKind(session, session.id, null, candidate)).toBeNull();
       } finally {
         try { modelTiers.delete(geminiTier.id); } catch { /* noop */ }
       }

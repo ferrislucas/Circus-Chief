@@ -24,6 +24,8 @@
       :value="effectiveSelectedKey"
       :disabled="disabled"
       :class="selectClass || 'model-select'"
+      @mousedown="refreshTiers"
+      @focus="refreshTiers"
       @change="handleModelChange($event)"
     >
       <option
@@ -627,6 +629,13 @@ function applyDefaultModel() {
 
 // NOTE: Removed defaultModel watcher - it should not override after initialization
 // The default is now only applied once during onMounted (see above)
+
+// Cooldown is process-local and the tiers store has no TTL. Opening the
+// native list always refetches so the confirm walks current unhealthy flags.
+// The mount-time fetch above still runs only when the store is unloaded.
+function refreshTiers() {
+  tiersStore.fetchTiers();
+}
 
 function handleModelChange(event) {
   const optionValue = event.target.value;

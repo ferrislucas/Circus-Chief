@@ -5,13 +5,16 @@
  * stay unit-testable. The picker flow in ConversationTab resolves provider
  * kinds to agent types, asks this module whether a change needs
  * confirmation, and dispatches `updateSessionModel` only after confirm.
- * Gemini switches intentionally get no confirmation here: the backend keeps
- * rejecting them with the existing `CROSS_KIND_MODEL_SWITCH` copy, which the
- * caller surfaces from the request error.
+ * Gemini is in scope: a started-session switch confirms with the same
+ * from/to sentence as the other kinds. The server accepts that switch.
  */
 
+import { isTierRef, parseTierRef } from '@circuschief/shared';
+
 /** Agent kinds eligible for an in-place switch (mirrors the server guard). */
-export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse', 'grok-build']);
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze([
+  'claude-code', 'codex', 'muse', 'grok-build', 'gemini',
+]);
 
 const AGENT_LABELS = Object.freeze({
   'claude-code': 'Claude Code',
@@ -58,6 +61,33 @@ export function agentTypeForProviders(providers, providerId, modelId) {
   if (byId) return agentTypeForKind(byId.kind);
   const owner = modelId ? list.find((p) => (p.models || []).some((m) => m.modelId === modelId)) : null;
   return agentTypeForKind(owner?.kind);
+}
+
+/**
+ * Destination kind for a picker change. Concrete ids use the provider
+ * catalog. A tier ref walks members in API order, skipping unavailable
+ * members and then unhealthy ones. When every available member is unhealthy,
+ * the structural first available member is the kind the server will bind.
+ * Returns null when the tier is not loaded or has no available member.
+ *
+ * Do not use this for the session's current kind. A bound tier's kind is
+ * `session.agentType` (the snapshotted member), not a fresh walk of position 0.
+ *
+ * @param {Array} providers
+ * @param {Array} tiers
+ * @param {string|null} providerId
+ * @param {string|null} modelId
+ * @returns {string|null}
+ */
+export function agentTypeForSelection(providers, tiers, providerId, modelId) {
+  if (!isTierRef(modelId)) return agentTypeForProviders(providers, providerId, modelId);
+  const tierId = parseTierRef(modelId);
+  const tier = (tiers || []).find((entry) => entry.id === tierId);
+  if (!tier) return null;
+  const available = (tier.members || []).filter((entry) => entry.available !== false);
+  const member = available.find((entry) => entry.unhealthy !== true) || available[0];
+  if (!member) return null;
+  return agentTypeForProviders(providers, member.providerId, member.modelId);
 }
 
 /** Generic switch confirmation (FRD §4/G4) for when a kind is unresolvable. */

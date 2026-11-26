@@ -21,6 +21,7 @@ Continuations are pinned: `resolveTierRefForContinue` reuses the `resolvedModel 
 - NG1: No tool re-execution by the new provider. Partial tool calls are reported as history, not replayed; the successor continues from the persisted transcript.
 - NG2: No changes to tier authoring, cooldown durations, or reschedule policy flags.
 - NG3: No manual cross-kind rule changes. Gemini (`gemini` kind) stays excluded from automatic cross-kind switches, same as manual switches.
+  Superseded: interactive switches and automatic failover share `IN_SCOPE_SWITCH_KINDS`. That list is `claude-code`, `codex`, `muse`, `grok-build`, and `gemini`. The §5.1 list `['claude-code','codex','muse']` was already stale once `grok-build` shipped; do not restore it, and do not drop `grok-build`. This note supersedes NG3 only. FR4 (clear the native resume id and replay text history) and FR8 (non-interactive paths get the same automatic advance, not a manual confirm) still hold.
 
 ## 4. Current behavior (baseline)
 
@@ -35,7 +36,7 @@ When a follow-up turn starts on a tier binding whose snapshotted member is now i
 
 - `resolveTierRefForContinue`, no-override branch: after `snapshotResolution`, check `isUnhealthy(snapshot.providerId, snapshot.model)` (and exact-identity validity). If cooled/stale, fall through to `resolveActiveModel(tierRef)` and persist `{ resolvedModel, resolvedProviderId }`.
 - Treat as a provider switch: compute `hasDispatchPairChanged` against `lastExecutedModel/ProviderId`, set `modelChanged = true`, clear `conversations.claudeSessionId`, inject `buildConversationContextForModelSwitch`, rebuild env via `resolveDispatchProvider` + `buildSessionEnv`, re-derive `agentType`.
-- Lift `checkContinuationDispatchKind` for this path only (new `isTierFailoverLiftable`: concrete tier member, both kinds in `['claude-code','codex','muse']`). Anything else keeps today's block.
+- Lift `checkContinuationDispatchKind` for this path only (new `isTierFailoverLiftable`: concrete tier member, both kinds in `IN_SCOPE_SWITCH_KINDS`). The three-kind list originally written here is stale. The source of truth is that allowlist, which already includes `grok-build` and now includes `gemini`. Anything else keeps today's block.
 
 ### 5.2 Same-turn retry (optional fast-follow)
 

@@ -191,6 +191,9 @@ export function getTierMembersWithAvailability(members, availabilityByProvider =
       providerEnabled,
       modelEnabled,
       unavailabilityReason,
+      // Process-local cooldown. Not a column. The picker skips these members
+      // the same way resolveActiveModel does.
+      unhealthy: isUnhealthy(member.providerId, member.modelId),
     };
   });
 }
@@ -479,19 +482,39 @@ function resolveRequestedTierRef(session, requestedModel) {
   }
 
   // A newly selected tier is a start-style selection decision: honor the
-  // configured order, but skip members in active cooldown. Continuations of
-  // an already-pinned tier return above and deliberately remain cooldown
-  // independent (no mid-conversation failover).
+  // configured order, but skip members in active cooldown. When every member
+  // is cooling, bind the structural first member — the same pair PATCH
+  // snapshots through resolveSessionTierBinding. Continuations of an
+  // already-pinned tier return above and do not touch providerId.
   const resolved = resolveActiveModel(requestedModel, {});
-  if (!resolved) {
-    throw new Error(
-      `Tier "${requestedModel}" has no enabled configured members that are currently healthy — cannot continue session`
-    );
+  let member = resolved;
+  if (!member) {
+    const configured = getTierMembersResolved(parseTierRef(requestedModel));
+    if (configured.length === 0) {
+      throw new Error(
+        `Tier "${requestedModel}" has no enabled configured members — cannot continue session`
+      );
+    }
+    member = resolveAnyMember(requestedModel, {});
+    if (!member) {
+      throw new Error(
+        `Tier "${requestedModel}" has no enabled configured members — cannot continue session`
+      );
+    }
   }
+  const persist = {
+    model: requestedModel,
+    resolvedModel: member.model,
+    resolvedProviderId: member.providerId,
+  };
+  // Concrete → tier must drop the old provider id. Re-selecting the bound
+  // tier (the branch above, or a snapshot-less own binding that fell through)
+  // must not rewrite providerId.
+  if (requestedModel !== session.model) persist.providerId = null;
   return {
-    effectiveModel: resolved.model,
-    providerIdHint: resolved.providerId,
-    persist: { model: requestedModel, resolvedModel: resolved.model, resolvedProviderId: resolved.providerId },
+    effectiveModel: member.model,
+    providerIdHint: member.providerId,
+    persist,
   };
 }
 

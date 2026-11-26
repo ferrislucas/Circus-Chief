@@ -16,12 +16,30 @@ export const AGENT_TYPE_LABELS = Object.freeze({
 });
 
 /**
- * Agent kinds eligible for an in-place cross-provider switch (FRD §2.4):
- * claude-code, codex, muse, and grok-build. `gemini` is deliberately
- * excluded: any kind change involving it keeps the old
- * `CROSS_KIND_MODEL_SWITCH` rejection.
+ * Agent kinds eligible for an in-place cross-provider switch:
+ * claude-code, codex, muse, grok-build, and gemini. A kind change is
+ * allowed only when both sides are in this set. The set is the source of
+ * truth for interactive switches and for tier failover. Do not copy a
+ * shorter list from older failover notes.
  */
-export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'muse', 'grok-build']);
+export const IN_SCOPE_SWITCH_KINDS = Object.freeze([
+  'claude-code', 'codex', 'muse', 'grok-build', 'gemini',
+]);
+
+/**
+ * Same kind is allowed. A change is allowed iff both sides are in
+ * {@link IN_SCOPE_SWITCH_KINDS}.
+ *
+ * @param {string} fromKind
+ * @param {string} toKind
+ * @returns {boolean}
+ */
+export function isKindPairInScope(fromKind, toKind) {
+  const from = fromKind || DEFAULT_AGENT_TYPE;
+  const to = toKind || DEFAULT_AGENT_TYPE;
+  if (to === from) return true;
+  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+}
 
 /**
  * Whether a model switch out of `sessionAgentType` is an allowed in-place
@@ -36,10 +54,9 @@ export const IN_SCOPE_SWITCH_KINDS = Object.freeze(['claude-code', 'codex', 'mus
  * @returns {boolean} True when the switch may proceed on interactive paths.
  */
 export function isCrossKindSwitchAllowed(sessionAgentType, requestedModel) {
-  const from = sessionAgentType || 'claude-code';
+  const from = sessionAgentType || DEFAULT_AGENT_TYPE;
   const to = resolveAgentTypeFromModel(requestedModel);
-  if (to === from) return true;
-  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+  return isKindPairInScope(from, to);
 }
 
 /**
@@ -246,18 +263,41 @@ export function checkCatalogFallbackDispatchKind(session, sessionId, requestedMo
  *   Resolved concrete pair about to be dispatched.
  * @returns {{ error: string, message: string }|null} Block payload, or null.
  */
-export function checkContinuationDispatchKind(session, sessionId, requestedModel, candidate) {
+export function checkContinuationDispatchKind(session, sessionId, requestedModel, candidate, { interactive = false } = {}) {
   const block = checkExplicitTierDispatchKind(session, sessionId, requestedModel, candidate)
     ?? checkCatalogFallbackDispatchKind(session, sessionId, requestedModel, candidate);
+  if (block?.error !== 'CROSS_KIND_MODEL_SWITCH') return block;
   // Mid-session tier advance (§5.1): a CROSS_KIND block against the exact pair
   // of a genuine tier-driven advance is lifted when the kind move itself is
-  // in scope. Every other candidate keeps today's block.
-  if (block?.error === 'CROSS_KIND_MODEL_SWITCH'
-    && isOwnBindingTierAdvance(session, requestedModel, candidate)
+  // in scope. Failover does not read `interactive`.
+  if (isOwnBindingTierAdvance(session, requestedModel, candidate)
     && isTierFailoverLiftable(session.agentType, candidate?.effectiveModel, candidate?.providerIdHint)) {
     return null;
   }
+  // An interactive user selection (PATCH already lifted; a follow-up that
+  // carries the new model or tier) may bind any in-scope kind. Callers that
+  // omit `interactive` keep the non-interactive rejection.
+  if (isExplicitInScopeSelection(session, requestedModel, candidate, interactive)) return null;
   return block;
+}
+
+/**
+ * Whether an explicit interactive selection may dispatch `candidate` even
+ * though its kind differs from the session. The candidate is the concrete
+ * member, never the `tier::` sentinel. Echoes of the current binding and
+ * provider-only rebinds stay on the failover / rebind rules.
+ *
+ * @param {Object} session
+ * @param {string|null} requestedModel
+ * @param {{ effectiveModel: string|null, providerIdHint: string|null }} candidate
+ * @param {boolean} interactive
+ * @returns {boolean}
+ */
+function isExplicitInScopeSelection(session, requestedModel, candidate, interactive) {
+  if (!interactive || requestedModel == null) return false;
+  if (requestedModel === session.model) return false;
+  if (!candidate?.effectiveModel || isTierRef(candidate.effectiveModel)) return false;
+  return isTierFailoverLiftable(session.agentType, candidate.effectiveModel, candidate.providerIdHint);
 }
 
 /**
@@ -305,8 +345,9 @@ function isOwnBindingTierAdvance(session, requestedModel, candidate) {
  * `IN_SCOPE_SWITCH_KINDS`. Provider-aware: the candidate kind is derived from
  * the exact (model, providerId) pair, never by model-id lookup alone.
  *
- * Same-kind candidates are vacuously liftable; anything involving `gemini`
- * (or a tier sentinel) is not.
+ * Same-kind candidates are vacuously liftable. A tier sentinel is not a
+ * concrete candidate. Both kinds must be in {@link IN_SCOPE_SWITCH_KINDS},
+ * which includes gemini.
  *
  * @param {string} sessionAgentType - The session's current agent type.
  * @param {string|null} candidateModel - Concrete candidate model id.
@@ -317,8 +358,7 @@ export function isTierFailoverLiftable(sessionAgentType, candidateModel, candida
   if (!candidateModel || isTierRef(candidateModel)) return false;
   const from = sessionAgentType || DEFAULT_AGENT_TYPE;
   const to = resolveAgentTypeFromModel(candidateModel, candidateProviderId ?? undefined);
-  if (to === from) return true;
-  return IN_SCOPE_SWITCH_KINDS.includes(from) && IN_SCOPE_SWITCH_KINDS.includes(to);
+  return isKindPairInScope(from, to);
 }
 
 /**
@@ -516,10 +556,10 @@ export function checkCrossKindSwitch(session, requestedModel, requestedProviderI
  * explicit (model, providerId) pair so an explicit providerId (not catalog
  * lookup order) decides when one model id spans several providers.
  *
- * Tier-kind changes stay rejected (a tier whose member resolves cross-kind
- * must not slip through; same-kind tiers never error), as do provider-only
- * moves under an unchanged model id (a rebind, not a switch) and any
- * non-CROSS_KIND error such as TIER_UNRESOLVABLE.
+ * A tier ref is liftable when its resolved member's kind is in scope.
+ * Provider-only moves under an unchanged concrete model id stay rejected
+ * (a rebind, not a switch), as does any non-CROSS_KIND error such as
+ * TIER_UNRESOLVABLE. Same-kind tiers never produce a CROSS_KIND block.
  *
  * @param {Object} session - Current session row.
  * @param {string|null|undefined} requestedModel - Requested model (absent for provider-only moves).
@@ -529,12 +569,33 @@ export function checkCrossKindSwitch(session, requestedModel, requestedProviderI
  */
 export function isCrossKindBlockLiftable(session, requestedModel, requestedProviderId, crossKindError) {
   if (!crossKindError || crossKindError.error !== 'CROSS_KIND_MODEL_SWITCH') return false;
-  if (isTierRef(requestedModel)) return false;
   const currentModel = session.model ?? null;
-  if ((requestedModel ?? currentModel) === currentModel) return false;
+  // Provider-only rebind: the model id did not change. A tier ref is a
+  // binding change even when it equals the stored sentinel.
+  if (!isTierRef(requestedModel) && (requestedModel ?? currentModel) === currentModel) return false;
   const fromKind = session.agentType || DEFAULT_AGENT_TYPE;
-  const toKind = resolveAgentTypeFromModel(requestedModel, requestedProviderId ?? undefined);
-  return IN_SCOPE_SWITCH_KINDS.includes(fromKind) && IN_SCOPE_SWITCH_KINDS.includes(toKind);
+  const toKind = kindForRequestedSelection(session, requestedModel, requestedProviderId);
+  if (!toKind) return false;
+  return isKindPairInScope(fromKind, toKind);
+}
+
+/**
+ * Kind of a requested selection. Concrete ids use the explicit provider.
+ * Tier refs resolve to the member that will run (healthy, then structural)
+ * so a raw `tier::` string is never treated as Claude Code.
+ *
+ * @param {Object|null} session
+ * @param {string|null|undefined} requestedModel
+ * @param {string|null|undefined} requestedProviderId
+ * @returns {string|null}
+ */
+export function kindForRequestedSelection(session, requestedModel, requestedProviderId) {
+  if (!isTierRef(requestedModel)) {
+    return resolveAgentTypeFromModel(requestedModel, requestedProviderId ?? undefined);
+  }
+  const resolved = resolveModelForAgentKind(requestedModel, null, session);
+  if (resolved.unresolved || !resolved.modelId) return null;
+  return resolveAgentTypeFromModel(resolved.modelId, resolved.providerIdHint ?? undefined);
 }
 
 /**
@@ -665,12 +726,23 @@ export function deriveCrossKindAgentTypeUpdate(session, newModel, suppliedProvid
  *
  * @param {string|null} pendingModel - Effective override (supplied ?? stored).
  * @param {string} newAgentType - The agent kind the switch is applying.
+ * @param {Object|null} [session] - When set, tier refs resolve through the
+ *   member that will run. Omitted callers keep the concrete-id lookup so
+ *   the dead continue resolver keeps compiling.
+ * @param {string|null|undefined} [requestedProviderId] - Explicit provider
+ *   for a concrete pending model. Falls back to `session.pendingProviderId`.
  * @returns {Object} `{ pendingModel: null }` on disagreement, else `{}`.
  */
-export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
+export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType, session = null, requestedProviderId = undefined) {
   if (typeof pendingModel !== 'string' || pendingModel === '') return {};
   if (!newAgentType) return {};
-  if (resolveAgentTypeFromModel(pendingModel) === newAgentType) return {};
+  const providerId = requestedProviderId !== undefined
+    ? requestedProviderId
+    : session?.pendingProviderId;
+  const pendingKind = session
+    ? kindForRequestedSelection(session, pendingModel, providerId)
+    : resolveAgentTypeFromModel(pendingModel);
+  if (pendingKind === newAgentType) return {};
   return { pendingModel: null };
 }
 
@@ -681,8 +753,9 @@ export function pendingModelClearanceForKindSwitch(pendingModel, newAgentType) {
  * afterward — without this, a stale cross-kind resume pointer would either
  * leak into the new provider (claude-code ↔ muse) or linger silently
  * (→ codex). Only acts on started sessions (drafts have no chain) and only
- * when the update actually flips `agentType`; same-kind updates keep the
- * chain (FR6), and gemini flips never reach here (400 with no mutation).
+ * when the update actually flips `agentType`. Same-kind updates keep the
+ * chain. Gemini flips do reach here: the clear is what stops a later
+ * resumable adapter from picking up a pre-Gemini thread.
  *
  * @param {Object} session - The session row before the update.
  * @param {string} sessionId

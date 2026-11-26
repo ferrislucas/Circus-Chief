@@ -1,6 +1,9 @@
 import { watch } from 'vue';
+import { isTierRef } from '@circuschief/shared';
+import { useTiersStore } from '../stores/tiers.js';
 import {
   agentTypeForProviders,
+  agentTypeForSelection,
   isKindResolvable,
   persistModelSelectionWithConfirm,
 } from '../components/crossKindSwitch.js';
@@ -33,6 +36,7 @@ export function useModelSelectionPersist({
 }) {
   const selectedModel = selectedModelRef;
   const selectedProviderId = selectedProviderIdRef;
+  const tiersStore = useTiersStore();
   let suppressNextModelPersist = false;
   // Caller-owned persist epoch: each dispatched picker change stamps its
   // sequence; a slow 4xx from an earlier change is stale and must not revert
@@ -56,24 +60,36 @@ export function useModelSelectionPersist({
     if (oldModel === null || !newModel) return;
     if (newModel === oldModel && newProviderId === oldProviderId) return;
 
-    // In-scope kind changes on started sessions need confirmation (FRD §4);
-    // gemini switches skip it since the backend still rejects them itself.
-    // When either end's kind is unresolvable (catalog unloaded, provider
-    // deleted, unknown model id), both agent types silently default to
-    // Claude Code — confirm generically (FRD §4/G4) instead of persisting
-    // silently while the server still performs the kind switch.
+    // In-scope kind changes on started sessions need confirmation. The
+    // from-kind is the session's stored agent type (the snapshotted member),
+    // not a fresh walk of a bound tier. The destination walks the tier the
+    // user just opened. A missing catalog or an empty tier confirms
+    // generically instead of persisting with a defaulted Claude Code label.
     const currentSession = sessionsStore.currentSession;
     const providers = providersStore.providers;
+    const isStarted = Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession);
+    let tiers = tiersStore.tiers;
+    if (isTierRef(newModel)) {
+      tiers = await tiersStore.fetchTiers();
+    }
+    const fromAgentType = (isStarted && currentSession.agentType)
+      ? currentSession.agentType
+      : agentTypeForProviders(providers, oldProviderId, oldModel);
+    const toAgentType = agentTypeForSelection(providers, tiers, newProviderId, newModel);
+    const fromResolvable = Boolean(isStarted && currentSession?.agentType)
+      || isKindResolvable(providers, oldProviderId, oldModel);
+    const toResolvable = isTierRef(newModel)
+      ? toAgentType != null
+      : isKindResolvable(providers, newProviderId, newModel);
     modelPersistSeq += 1;
     const mySeq = modelPersistSeq;
     await persistModelSelectionWithConfirm({
       oldModel, oldProviderId, newModel, newProviderId,
-      fromAgentType: agentTypeForProviders(providers, oldProviderId, oldModel),
-      toAgentType: agentTypeForProviders(providers, newProviderId, newModel),
-      isStarted: Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession),
+      fromAgentType,
+      toAgentType,
+      isStarted,
       modelsDiffer: oldModel !== newModel,
-      kindUnresolvable: !isKindResolvable(providers, oldProviderId, oldModel)
-        || !isKindResolvable(providers, newProviderId, newModel),
+      kindUnresolvable: !fromResolvable || !toResolvable,
       confirmFn: (copy) => window.confirm(copy),
       persistFn: (model, providerId) => sessionsStore.updateSessionModel(getSessionId(), model, providerId),
       onError: (err) => uiStore.error(err.message),

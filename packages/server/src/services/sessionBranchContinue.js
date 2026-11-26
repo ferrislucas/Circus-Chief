@@ -10,6 +10,7 @@
  * -> sessionManager`, so a static edge back would close that cycle (see the
  * `triggerStructuredTransitionAutomation` docs in kanbanService.js).
  */
+import { isTierRef } from '@circuschief/shared';
 import { sessions, conversations } from '../database.js';
 import { resolveDispatchProvider, resolveDurableProviderId, buildSessionEnv } from './sessionProvider.js';
 import { notifyOwnBindingFallback, resolveTierRefForContinueWithStaleFallback } from './sessionStaleTierFallback.js';
@@ -17,6 +18,7 @@ import {
   buildAdvanceAwareAgentTypeUpdate, buildLastExecutedUpdate, checkContinuationDispatchKind,
   clearResumeChainOnKindSwitch, createCrossKindDispatchError, hasDispatchPairChanged,
 } from './sessionAgentGuard.js';
+import { resolveContinueAgentTypeUpdate } from './sessionContinueKindSwitch.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import { activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { claimSessionExecution } from './sessionExecutionOwnership.js';
@@ -86,6 +88,7 @@ function buildContextForType(conversationId, contextType) {
 
 function buildModelAndProvider(session, sessionId, model, {
   providerId = null, suppressAdvanceNotice = false, retryMember = null, retryResolution = null,
+  interactive = false, isSameBindingSelection,
 } = {}) {
   // Stale-binding tolerance (PRD E3/D6): a truly-stale tier binding degrades
   // (snapshot or server default, tier:failover notice) instead of throwing —
@@ -99,7 +102,9 @@ function buildModelAndProvider(session, sessionId, model, {
   // shared contract with `sessionContinuation.buildContinueModelAndEnv`
   // (explicit selections and catalog-fallback live resolutions alike).
   // Throws before any persistence, agent construction, or dispatch.
-  const dispatchDrift = checkContinuationDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  const dispatchDrift = checkContinuationDispatchKind(
+    session, sessionId, model, { effectiveModel, providerIdHint }, { interactive },
+  );
   if (dispatchDrift) {
     throw createCrossKindDispatchError(dispatchDrift);
   }
@@ -139,10 +144,31 @@ function buildModelAndProvider(session, sessionId, model, {
   const modelChanged = hasDispatchPairChanged(session, sessionId, dispatchedPair);
 
   let updatedSession = session;
-  // Reconcile drafts and authorized own-tier advances against the resolved
-  // member, just as the ordinary continuation path does. Clear old handles
-  // before persisting a new kind, including on a same-turn retry.
-  const agentTypeUpdate = buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
+  // Explicit selections use the same kind decision as the new-message path.
+  // Compute it before the resume clear: a refused switch throws and must
+  // leave claudeSessionId in place. Own-binding failover still comes from
+  // buildAdvanceAwareAgentTypeUpdate inside resolveContinueAgentTypeUpdate
+  // when there is no explicit kind block.
+  const sameBinding = model == null || isSameBindingSelection(session, model, providerId);
+  // An unregistered concrete id has no provider, so its kind is only the
+  // Claude Code default. Keep the existing adapter instead of treating that
+  // guess as a switch. Tier refs and registered models still go through the
+  // shared continue decision.
+  const authoritativeKind = model == null || isTierRef(model)
+    || Boolean(resolveDurableProviderId(model, providerId));
+  const agentTypeUpdate = authoritativeKind
+    ? resolveContinueAgentTypeUpdate({
+      session,
+      sessionId,
+      requestedModel: model,
+      requestedProviderId: providerId,
+      interactive,
+      sameBinding,
+      effectiveModel,
+      providerIdHint,
+      persist,
+    })
+    : buildAdvanceAwareAgentTypeUpdate({ session, sessionId, effectiveModel, providerIdHint, persist });
   clearResumeChainOnKindSwitch(session, sessionId, agentTypeUpdate);
   // Record the durable last-executed identity alongside any other persistence
   // (see sessionContinuation.js). Written only when it differs.
@@ -226,7 +252,7 @@ function buildExistingMessageQueryParams({
  * @returns {{ session: Object, queryParams: Object, agentCallMeta: Object, agent: Object }}
  */
 function prepareBranchContinueTurn({ session, sessionId, conversationId, conversation, lastUserMessage, workingDirectory, options, controller, failoverDeps, authorizeFailover = false, failoverBoundary = null, skipClaim = false, settleArmedError = false, suppressAdvanceNotice = false, retryMember = null, retryResolution = null }) {
-  const { systemPrompt = null, model = null, providerId = null } = options;
+  const { systemPrompt = null, model = null, providerId = null, interactive = false } = options;
   // The retry's second attempt reuses the turn's ownership (re-armed by
   // `armContinueFailoverRetry` after the failed attempt released it) —
   // re-claiming would conflict with the turn itself.
@@ -248,6 +274,8 @@ function prepareBranchContinueTurn({ session, sessionId, conversationId, convers
     // stale pre-reconciliation agentType would dispatch the wrong adapter.
     const modelEnv = buildModelAndProvider(session, sessionId, model, {
       providerId, suppressAdvanceNotice, retryMember, retryResolution,
+      interactive: interactive === true,
+      isSameBindingSelection: failoverDeps.isSameBindingSelection,
     });
     const updatedSession = modelEnv.session;
 

@@ -603,11 +603,16 @@ describe('tierResolutionService', () => {
       expect(result).toEqual({
         effectiveModel: 'model-b',
         providerIdHint: providerB.id,
-        persist: { model: tierBRef, resolvedModel: 'model-b', resolvedProviderId: providerB.id },
+        persist: {
+          model: tierBRef,
+          providerId: null,
+          resolvedModel: 'model-b',
+          resolvedProviderId: providerB.id,
+        },
       });
     });
 
-    it('rejects a newly selected tier when every member is in cooldown', () => {
+    it('binds the structural first member when a newly selected tier is entirely in cooldown', () => {
       const tier = modelTiers.create({
         name: 'Tier',
         members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
@@ -616,7 +621,20 @@ describe('tierResolutionService', () => {
       const tierRef = buildTierRef(tier.id);
       const session = { model: 'claude-sonnet-5', resolvedModel: null, resolvedProviderId: null };
 
-      expect(() => resolveTierRefForContinue(session, tierRef)).toThrow('currently healthy');
+      try {
+        expect(resolveTierRefForContinue(session, tierRef)).toEqual({
+          effectiveModel: 'model-a',
+          providerIdHint: providerA.id,
+          persist: {
+            model: tierRef,
+            resolvedModel: 'model-a',
+            resolvedProviderId: providerA.id,
+            providerId: null,
+          },
+        });
+      } finally {
+        clearUnhealthy(providerA.id, 'model-a');
+      }
     });
 
     it('ignores cooldown when continuing a tier-bound session without a snapshot', () => {
@@ -795,7 +813,7 @@ describe('tierResolutionService', () => {
       }
     });
 
-    it('skips an incompatible member while advancing a cooled continuation pin', () => {
+    it('advances a cooled continuation pin onto the next in-scope member, including Gemini', () => {
       const providerBClaude = modelProviders.create({ name: 'Provider B Claude', kind: 'anthropic' });
       const providerCGemini = modelProviders.create({ name: 'Provider C Gemini', kind: 'google' });
       modelProviders.addModel(providerBClaude.id, { modelId: 'model-b-claude', displayName: 'Model B Claude' });
@@ -816,9 +834,10 @@ describe('tierResolutionService', () => {
       };
       markUnhealthy(providerBClaude.id, 'model-b-claude');
       try {
-        expect(resolveTierRefForContinue(session, null)).toMatchObject({
-          effectiveModel: 'model-a',
-          providerIdHint: providerA.id,
+        expect(resolveTierRefForContinue(session, null)).toEqual({
+          effectiveModel: 'model-c-gemini',
+          providerIdHint: providerCGemini.id,
+          persist: { resolvedModel: 'model-c-gemini', resolvedProviderId: providerCGemini.id },
         });
       } finally {
         clearUnhealthy(providerBClaude.id, 'model-b-claude');

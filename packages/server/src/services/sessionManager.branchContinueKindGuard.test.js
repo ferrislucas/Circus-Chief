@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { projects, sessions, messages, conversations, modelProviders } from '../database.js';
+import { projects, sessions, messages, conversations, modelProviders, modelTiers } from '../database.js';
+import { buildTierRef } from '@circuschief/shared';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import { activeConversationIds } from './streamEventHandler.js';
 import { broadcastToSession } from '../websocket.js';
@@ -176,6 +177,47 @@ describe('branch-continue cross-kind guard (Fix #4)', () => {
     expect(mockCreateAgentForSession).not.toHaveBeenCalled();
     expect(mockExecuteSession).not.toHaveBeenCalled();
     expect(activeSessions.has(session.id)).toBe(false);
+  });
+
+  it('interactive gemini retargets the existing-message path and clears resume', async () => {
+    const session = createStartedSession({
+      name: 'Codex Started Gemini Interactive', model: GPT_MODEL, providerId: openaiProvider.id, expectedAgentType: 'codex',
+    });
+    const conversationId = activeConversationId(session.id);
+    conversations.update(conversationId, { claudeSessionId: 'codex-thread' });
+
+    await continueSessionWithExistingMessage(session.id, conversationId, tempDir, {
+      model: GEMINI_MODEL, interactive: true,
+    });
+
+    const row = sessions.getById(session.id);
+    expect(row.agentType).toBe('gemini');
+    expect(row.model).toBe(GEMINI_MODEL);
+    expect(conversations.getById(conversationId).claudeSessionId).toBeNull();
+    expect(mockCreateAgentForSession).toHaveBeenCalled();
+    expect(mockCreateAgentForSession.mock.calls[0][0]).toBe('gemini');
+  });
+
+  it('non-interactive tier ref still throws and mutates nothing', async () => {
+    const session = createStartedSession({
+      name: 'Codex Started Tier', model: GPT_MODEL, providerId: openaiProvider.id, expectedAgentType: 'codex',
+    });
+    const otherTier = modelTiers.create({
+      name: 'Branch Claude Tier',
+      members: [{ providerId: anthropicProvider.id, modelId: CLAUDE_MODEL, position: 0 }],
+    });
+    const before = snapshotRow(session.id);
+    try {
+      await expect(
+        continueSessionWithExistingMessage(session.id, activeConversationId(session.id), tempDir, {
+          model: buildTierRef(otherTier.id), interactive: false,
+        }),
+      ).rejects.toMatchObject({ code: 'CROSS_KIND_MODEL_SWITCH' });
+      expect(snapshotRow(session.id)).toEqual(before);
+      expect(mockCreateAgentForSession).not.toHaveBeenCalled();
+    } finally {
+      try { modelTiers.delete(otherTier.id); } catch { /* noop */ }
+    }
   });
 
   it('codex session + gemini model → CROSS_KIND_MODEL_SWITCH, zero mutation, no adapter turn', async () => {

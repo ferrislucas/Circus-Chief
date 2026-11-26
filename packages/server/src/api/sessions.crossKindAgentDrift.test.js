@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, modelProviders, messages, modelTiers } from '../database.js';
+import { projects, sessions, modelProviders, messages, modelTiers, conversations } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 
 // Mock websocket so PATCH/start don't try to reach real subscribers.
@@ -275,7 +275,7 @@ describe('Cross-kind agent/model drift on model change', () => {
       expect(sessions.getById(session.id).agentType).toBe('claude-code');
     });
 
-    it('rejects a started Claude session PATCHing to a Codex-first tier (CROSS_KIND_MODEL_SWITCH)', async () => {
+    it('allows a started Claude session to PATCH a Codex-first tier and keep the tier ref', async () => {
       const session = sessions.create(project.id, 'Started Claude Cross-tier Session', 'Initial prompt', {
         model: CLAUDE_SONNET,
         providerId: anthropicProvider.id,
@@ -283,16 +283,18 @@ describe('Cross-kind agent/model drift on model change', () => {
       });
       messages.create(session.id, 'assistant', 'Hello, I am Claude.');
 
+      const tierRef = buildTierRef(gptFirstTier.id);
       const res = await request(app)
         .patch(`/api/sessions/${session.id}`)
-        .send({ model: buildTierRef(gptFirstTier.id) });
+        .send({ model: tierRef });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-
-      const unchanged = sessions.getById(session.id);
-      expect(unchanged.model).toBe(CLAUDE_SONNET);
-      expect(unchanged.agentType).toBe('claude-code');
+      expect(res.status).toBe(200);
+      const updated = sessions.getById(session.id);
+      expect(updated.model).toBe(tierRef);
+      expect(updated.providerId).toBeNull();
+      expect(updated.agentType).toBe('codex');
+      expect(updated.resolvedModel).toBe(OPENAI_MODEL);
+      expect(updated.resolvedProviderId).toBe(openaiProvider.id);
     });
 
     it('rejects a PATCH model update naming a tier with no resolvable members', async () => {
@@ -564,7 +566,10 @@ describe('Explicit provider pairs on PATCH (finding 7)', () => {
         pendingProviderId: claudeProviderA.id,
       });
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    // The Codex provider on the current pair and the Claude pending pair
+    // resolve to different kinds, so the divergent-kind gate rejects the
+    // body before either field is written.
+    expect(res.body.error).toBe('DIVERGENT_MODEL_KINDS');
 
     const unchanged = sessions.getById(session.id);
     expect(unchanged.model).toBe(SHARED_MODEL);
@@ -986,34 +991,35 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(updated.agentType).toBe('muse');
   });
 
-  it('PATCH model involving gemini on a started session still 400s and mutates nothing', async () => {
+  it('PATCH model involving gemini on a started session re-derives agentType', async () => {
     const session = createStartedSession({ name: 'Claude Started Gemini', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
 
-    const res = await request(app)
+    await request(app)
       .patch(`/api/sessions/${session.id}`)
-      .send({ model: GEMINI_MODEL, providerId: googleProvider.id });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+      .send({ model: GEMINI_MODEL, providerId: googleProvider.id })
+      .expect(200);
 
-    const unchanged = sessions.getById(session.id);
-    expect(unchanged.model).toBe(CLAUDE_MODEL);
-    expect(unchanged.agentType).toBe('claude-code');
-    expect(unchanged.providerId).toBe(anthropicProvider.id);
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(GEMINI_MODEL);
+    expect(updated.agentType).toBe('gemini');
+    expect(updated.providerId).toBe(googleProvider.id);
   });
 
-  it('PATCH model gemini→claude on a started session still 400s and mutates nothing', async () => {
+  it('PATCH model gemini→claude on a started session re-derives agentType and clears resume', async () => {
     const session = createStartedSession({ name: 'Gemini Started', model: GEMINI_MODEL, providerId: googleProvider.id });
     expect(session.agentType).toBe('gemini');
+    const conversation = conversations.create(session.id, 'Main');
+    conversations.update(conversation.id, { claudeSessionId: 'gemini-native' });
 
-    const res = await request(app)
+    await request(app)
       .patch(`/api/sessions/${session.id}`)
-      .send({ model: CLAUDE_MODEL, providerId: anthropicProvider.id });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+      .send({ model: CLAUDE_MODEL, providerId: anthropicProvider.id })
+      .expect(200);
 
-    const unchanged = sessions.getById(session.id);
-    expect(unchanged.model).toBe(GEMINI_MODEL);
-    expect(unchanged.agentType).toBe('gemini');
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(CLAUDE_MODEL);
+    expect(updated.agentType).toBe('claude-code');
+    expect(conversations.getById(conversation.id).claudeSessionId).toBeNull();
   });
 
   it('POST /message with in-scope cross-kind model on a started session is accepted and dispatched', async () => {
@@ -1034,16 +1040,20 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     );
   });
 
-  it('POST /message with gemini cross-kind model still 400s and dispatches nothing', async () => {
+  it('POST /message with gemini cross-kind model is accepted and dispatched', async () => {
     const session = createStartedSession({ name: 'Claude Msg Started', model: CLAUDE_MODEL, providerId: anthropicProvider.id });
 
     const res = await request(app)
       .post(`/api/sessions/${session.id}/message`)
       .send({ content: 'follow-up', model: GEMINI_MODEL });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(continueSession).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      session.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: GEMINI_MODEL, interactive: true }),
+    );
   });
 
   it('PATCH model + pendingModel of divergent in-scope kinds is rejected and mutates nothing (#2)', async () => {
@@ -1222,7 +1232,7 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
     expect(resolveAgentTypeFromModel(row.model)).toBe(row.agentType);
   });
 
-  it('POST /schedule with in-scope cross-kind model on a started session still 400s (FR9 pin)', async () => {
+  it('POST /schedule with an in-scope cross-kind model on an idle started session stores pendingModel', async () => {
     const session = createStartedSession({ name: 'Codex Sched Started', model: GPT_MODEL, providerId: openaiProvider.id });
 
     const res = await request(app)
@@ -1233,11 +1243,10 @@ describe('Started-session in-scope cross-kind switch (FR1/FR2/FR9)', () => {
         model: CLAUDE_MODEL,
       });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-
-    const unchanged = sessions.getById(session.id);
-    expect(unchanged.model).toBe(GPT_MODEL);
-    expect(unchanged.pendingModel).not.toBe(CLAUDE_MODEL);
+    expect(res.status).toBe(200);
+    const stored = sessions.getById(session.id);
+    expect(stored.model).toBe(GPT_MODEL);
+    expect(stored.agentType).toBe('codex');
+    expect(stored.pendingModel).toBe(CLAUDE_MODEL);
   });
 });

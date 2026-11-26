@@ -3,6 +3,7 @@ import {
   IN_SCOPE_SWITCH_KINDS,
   agentTypeForKind,
   agentTypeForProviders,
+  agentTypeForSelection,
   isKindResolvable,
   agentLabelForType,
   planModelSwitch,
@@ -16,8 +17,8 @@ import {
  * until the GREEN step implements it.
  */
 describe('crossKindSwitch picker helper', () => {
-  it('scopes confirmation to claude-code, codex, muse, and grok-build', () => {
-    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'grok-build', 'muse']);
+  it('scopes confirmation to claude-code, codex, muse, grok-build, and gemini', () => {
+    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'gemini', 'grok-build', 'muse']);
   });
 
   it('maps provider kinds to agent types (unknown kinds stay Claude Code)', () => {
@@ -114,22 +115,92 @@ describe('crossKindSwitch picker helper', () => {
     expect(planModelSwitch({ fromAgentType: 'codex', toAgentType: 'claude-code', isStarted: false })).toBeNull();
   });
 
-  it('gemini switches defer to the backend guard (no confirm copy; existing error surfaces)', () => {
+  it('gemini switches confirm with the Gemini label', () => {
     expect(planModelSwitch({ fromAgentType: 'claude-code', toAgentType: 'gemini', isStarted: true })).toEqual({
-      action: 'backend',
+      action: 'confirm',
+      copy: 'Switch from Claude Code to Gemini? Native context is cleared; full text history is passed to the new provider.',
     });
     expect(planModelSwitch({ fromAgentType: 'gemini', toAgentType: 'claude-code', isStarted: true })).toEqual({
-      action: 'backend',
+      action: 'confirm',
+      copy: 'Switch from Gemini to Claude Code? Native context is cleared; full text history is passed to the new provider.',
     });
   });
 
-  it('grok-build ↔ gemini also defer to the backend guard (gemini stays out of the set)', () => {
+  it('grok-build ↔ gemini confirms with both labels', () => {
     expect(planModelSwitch({ fromAgentType: 'grok-build', toAgentType: 'gemini', isStarted: true })).toEqual({
-      action: 'backend',
+      action: 'confirm',
+      copy: 'Switch from Grok Build to Gemini? Native context is cleared; full text history is passed to the new provider.',
     });
     expect(planModelSwitch({ fromAgentType: 'gemini', toAgentType: 'grok-build', isStarted: true })).toEqual({
-      action: 'backend',
+      action: 'confirm',
+      copy: 'Switch from Gemini to Grok Build? Native context is cleared; full text history is passed to the new provider.',
     });
+  });
+
+  it('a Codex-first tier confirms Claude Code → Codex', () => {
+    const providers = [
+      { id: 'a', kind: 'anthropic', models: [{ modelId: 'claude-x' }] },
+      { id: 'o', kind: 'openai', models: [{ modelId: 'gpt-x' }] },
+    ];
+    const tiers = [{
+      id: 'medium',
+      members: [
+        { providerId: 'o', modelId: 'gpt-x', available: true, unhealthy: false },
+        { providerId: 'a', modelId: 'claude-x', available: true, unhealthy: true },
+      ],
+    }];
+    const toAgentType = agentTypeForSelection(providers, tiers, null, 'tier::medium');
+    expect(toAgentType).toBe('codex');
+    const plan = planModelSwitch({
+      fromAgentType: 'claude-code', toAgentType, isStarted: true, modelsDiffer: true,
+    });
+    expect(plan).toEqual({
+      action: 'confirm',
+      copy: 'Switch from Claude Code to Codex? Native context is cleared; full text history is passed to the new provider.',
+    });
+  });
+
+  it('uses the session kind when position 0 has recovered to Codex', () => {
+    const providers = [
+      { id: 'a', kind: 'anthropic', models: [{ modelId: 'claude-x' }] },
+      { id: 'o', kind: 'openai', models: [{ modelId: 'gpt-x' }] },
+    ];
+    const tiers = [{
+      id: 'medium',
+      members: [
+        { providerId: 'o', modelId: 'gpt-x', available: true, unhealthy: false },
+        { providerId: 'a', modelId: 'claude-x', available: true, unhealthy: false },
+      ],
+    }];
+    // A fresh walk of the bound tier names Codex. The session is still Claude.
+    expect(agentTypeForSelection(providers, tiers, null, 'tier::medium')).toBe('codex');
+    const walkedFrom = agentTypeForSelection(providers, tiers, null, 'tier::medium');
+    expect(planModelSwitch({
+      fromAgentType: walkedFrom, toAgentType: 'codex', isStarted: true, modelsDiffer: true,
+    })).toBeNull();
+    const plan = planModelSwitch({
+      fromAgentType: 'claude-code', toAgentType: 'codex', isStarted: true, modelsDiffer: true,
+    });
+    expect(plan).not.toBeNull();
+    expect(plan.copy).toBe(
+      'Switch from Claude Code to Codex? Native context is cleared; full text history is passed to the new provider.',
+    );
+  });
+
+  it('an all-cooling tier names the structural first member', () => {
+    const providers = [
+      { id: 'a', kind: 'anthropic', models: [{ modelId: 'claude-x' }] },
+      { id: 'o', kind: 'openai', models: [{ modelId: 'gpt-x' }] },
+    ];
+    const tiers = [{
+      id: 'medium',
+      members: [
+        { providerId: 'o', modelId: 'gpt-x', available: true, unhealthy: true },
+        { providerId: 'a', modelId: 'claude-x', available: false, unhealthy: false },
+      ],
+    }];
+    expect(agentTypeForSelection(providers, tiers, null, 'tier::medium')).toBe('codex');
+    expect(agentTypeForSelection(providers, [], null, 'tier::missing')).toBeNull();
   });
 
   it('unresolvable kinds + differing models on a started session ask a generic confirmation (#3)', () => {
@@ -249,7 +320,9 @@ describe('persistModelSelectionWithConfirm', () => {
       confirmFn, persistFn: vi.fn().mockRejectedValue(err), onError, revertFn,
     });
     expect(result).toBe('failed');
-    expect(confirmFn).not.toHaveBeenCalled();
+    expect(confirmFn).toHaveBeenCalledWith(
+      'Switch from Claude Code to Gemini? Native context is cleared; full text history is passed to the new provider.',
+    );
     expect(onError).toHaveBeenCalledWith(err);
     expect(revertFn).toHaveBeenCalledWith('claude-x', 'a');
   });

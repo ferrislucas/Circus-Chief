@@ -312,6 +312,7 @@ describe('Model Tier Contracts', () => {
             available: true,
             providerEnabled: true,
             modelEnabled: true,
+            unhealthy: false,
             unavailabilityReason: null,
           },
         ],
@@ -319,6 +320,32 @@ describe('Model Tier Contracts', () => {
         updatedAt: now,
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects a member missing unhealthy', () => {
+      const result = TierResponse.safeParse({
+        id: UUID,
+        name: 'Fast tier',
+        description: null,
+        autoFailoverEnabled: true,
+        members: [
+          {
+            id: UUID2,
+            tierId: UUID,
+            providerId: UUID3,
+            modelId: 'claude-sonnet-5',
+            position: 0,
+            createdAt: now,
+            available: true,
+            providerEnabled: true,
+            modelEnabled: true,
+            unavailabilityReason: null,
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(result.success).toBe(false);
     });
 
     it('rejects a tier response missing autoFailoverEnabled', () => {

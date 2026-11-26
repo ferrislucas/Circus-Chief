@@ -297,18 +297,18 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     );
   });
 
-  it('Started Grok session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR7 pin)', async () => {
+  it('Started Grok session + Gemini model → 200 and dispatched', async () => {
     const res = await request(app)
       .post(`/api/sessions/${startedGrokSession.id}/message`)
       .send({ content: 'follow-up', model: 'gemini-flash-test' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(continueSession).not.toHaveBeenCalled();
-
-    const refreshed = sessions.getById(startedGrokSession.id);
-    expect(refreshed.model).toBe(GROK_MESSAGE_MODEL);
-    expect(refreshed.agentType).toBe('grok-build');
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      startedGrokSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: 'gemini-flash-test', interactive: true }),
+    );
   });
 
   it('Claude session with no explicit model falls back to session.model (same-kind) → 200', async () => {
@@ -447,28 +447,32 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     }
   });
 
-  it('Claude session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR3 pin)', async () => {
+  it('Claude session + Gemini model → 200 and dispatched', async () => {
     const res = await request(app)
       .post(`/api/sessions/${claudeSession.id}/message`)
       .send({ content: 'follow-up', model: 'gemini-flash-test' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(continueSession).not.toHaveBeenCalled();
-
-    const refreshed = sessions.getById(claudeSession.id);
-    expect(refreshed.model).toBe('claude-sonnet-test');
-    expect(refreshed.agentType).toBe('claude-code');
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      claudeSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: 'gemini-flash-test', interactive: true }),
+    );
   });
 
-  it('Codex session + Gemini model → 400 CROSS_KIND_MODEL_SWITCH, nothing dispatched (FR3 pin)', async () => {
+  it('Codex session + Gemini model → 200 and dispatched', async () => {
     const res = await request(app)
       .post(`/api/sessions/${codexSession.id}/message`)
       .send({ content: 'follow-up', model: 'gemini-flash-test' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
-    expect(continueSession).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      codexSession.id,
+      'follow-up',
+      expect.anything(),
+      expect.objectContaining({ model: 'gemini-flash-test', interactive: true }),
+    );
   });
 
   it('cancels an existing schedule after preparation succeeds and dispatches chat', async () => {
