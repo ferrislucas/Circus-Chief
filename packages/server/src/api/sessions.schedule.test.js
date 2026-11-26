@@ -297,7 +297,7 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(stored.pendingConversationId).toBeNull();
   });
 
-  it('returns 400 for a cross-kind model switch on a started session', async () => {
+  it('stores a cross-kind model on an idle started session without flipping kind', async () => {
     openaiProvider = modelProviders.create({
       name: 'OpenAI Schedule Test',
       baseUrl: 'https://api.openai.schedule',
@@ -311,6 +311,9 @@ describe('Sessions API - POST /:id/schedule', () => {
     });
 
     messages.create(session.id, 'assistant', 'Started response');
+    const conversation = conversations.create(session.id, 'Main');
+    conversations.update(conversation.id, { claudeSessionId: 'resume-keep' });
+    const before = sessions.getById(session.id);
 
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
@@ -319,13 +322,46 @@ describe('Sessions API - POST /:id/schedule', () => {
         scheduledAt: Date.now() + 3600000,
         model: 'gpt-schedule-cross-kind',
       })
+      .expect(200);
+
+    const stored = sessions.getById(session.id);
+    expect(response.body.pendingModel).toBe('gpt-schedule-cross-kind');
+    expect(stored.pendingModel).toBe('gpt-schedule-cross-kind');
+    expect(stored.agentType).toBe(before.agentType);
+    expect(stored.model).toBe(before.model);
+    expect(conversations.getById(conversation.id).claudeSessionId).toBe('resume-keep');
+  });
+
+  it('returns 400 for a cross-kind model switch while a provider turn is active', async () => {
+    openaiProvider = modelProviders.create({
+      name: 'OpenAI Schedule Active Test',
+      baseUrl: 'https://api.openai.schedule-active',
+      authToken: 'key-o',
+      kind: 'openai',
+    });
+    modelProviders.addModel(openaiProvider.id, {
+      modelId: 'gpt-schedule-cross-kind-active',
+      displayName: 'GPT Schedule Cross Kind Active',
+      tier: 'custom',
+    });
+
+    messages.create(session.id, 'assistant', 'Started response');
+    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'Continue',
+        scheduledAt: Date.now() + 3600000,
+        model: 'gpt-schedule-cross-kind-active',
+      })
       .expect(400);
 
     expect(response.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
     expect(sessions.getById(session.id).pendingModel).toBeNull();
   });
 
-  it('returns 400 for a cross-kind Grok model switch on a started session (FR8 pin)', async () => {
+  it('stores a cross-kind Grok model on an idle started session without flipping kind', async () => {
     const xaiProvider = modelProviders.create({
       name: 'xAI Schedule Test',
       baseUrl: null,
@@ -340,6 +376,9 @@ describe('Sessions API - POST /:id/schedule', () => {
       });
 
       messages.create(session.id, 'assistant', 'Started response');
+      const conversation = conversations.create(session.id, 'Main');
+      conversations.update(conversation.id, { claudeSessionId: 'resume-keep-grok' });
+      const before = sessions.getById(session.id);
 
       const response = await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
@@ -347,6 +386,43 @@ describe('Sessions API - POST /:id/schedule', () => {
           prompt: 'Continue',
           scheduledAt: Date.now() + 3600000,
           model: 'grok-schedule-cross-kind',
+        })
+        .expect(200);
+
+      const stored = sessions.getById(session.id);
+      expect(response.body.pendingModel).toBe('grok-schedule-cross-kind');
+      expect(stored.pendingModel).toBe('grok-schedule-cross-kind');
+      expect(stored.agentType).toBe(before.agentType);
+      expect(stored.model).toBe(before.model);
+      expect(conversations.getById(conversation.id).claudeSessionId).toBe('resume-keep-grok');
+    } finally {
+      try { modelProviders.delete(xaiProvider.id); } catch { /* noop */ }
+    }
+  });
+
+  it('returns 400 for a cross-kind Grok model switch while a provider turn is active', async () => {
+    const xaiProvider = modelProviders.create({
+      name: 'xAI Schedule Active Test',
+      baseUrl: null,
+      authToken: null,
+      kind: 'xai',
+    });
+    try {
+      modelProviders.addModel(xaiProvider.id, {
+        modelId: 'grok-schedule-cross-kind-active',
+        displayName: 'Grok Schedule Cross Kind Active',
+        tier: 'custom',
+      });
+
+      messages.create(session.id, 'assistant', 'Started response');
+      activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({
+          prompt: 'Continue',
+          scheduledAt: Date.now() + 3600000,
+          model: 'grok-schedule-cross-kind-active',
         })
         .expect(400);
 

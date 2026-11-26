@@ -116,6 +116,7 @@ export const TierResponse = z.object({
       available: z.boolean(),
       providerEnabled: z.boolean(),
       modelEnabled: z.boolean(),
+      unhealthy: z.boolean(),
       unavailabilityReason: z.enum([
         'provider_missing',
         'provider_disabled',

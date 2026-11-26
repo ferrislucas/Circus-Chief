@@ -2,7 +2,8 @@ import { sessions } from '../database.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastToSession } from '../websocket.js';
 import { isUnhealthy, resolveTierRefForContinue } from './tierResolutionService.js';
-import { resolvePreviousExecutedPair } from './sessionAgentGuard.js';
+import { agentLabel, resolvePreviousExecutedPair } from './sessionAgentGuard.js';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { isExactTierMemberValid } from './tierIdentity.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import { getTierName, hasResolvableTierMembers } from './sessionTierFailover.js';
@@ -182,6 +183,14 @@ function resolveSnapshotAdvanceParties(session, dispatchedPair) {
   return { prev: snapshotPair, advance: true };
 }
 
+function advanceReason(session, prev, dispatchedPair) {
+  const fromKind = session.agentType || 'claude-code';
+  const toKind = resolveAgentTypeFromModel(dispatchedPair.model, dispatchedPair.providerId ?? undefined);
+  const base = `Tier member "${prev.model}" is in cooldown — automatically advanced to "${dispatchedPair.model}"`;
+  if (fromKind === toKind) return base;
+  return `Tier member "${prev.model}" (${agentLabel(fromKind)}) is in cooldown — automatically advanced to "${dispatchedPair.model}" (${agentLabel(toKind)})`;
+}
+
 export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair, { suppressAdvanceNotice = false } = {}) {
   const parties = resolveFallbackNoticeParties(session, requestedModel, dispatchedPair);
   if (!parties) return;
@@ -193,7 +202,7 @@ export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair
   const { prev } = parties;
   const tierRef = session.model;
   const reason = parties.advance
-    ? `Tier member "${prev.model}" is in cooldown — automatically advanced to "${dispatchedPair.model}"`
+    ? advanceReason(session, prev, dispatchedPair)
     : `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
   const payload = {
     sessionId: session.id,

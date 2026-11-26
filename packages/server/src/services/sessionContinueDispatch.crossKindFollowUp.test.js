@@ -181,24 +181,40 @@ describe('sessionContinueDispatch — explicit follow-up kind switch', () => {
     expect(binding(session)).toEqual(before);
   });
 
-  it('rejects gemini and a tier-ref kind change before any write', async () => {
+  it('accepts an interactive Gemini follow-up and clears the resume chain', () => {
     const session = createCodexTierSession();
-    const before = binding(session);
+
+    const { session: updated } = buildContinueModelAndEnv(session, session.id, GEMINI, {
+      providerId: google.id, interactive: true,
+    });
+
+    expect(updated.model).toBe(GEMINI);
+    expect(updated.providerId).toBe(google.id);
+    expect(updated.agentType).toBe('gemini');
+    expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBeNull();
+  });
+
+  it('accepts an interactive tier whose member is another kind and keeps the tier ref', () => {
+    const session = createCodexTierSession();
     const claudeTier = modelTiers.create({
       name: 'Claude-only tier',
       members: [{ providerId: zai.id, modelId: GLM, position: 0 }],
     });
+    const tierRef = buildTierRef(claudeTier.id);
 
-    expect(() => buildContinueModelAndEnv(session, session.id, GEMINI, {
-      providerId: google.id, interactive: true,
-    })).toThrow(expect.objectContaining({ code: 'CROSS_KIND_MODEL_SWITCH' }));
+    try {
+      const { session: updated } = buildContinueModelAndEnv(session, session.id, tierRef, {
+        interactive: true,
+      });
 
-    expect(() => buildContinueModelAndEnv(session, session.id, buildTierRef(claudeTier.id), {
-      interactive: true,
-    })).toThrow(expect.objectContaining({ code: 'CROSS_KIND_MODEL_SWITCH' }));
-
-    expect(binding(session)).toEqual(before);
-    try { modelTiers.delete(claudeTier.id); } catch { /* noop */ }
+      expect(updated.model).toBe(tierRef);
+      expect(updated.providerId).toBeNull();
+      expect(updated.agentType).toBe('claude-code');
+      expect(updated.resolvedModel).toBe(GLM);
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBeNull();
+    } finally {
+      try { modelTiers.delete(claudeTier.id); } catch { /* noop */ }
+    }
   });
 
   it('rejects a provider-only cross-kind rebind before any write', () => {
@@ -247,5 +263,46 @@ describe('sessionContinueDispatch — explicit follow-up kind switch', () => {
     expect(updated.model).toBe(buildTierRef(tier.id));
     expect(updated.resolvedModel).toBe(GLM);
     expect(updated.resolvedProviderId).toBe(zai.id);
+  });
+
+  it('advances a cooled snapshot onto a Gemini successor', () => {
+    const geminiTier = modelTiers.create({
+      name: 'Gemini successor',
+      members: [
+        { providerId: openai.id, modelId: SOL, position: 0 },
+        { providerId: google.id, modelId: GEMINI, position: 1 },
+      ],
+      autoFailoverEnabled: true,
+    });
+    try {
+      const row = sessions.create(project.id, 'Gemini successor', 'prompt', 'standard');
+      sessions.update(row.id, {
+        status: 'waiting',
+        model: buildTierRef(geminiTier.id),
+        agentType: 'codex',
+        resolvedModel: SOL,
+        resolvedProviderId: openai.id,
+        lastExecutedModel: SOL,
+        lastExecutedProviderId: openai.id,
+      });
+      const conv = conversations.ensureActiveConversation(row.id);
+      conversations.update(conv.id, { claudeSessionId: 'sol-thread' });
+      messages.create(row.id, 'user', 'hi', { conversationId: conv.id });
+      messages.create(row.id, 'assistant', 'hello', { conversationId: conv.id });
+      markUnhealthy(openai.id, SOL);
+      const session = sessions.getById(row.id);
+
+      const { effectiveModel, session: updated } = buildContinueModelAndEnv(session, session.id, null, {
+        interactive: false,
+      });
+
+      expect(effectiveModel).toBe(GEMINI);
+      expect(updated.agentType).toBe('gemini');
+      expect(updated.model).toBe(buildTierRef(geminiTier.id));
+      expect(conversations.getActiveBySessionId(session.id).claudeSessionId).toBeNull();
+    } finally {
+      clearUnhealthy(openai.id, SOL);
+      try { modelTiers.delete(geminiTier.id); } catch { /* noop */ }
+    }
   });
 });

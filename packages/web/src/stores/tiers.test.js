@@ -53,6 +53,17 @@ describe('useTiersStore', () => {
       expect(store.loaded).toBe(false);
     });
 
+    it('returns fresh tiers in strict mode and rejects failures without discarding cache', async () => {
+      const tiers = [{ id: 'fresh', members: [] }];
+      mockApi.getTiers.mockResolvedValueOnce(tiers).mockRejectedValueOnce(new Error('offline'));
+      const store = useTiersStore();
+      expect(await store.fetchTiers({ throwOnError: true })).toEqual(tiers);
+      await expect(store.fetchTiers({ throwOnError: true })).rejects.toThrow('offline');
+      expect(store.tiers).toEqual(tiers);
+      expect(store.error).toBe('offline');
+      expect(store.loading).toBe(false);
+    });
+
     it('ignores a stale response that resolves after a newer fetch', async () => {
       let resolveStale;
       let resolveFresh;

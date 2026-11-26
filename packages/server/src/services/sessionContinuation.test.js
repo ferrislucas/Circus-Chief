@@ -792,47 +792,44 @@ describe('sessionContinuation — preparation-failure cleanup (finding 4)', () =
     clearUnhealthy(provider.id, 'finding4-model-2');
   }
 
-  it('releases claim, flags error status, and dispatches nothing when a newly selected tier has every member cooling down', async () => {
+  it('continues on the structural first member when a newly selected tier has every member cooling down', async () => {
     const tierRef = createCoolingTierRef();
     await coolEveryMember();
     try {
       const session = createTestSession(project, { model: 'finding4-model', providerId: provider.id });
       conversations.ensureActiveConversation(session.id);
 
-      await expect(continueSessionCore(session.id, 'Switch to cooling tier', '/tmp/test', {
+      await continueSessionCore(session.id, 'Switch to cooling tier', '/tmp/test', {
         options: { model: tierRef }, callbacks: mockCallbacks,
-      })).rejects.toThrow(/currently healthy/);
+      });
 
-      // No provider dispatch happened.
-      expect(capturedQueryParams).toHaveLength(0);
+      expect(capturedQueryParams).toHaveLength(1);
+      expect(capturedQueryParams[0].options?.model).toBe('finding4-model');
 
-      // Sanitized visible error + error status.
       const row = sessions.getById(session.id);
-      expect(row.status).toBe('error');
-      expect(row.error).toMatch(/currently healthy/);
-
-      // Active state fully released.
-      expect(activeSessions.has(session.id)).toBe(false);
-      expect(activeConversationIds.has(session.id)).toBe(false);
-      expect(broadcastSessionStatus).toHaveBeenCalledWith(session.id, 'error');
+      expect(row.model).toBe(tierRef);
+      expect(row.providerId).toBeNull();
+      expect(row.resolvedModel).toBe('finding4-model');
+      expect(row.resolvedProviderId).toBe(provider.id);
+      expect(row.status).not.toBe('error');
     } finally {
       await clearEveryCooldown();
     }
   });
 
   it('admits a subsequent valid continuation after a preparation failure', async () => {
+    const emptyTier = modelTiers.create({ name: 'Empty Finding4 Tier', members: [] });
+    const emptyRef = buildTierRef(emptyTier.id);
     const tierRef = createCoolingTierRef();
-    await coolEveryMember();
     const session = createTestSession(project, { model: 'finding4-model', providerId: provider.id });
     conversations.ensureActiveConversation(session.id);
 
-    await expect(continueSessionCore(session.id, 'Switch to cooling tier', '/tmp/test', {
-      options: { model: tierRef }, callbacks: mockCallbacks,
-    })).rejects.toThrow(/currently healthy/);
+    await expect(continueSessionCore(session.id, 'Switch to empty tier', '/tmp/test', {
+      options: { model: emptyRef }, callbacks: mockCallbacks,
+    })).rejects.toThrow(/no enabled configured members/);
     expect(activeSessions.has(session.id)).toBe(false);
 
-    await clearEveryCooldown();
-    await continueSessionCore(session.id, 'Retry on recovered tier', '/tmp/test', {
+    await continueSessionCore(session.id, 'Retry on a configured tier', '/tmp/test', {
       options: { model: tierRef }, callbacks: mockCallbacks,
     });
 
@@ -966,25 +963,21 @@ describe('sessionContinuation — preparation-failure cleanup (finding 4)', () =
   });
 
   it('fails an owned lane obligation instead of stranding it when preparation fails', async () => {
-    const tierRef = createCoolingTierRef();
-    await coolEveryMember();
-    try {
-      const session = createTestSession(project, {
-        model: 'finding4-model', providerId: provider.id, laneRunId: 'finding4-run',
-      });
-      conversations.ensureActiveConversation(session.id);
+    const emptyTier = modelTiers.create({ name: 'Empty Finding4 Lane Tier', members: [] });
+    const emptyRef = buildTierRef(emptyTier.id);
+    const session = createTestSession(project, {
+      model: 'finding4-model', providerId: provider.id, laneRunId: 'finding4-run',
+    });
+    conversations.ensureActiveConversation(session.id);
 
-      await expect(continueSessionCore(session.id, 'Scheduled follow-up', '/tmp/test', {
-        options: { model: tierRef }, callbacks: mockCallbacks,
-      })).rejects.toThrow(/currently healthy/);
+    await expect(continueSessionCore(session.id, 'Scheduled follow-up', '/tmp/test', {
+      options: { model: emptyRef }, callbacks: mockCallbacks,
+    })).rejects.toThrow(/no enabled configured members/);
 
-      const row = sessions.getById(session.id);
-      expect(row.status).toBe('error');
-      expect(row.ownWorkState).toBe('closed_failed');
-      expect(activeSessions.has(session.id)).toBe(false);
-    } finally {
-      await clearEveryCooldown();
-    }
+    const row = sessions.getById(session.id);
+    expect(row.status).toBe('error');
+    expect(row.ownWorkState).toBe('closed_failed');
+    expect(activeSessions.has(session.id)).toBe(false);
   });
 });
 

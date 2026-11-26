@@ -204,17 +204,16 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
 
-// Picker persistence and the follow-up payload. A cancelled switch clears the
-// user-pick flag via onRevert, which is assigned once useFollowUpModel returns.
+// Picker persistence restores the accepted follow-up intent on rollback.
 let onModelPickReverted = () => {};
-const { pauseModelPersist, resumeModelPersist } = useModelSelectionPersist({
+const { pauseModelPersist, resumeModelPersist, selectionPending } = useModelSelectionPersist({
   getSessionId: () => props.sessionId,
   selectedModel,
   selectedProviderId,
   sessionsStore,
   providersStore,
   uiStore,
-  onRevert: () => onModelPickReverted(),
+  onRevert: (explicit) => onModelPickReverted(explicit),
 });
 const { onUserModelSelected, onModelPickReverted: clearFollowUpPick, followUpSelection } = useFollowUpModel({
   getSessionId: () => props.sessionId,
@@ -302,8 +301,9 @@ const scheduleMutationInFlight = computed(() =>
   Boolean(sessionsStore.currentSession?.id && sessionsStore.scheduleMutationInFlight?.(sessionsStore.currentSession.id))
 );
 
+const submitBlocked = computed(() => isRunning.value || selectionPending.value);
 const isSendDisabled = computed(() => {
-  if (isStale.value) return true;
+  if (isStale.value || selectionPending.value) return true;
   return !inputHasContent.value || sending.value || scheduleMutationInFlight.value;
 });
 
@@ -575,7 +575,7 @@ function clearSubmittedInput(textareaRef) {
 }
 
 async function handleFormSubmit(options = {}) {
-  if (isRunning.value) return;
+  if (submitBlocked.value) return;
 
   // Cancel any pending debounced draft save BEFORE Send/Start. Otherwise a
   // debounce scheduled within the last 500 ms could fire after we've

@@ -85,8 +85,8 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
     try { projects.delete(project.id); } catch { /* noop */ }
   });
 
-  it('scopes the switch to claude-code, codex, muse, and grok-build (gemini excluded)', () => {
-    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'grok-build', 'muse']);
+  it('scopes the switch to claude-code, codex, muse, grok-build, and gemini', () => {
+    expect([...IN_SCOPE_SWITCH_KINDS].sort()).toEqual(['claude-code', 'codex', 'gemini', 'grok-build', 'muse']);
   });
 
   it('allows codex <-> claude-code in both directions', () => {
@@ -110,15 +110,15 @@ describe('isCrossKindSwitchAllowed (cross-provider switch scope)', () => {
     expect(isCrossKindSwitchAllowed('grok-build', MUSE_A)).toBe(true);
   });
 
-  it('blocks any kind change involving gemini, either direction', () => {
-    expect(isCrossKindSwitchAllowed('claude-code', GEMINI_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('gemini', CLAUDE_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('codex', GEMINI_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('gemini', GPT_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('muse', GEMINI_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('gemini', MUSE_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('grok-build', GEMINI_A)).toBe(false);
-    expect(isCrossKindSwitchAllowed('gemini', GROK_A)).toBe(false);
+  it('allows any kind change involving gemini, either direction', () => {
+    expect(isCrossKindSwitchAllowed('claude-code', GEMINI_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('gemini', CLAUDE_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('codex', GEMINI_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('gemini', GPT_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('muse', GEMINI_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('gemini', MUSE_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('grok-build', GEMINI_A)).toBe(true);
+    expect(isCrossKindSwitchAllowed('gemini', GROK_A)).toBe(true);
   });
 
   it('allows same-kind Grok model changes', () => {

@@ -21,8 +21,8 @@ import {
   isCrossKindBlockLiftable,
   pendingModelClearanceForKindSwitch,
   clearResumeChainOnKindSwitch,
+  kindForRequestedSelection,
 } from '../services/sessionAgentGuard.js';
-import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 
 const router = Router();
 
@@ -91,14 +91,17 @@ function resetPrStateForSession(sessionId, projectId) {
  * @param {Object} updateData
  * @returns {{ error: string, message: string }|null} 400-body on block, or null to allow.
  */
-function checkDivergentModelKinds(updateData) {
+function checkDivergentModelKinds(session, updateData) {
   const { model, pendingModel } = updateData;
   if (typeof model !== 'string' || model === '' || typeof pendingModel !== 'string' || pendingModel === '') {
     return null;
   }
-  const modelKind = resolveAgentTypeFromModel(model);
-  const pendingKind = resolveAgentTypeFromModel(pendingModel);
-  if (modelKind === pendingKind) return null;
+  // One echoed tier stays non-divergent even if a fresh walk would disagree
+  // with the snapshotted kind.
+  if (model === pendingModel) return null;
+  const modelKind = kindForRequestedSelection(session, model, updateData.providerId);
+  const pendingKind = kindForRequestedSelection(session, pendingModel, updateData.pendingProviderId);
+  if (modelKind != null && modelKind === pendingKind) return null;
   return {
     error: 'DIVERGENT_MODEL_KINDS',
     message: `Cannot set model and pendingModel to different agent kinds (${agentLabel(modelKind)} → ${agentLabel(pendingKind)})`,
@@ -137,7 +140,7 @@ function checkPendingModelOnlyKindSwitch(session, sessionId, updateData) {
  * with `pendingModel`, so the latter only affects direct API callers).
  */
 function checkModelKindInvariant(session, sessionId, updateData) {
-  return checkDivergentModelKinds(updateData)
+  return checkDivergentModelKinds(session, updateData)
     ?? checkPendingModelOnlyKindSwitch(session, sessionId, updateData);
 }
 
@@ -174,8 +177,8 @@ function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId
   // Started session: validate each changed pair with its OWN provider —
   // never a lookup-preferred owner, and never one pair's provider standing
   // in for the other's — so neither change can hide the other. In-scope
-  // MODEL switches proceed (FR1/FR2); gemini, provider-only rebinds,
-  // tier-kind changes and dead tiers stay rejected here.
+  // model and tier switches proceed. Provider-only rebinds and tiers with
+  // no configured members stay rejected here.
   const pairError = checkStartedSelectionPairs(session, updateData);
   if (pairError) return { driftError: pairError, agentTypeUpdate: {} };
   // Judge the switch by the exact pair being persisted (FR3/E1): an explicit
@@ -232,9 +235,14 @@ function checkStartedSelectionPairs(session, updateData) {
 function withStalePendingModelClearance(session, updateData, agentTypeUpdate) {
   if (!agentTypeUpdate.agentType) return agentTypeUpdate;
   const effectivePendingModel = updateData.pendingModel ?? session.pendingModel ?? null;
+  const pendingProviderId = Object.hasOwn(updateData, 'pendingProviderId')
+    ? updateData.pendingProviderId
+    : session.pendingProviderId;
   return {
     ...agentTypeUpdate,
-    ...pendingModelClearanceForKindSwitch(effectivePendingModel, agentTypeUpdate.agentType),
+    ...pendingModelClearanceForKindSwitch(
+      effectivePendingModel, agentTypeUpdate.agentType, session, pendingProviderId,
+    ),
   };
 }
 

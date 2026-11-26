@@ -102,7 +102,19 @@ async function openContinueTurn(sessionId, content, fileAttachments) {
 }
 
 export function admitConcreteSelection(session, sessionId, { model, providerId, interactive }) {
-  if (interactive || !model || isTierRef(model) || sessionHasNoAssistantMessages(sessionId)) return;
+  if (interactive || !model || sessionHasNoAssistantMessages(sessionId)) return;
+  // An explicit other tier is a selection, not an own-binding advance.
+  // Reject a kind change before the turn is claimed. The session's own tier
+  // stays eligible for failover inside dispatch. A tier with no authoritative
+  // kind (empty or deleted) is left to dispatch, which already degrades it.
+  if (isTierRef(model)) {
+    if (model === session.model) return;
+    const block = checkCrossKindSwitch(session, model, null);
+    if (block?.error === 'CROSS_KIND_MODEL_SWITCH') throw createCrossKindDispatchError(block);
+    return;
+  }
+  // No durable owner means the id carries no kind. Guessing Claude Code must
+  // not turn a legacy unregistered override into a kind switch.
   const owner = resolveDurableProviderId(model, providerId);
   const block = owner && checkCrossKindSwitch(session, model, owner);
   if (block) throw createCrossKindDispatchError(block);

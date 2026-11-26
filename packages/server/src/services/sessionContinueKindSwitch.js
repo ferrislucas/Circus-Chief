@@ -18,8 +18,9 @@ import {
  * throws, so a Codex row cannot be saved with a Claude model id. Same-binding
  * requests, including a null model, keep the tier-advance path.
  *
- * `sessionTurnSetup.prepareContinueTurn` enforces the same interactive gate
- * on its own resolver. This is the decision the live continue path runs.
+ * This is the decision the live continue path runs. The dead
+ * `prepareContinueTurn` resolver is not this function and does not implement
+ * tier or Gemini policy.
  *
  * @param {Object} args
  * @param {Object} args.session
@@ -53,7 +54,7 @@ export function resolveContinueAgentTypeUpdate({
   }
   const suppliedProviderId = requestedProviderId == null ? undefined : requestedProviderId;
   const update = deriveCrossKindAgentTypeUpdate(session, requestedModel, suppliedProviderId);
-  return { ...update, ...pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType) };
+  return { ...update, ...pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType, session) };
 }
 
 /**

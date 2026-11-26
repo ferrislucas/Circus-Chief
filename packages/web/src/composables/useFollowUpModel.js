@@ -90,9 +90,11 @@ export function useFollowUpModel({
     userPickedModel.value = true;
   }
 
-  function onModelPickReverted() {
-    userPickedModel.value = false;
+  function onModelPickReverted(explicit) {
+    userPickedModel.value = explicit;
   }
+
+  watch(getSessionId, () => { userPickedModel.value = false; }, { flush: 'sync' });
 
   function followUpSelection() {
     if (!userPickedModel.value) return { model: null, providerId: null };

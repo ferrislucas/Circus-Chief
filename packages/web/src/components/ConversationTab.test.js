@@ -4827,26 +4827,49 @@ describe('ConversationTab - cross-kind switch confirmation (FRD §4)', () => {
     expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GPT_MODEL, OPENAI_PID);
   });
 
-  it('gemini switch asks nothing and surfaces the existing backend error copy on failure', async () => {
+  it('confirming a claude→gemini switch dispatches updateSessionModel', async () => {
     const confirm = vi.fn().mockReturnValue(true);
     vi.stubGlobal('confirm', confirm);
-    mockSessionsStore.updateSessionModel.mockRejectedValueOnce(
-      Object.assign(
-        new Error('Cannot switch agent kind mid-session (Claude Code → Gemini)'),
-        { status: 400 },
-      ),
-    );
 
     const wrapper = mountComponent();
     await flushAll(wrapper);
 
     await switchPicker(wrapper, GEMINI_MODEL, GOOGLE_PID);
 
-    expect(confirm).not.toHaveBeenCalled();
-    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GEMINI_MODEL, GOOGLE_PID);
-    expect(mockUiStore.error).toHaveBeenCalledWith(
-      'Cannot switch agent kind mid-session (Claude Code → Gemini)',
+    expect(confirm).toHaveBeenCalledWith(
+      'Switch from Claude Code to Gemini? Native context is cleared; full text history is passed to the new provider.',
     );
-    expect(wrapper.find('.model-selector-stub').attributes('data-model')).toBe(CLAUDE_MODEL);
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', GEMINI_MODEL, GOOGLE_PID);
+    expect(mockUiStore.error).not.toHaveBeenCalled();
+  });
+
+  it('confirming Medium names Codex and patches the tier ref with a null provider', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    const mediumId = '345b7526-b301-41a8-8d8a-f3879f8194a4';
+    const tierRef = `tier::${mediumId}`;
+    mockSessionsStore.currentSession.agentType = 'claude-code';
+    const { useTiersStore } = await import('../stores/tiers.js');
+    const tiersStore = useTiersStore();
+    const tier = {
+      id: mediumId,
+      name: 'Medium',
+      members: [
+        { providerId: OPENAI_PID, modelId: GPT_MODEL, available: true, unhealthy: false },
+        { providerId: ANTHROPIC_PID, modelId: CLAUDE_MODEL, available: true, unhealthy: false },
+      ],
+    };
+    tiersStore.tiers = [tier];
+    vi.spyOn(tiersStore, 'fetchTiers').mockResolvedValue([tier]);
+
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+
+    await switchPicker(wrapper, tierRef, null);
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Switch from Claude Code to Codex? Native context is cleared; full text history is passed to the new provider.',
+    );
+    expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', tierRef, null);
   });
 });

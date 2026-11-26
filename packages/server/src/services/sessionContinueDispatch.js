@@ -45,7 +45,7 @@ function reconcileConcreteSwitch({ session, sessionId, model, effectiveModel, di
   }
   const update = deriveCrossKindAgentTypeUpdate(session, effectiveModel, dispatchedProviderId);
   update.providerId = dispatchedProviderId;
-  Object.assign(update, pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType));
+  Object.assign(update, pendingModelClearanceForKindSwitch(session.pendingModel, update.agentType, session));
   return update;
 }
 
@@ -78,7 +78,9 @@ export function buildContinueModelAndEnv(session, sessionId, model, {
   // explicit tier selections and own-binding live resolutions after catalog
   // changes (review issue 1) share one contract. Throws before any
   // persistence or dispatch.
-  const dispatchDrift = checkContinuationDispatchKind(session, sessionId, model, { effectiveModel, providerIdHint });
+  const dispatchDrift = checkContinuationDispatchKind(
+    session, sessionId, model, { effectiveModel, providerIdHint }, { interactive },
+  );
   if (dispatchDrift) {
     throw createCrossKindDispatchError(dispatchDrift);
   }

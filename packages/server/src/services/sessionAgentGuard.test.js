@@ -3,6 +3,7 @@ import {
   checkCatalogFallbackDispatchKind,
   checkContinuationDispatchKind,
   checkCrossKindSwitch,
+  isCrossKindBlockLiftable,
   resolveModelForAgentKind,
   agentLabel,
   AGENT_TYPE_LABELS,
@@ -181,12 +182,32 @@ describe('sessionAgentGuard', () => {
 
       it('rejects a started Claude session selecting a GPT-only tier (CROSS_KIND_MODEL_SWITCH)', () => {
         const session = { agentType: 'claude-code', model: 'claude-sonnet-guard' };
-        const result = checkCrossKindSwitch(session, buildTierRef(gptOnlyTier.id));
+        const tierRef = buildTierRef(gptOnlyTier.id);
+        const result = checkCrossKindSwitch(session, tierRef);
         expect(result).toEqual({
           error: 'CROSS_KIND_MODEL_SWITCH',
           message: expect.stringContaining('Claude Code'),
         });
         expect(result.message).toContain('Codex');
+        expect(isCrossKindBlockLiftable(session, tierRef, null, result)).toBe(true);
+      });
+
+      it('does not lift an empty tier or a provider-only rebind', () => {
+        const session = {
+          agentType: 'claude-code',
+          model: 'claude-sonnet-guard',
+          providerId: anthropicProvider.id,
+        };
+        const empty = checkCrossKindSwitch(session, buildTierRef(emptyTier.id));
+        expect(empty.error).toBe('TIER_UNRESOLVABLE');
+        expect(isCrossKindBlockLiftable(session, buildTierRef(emptyTier.id), null, empty)).toBe(false);
+
+        modelProviders.addModel(openaiProvider.id, {
+          modelId: 'claude-sonnet-guard', displayName: 'Shared Claude id',
+        });
+        const rebound = checkCrossKindSwitch(session, 'claude-sonnet-guard', openaiProvider.id);
+        expect(rebound.error).toBe('CROSS_KIND_MODEL_SWITCH');
+        expect(isCrossKindBlockLiftable(session, 'claude-sonnet-guard', openaiProvider.id, rebound)).toBe(false);
       });
 
       it('returns a clear, distinct error for a tier with no resolvable members', () => {

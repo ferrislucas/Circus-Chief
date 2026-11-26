@@ -413,21 +413,20 @@ describe('Picker PATCH kind switch discards the native resume chain (Fix #1)', (
     activeSessions.clear();
   });
 
-  it('gemini cross-kind PATCH still 400s with zero mutation — resume pointers untouched (FR3)', async () => {
+  it('gemini cross-kind PATCH re-derives agentType and clears every resume pointer', async () => {
     const session = createStartedSessionWithResume({
       name: 'Claude Started Gemini', model: CLAUDE_MODEL, providerId: anthropicProvider.id,
     });
 
-    const res = await request(app)
+    await request(app)
       .patch(`/api/sessions/${session.id}`)
-      .send({ model: GEMINI_MODEL, providerId: googleProvider.id });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+      .send({ model: GEMINI_MODEL, providerId: googleProvider.id })
+      .expect(200);
 
-    const unchanged = sessions.getById(session.id);
-    expect(unchanged.model).toBe(CLAUDE_MODEL);
-    expect(unchanged.agentType).toBe('claude-code');
-    expect(resumePointers(session.id)).toEqual(['stale-native-id']);
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(GEMINI_MODEL);
+    expect(updated.agentType).toBe('gemini');
+    expect(resumePointers(session.id)).toEqual([null]);
   });
 
   it('same-kind PATCH keeps the resume chain: pointer retained and follow-up resumes with no history prefix (FR6)', async () => {

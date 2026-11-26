@@ -71,11 +71,11 @@ function validateMessageRequest(session, content, model, providerId) {
     return { status: 400, body: { error: modelResult.error } };
   }
 
-  // FR1/FR3: allowed in-scope MODEL switches proceed to the turn setup,
-  // which re-derives the kind and clears the native resume chain. Gemini
-  // switches, provider-only rebinds, tier-kind changes and dead tiers stay
-  // rejected here. The check runs on the normalized explicit pair so an
-  // explicit providerId (not catalog lookup order) decides the kind.
+  // Allowed in-scope model and tier switches proceed to the turn setup,
+  // which re-derives the kind and clears the native resume chain. Provider-only
+  // rebinds and tiers with no configured members stay rejected here. The check
+  // runs on the normalized explicit pair so an explicit providerId (not catalog
+  // lookup order) decides the kind.
   const crossKindError = checkCrossKindSwitch(session, effectiveRequestedModel, effectiveRequestedProviderId);
   if (crossKindError && !isCrossKindBlockLiftable(session, effectiveRequestedModel, effectiveRequestedProviderId, crossKindError)) {
     return { status: 400, body: crossKindError };
