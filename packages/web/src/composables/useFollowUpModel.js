@@ -90,9 +90,8 @@ export function useFollowUpModel({
     userPickedModel.value = true;
   }
 
-  function onModelPickReverted() {
-    // The restored pair can itself be an earlier user-approved choice.
-    userPickedModel.value = true;
+  function onModelPickReverted(explicit) {
+    userPickedModel.value = explicit;
   }
 
   watch(getSessionId, () => { userPickedModel.value = false; }, { flush: 'sync' });

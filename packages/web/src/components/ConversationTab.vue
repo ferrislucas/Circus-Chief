@@ -204,8 +204,7 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
 
-// Picker persistence and the follow-up payload. A cancelled switch clears the
-// user-pick flag via onRevert, which is assigned once useFollowUpModel returns.
+// Picker persistence restores the accepted follow-up intent on rollback.
 let onModelPickReverted = () => {};
 const { pauseModelPersist, resumeModelPersist, selectionPending } = useModelSelectionPersist({
   getSessionId: () => props.sessionId,
@@ -214,7 +213,7 @@ const { pauseModelPersist, resumeModelPersist, selectionPending } = useModelSele
   sessionsStore,
   providersStore,
   uiStore,
-  onRevert: () => onModelPickReverted(),
+  onRevert: (explicit) => onModelPickReverted(explicit),
 });
 const { onUserModelSelected, onModelPickReverted: clearFollowUpPick, followUpSelection } = useFollowUpModel({
   getSessionId: () => props.sessionId,
