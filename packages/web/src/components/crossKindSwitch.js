@@ -144,11 +144,13 @@ export async function persistModelSelectionWithConfirm({
   confirmFn, persistFn, onError, revertFn,
   isCurrent = () => true,
 }) {
+  if (!isCurrent()) return 'cancelled';
   const plan = planModelSwitch({ fromAgentType, toAgentType, isStarted, modelsDiffer, kindUnresolvable });
   if (plan?.action === 'confirm' && !confirmFn(plan.copy)) {
-    revertFn(oldModel, oldProviderId);
+    if (isCurrent()) revertFn(oldModel, oldProviderId);
     return 'cancelled';
   }
+  if (!isCurrent()) return 'cancelled';
   try {
     await persistFn(newModel, newProviderId);
     return 'persisted';

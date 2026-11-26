@@ -91,8 +91,11 @@ export function useFollowUpModel({
   }
 
   function onModelPickReverted() {
-    userPickedModel.value = false;
+    // The restored pair can itself be an earlier user-approved choice.
+    userPickedModel.value = true;
   }
+
+  watch(getSessionId, () => { userPickedModel.value = false; }, { flush: 'sync' });
 
   function followUpSelection() {
     if (!userPickedModel.value) return { model: null, providerId: null };

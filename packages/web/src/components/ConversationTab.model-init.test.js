@@ -144,6 +144,7 @@ import ModelSelector from './ModelSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
+import { useTiersStore } from '../stores/tiers.js';
 
 describe('ConversationTab - Model Initialization Bug', () => {
   let mockSessionsStore;
@@ -601,6 +602,48 @@ describe('ConversationTab - Model Initialization Bug', () => {
       expect(wrapper.findComponent(ModelSelector).props('modelValue')).toBe(TIER);
       expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
     });
+  });
+
+  it.each([false, true])('gates both submission routes until a tier is resolved (approve: %s)', async (approve) => {
+    mockSessionsStore.currentSession = {
+      id: 'sess-123', status: 'waiting', model: 'sonnet', providerId: 'anthropic',
+      agentType: 'claude-code', projectId: 'proj-1', mode: 'standard',
+    };
+    let resolve;
+    const pending = new Promise((done) => { resolve = done; });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(approve);
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+    vi.spyOn(useTiersStore(), 'fetchTiers').mockReturnValue(pending);
+    const textarea = wrapper.find('textarea');
+    await textarea.setValue('Keep this message');
+    const selector = wrapper.findComponent(ModelSelector);
+    selector.vm.$emit('update:modelValue', 'tier::test');
+    selector.vm.$emit('update:providerId', null);
+    selector.vm.$emit('model-selected', { modelId: 'tier::test', providerId: null });
+    await wrapper.find('form').trigger('submit.prevent');
+    await wrapper.vm.$.setupState.handleFormSubmit();
+    expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    expect(textarea.element.value).toBe('Keep this message');
+    resolve([]); // An unresolved destination requires generic confirmation.
+    await flushAll(wrapper);
+    expect(confirm).toHaveBeenCalled();
+    if (approve) {
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'tier::test', null);
+    } else {
+      expect(selector.props('modelValue')).toBe('sonnet');
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    }
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushAll(wrapper);
+    if (approve) {
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Keep this message', [], 'tier::test');
+    } else {
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalledWith('sess-123', 'Keep this message', [], 'tier::test', expect.anything());
+    }
+    confirm.mockRestore();
+    wrapper.unmount();
   });
 
   describe('Draft workspace input clearing on start', () => {
