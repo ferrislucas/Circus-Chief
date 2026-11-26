@@ -68,7 +68,8 @@ export function agentTypeForProviders(providers, providerId, modelId) {
  * catalog. A tier ref walks members in API order, skipping unavailable
  * members and then unhealthy ones. When every available member is unhealthy,
  * the structural first available member is the kind the server will bind.
- * Returns null when the tier is not loaded or has no available member.
+ * Resolves the chosen member using its exact provider ID and a recognized kind.
+ * Returns null when the tier, member, provider, or provider kind is unresolved.
  *
  * Do not use this for the session's current kind. A bound tier's kind is
  * `session.agentType` (the snapshotted member), not a fresh walk of position 0.
@@ -87,7 +88,9 @@ export function agentTypeForSelection(providers, tiers, providerId, modelId) {
   const available = (tier.members || []).filter((entry) => entry.available !== false);
   const member = available.find((entry) => entry.unhealthy !== true) || available[0];
   if (!member) return null;
-  return agentTypeForProviders(providers, member.providerId, member.modelId);
+  const provider = member.providerId && (providers || []).find((entry) => entry.id === member.providerId);
+  if (!provider || !['anthropic', 'openai', 'google', 'meta', 'xai'].includes(provider.kind)) return null;
+  return agentTypeForKind(provider.kind);
 }
 
 /** Generic switch confirmation (FRD §4/G4) for when a kind is unresolvable. */

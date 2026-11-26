@@ -187,6 +187,18 @@ describe('crossKindSwitch picker helper', () => {
     );
   });
 
+  it('leaves tier members unresolved without their exact provider and recognized kind', () => {
+    const tiers = [{ id: 'medium', members: [{ providerId: 'destination', modelId: 'shared', available: true }] }];
+    for (const providers of [
+      [],
+      [{ id: 'other', kind: 'anthropic', models: [{ modelId: 'shared' }] }],
+      [{ id: 'destination', models: [] }],
+      [{ id: 'destination', kind: 'unknown', models: [] }],
+    ]) {
+      expect(agentTypeForSelection(providers, tiers, null, 'tier::medium')).toBeNull();
+    }
+  });
+
   it('an all-cooling tier names the structural first member', () => {
     const providers = [
       { id: 'a', kind: 'anthropic', models: [{ modelId: 'claude-x' }] },

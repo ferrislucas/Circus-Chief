@@ -14,21 +14,22 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function setup() {
+function setup(catalog) {
   const model = ref('sonnet');
   const provider = ref('anthropic');
   const sessionId = ref('one');
   const sessions = { currentSession: { id: 'one', agentType: 'claude-code' }, isDraftSession: () => false, updateSessionModel: vi.fn().mockResolvedValue() };
   const ui = { error: vi.fn() };
+  const providers = { providers: catalog ?? [
+    { id: 'anthropic', kind: 'anthropic', models: [{ modelId: 'sonnet' }, { modelId: 'opus' }] },
+    { id: 'openai', kind: 'openai', models: [{ modelId: 'gpt' }] },
+  ] };
   const scope = effectScope();
   const result = scope.run(() => useModelSelectionPersist({
     getSessionId: () => sessionId.value, selectedModel: model, selectedProviderId: provider,
-    sessionsStore: sessions, providersStore: { providers: [
-      { id: 'anthropic', kind: 'anthropic', models: [{ modelId: 'sonnet' }, { modelId: 'opus' }] },
-      { id: 'openai', kind: 'openai', models: [{ modelId: 'gpt' }] },
-    ] }, uiStore: ui,
+    sessionsStore: sessions, providersStore: providers, uiStore: ui,
   }));
-  return { model, provider, sessionId, sessions, ui, scope, ...result };
+  return { model, provider, sessionId, sessions, providers, ui, scope, ...result };
 }
 const tier = (id, providerId, modelId) => [{ id, members: [{ providerId, modelId }] }];
 
@@ -47,6 +48,44 @@ describe('selection persistence ordering', () => {
     expect(s.provider.value).toBe('anthropic');
     expect(s.sessions.updateSessionModel).not.toHaveBeenCalled();
     expect(s.selectionPending.value).toBe(false);
+    s.scope.stop();
+  });
+
+  it.each([
+    [false, []],
+    [true, []],
+    [false, [{ id: 'other', kind: 'anthropic', models: [{ modelId: 'gpt' }] }]],
+  ])('confirms an unresolved tier before persistence (accept: %s)', async (accept, catalog) => {
+    mockApi.getTiers.mockResolvedValue(tier('a', 'openai', 'gpt'));
+    window.confirm.mockReturnValue(accept);
+    const s = setup(catalog);
+    s.model.value = 'tier::a'; s.provider.value = null;
+    await vi.waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    expect(window.confirm).toHaveBeenCalledWith('Switch model? Native context is cleared; full text history is passed to the new provider.');
+    await vi.waitFor(() => expect(s.selectionPending.value).toBe(false));
+    if (accept) {
+      expect(s.sessions.updateSessionModel).toHaveBeenCalledExactlyOnceWith('one', 'tier::a', null);
+    } else {
+      expect(s.model.value).toBe('sonnet');
+      expect(s.provider.value).toBe('anthropic');
+      expect(s.sessions.updateSessionModel).not.toHaveBeenCalled();
+    }
+    s.scope.stop();
+  });
+
+  it.each([
+    ['added', [], [{ id: 'openai', kind: 'openai' }], 'Switch from Claude Code to Codex?'],
+    ['removed', [{ id: 'openai', kind: 'openai' }], [], 'Switch model?'],
+  ])('uses the provider catalog %s during a tier refresh', async (_label, initial, refreshed, copy) => {
+    const pending = deferred(); mockApi.getTiers.mockReturnValue(pending.promise);
+    const s = setup(initial);
+    s.model.value = 'tier::a'; s.provider.value = null;
+    await nextTick();
+    s.providers.providers = refreshed;
+    pending.resolve(tier('a', 'openai', 'gpt'));
+    await vi.waitFor(() => expect(s.sessions.updateSessionModel).toHaveBeenCalledOnce());
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(window.confirm.mock.calls[0][0]).toContain(copy);
     s.scope.stop();
   });
 

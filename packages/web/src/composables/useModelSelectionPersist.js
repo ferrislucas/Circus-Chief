@@ -122,10 +122,10 @@ export function useModelSelectionPersist({
     // user just opened. A missing catalog or an empty tier confirms
     // generically instead of persisting with a defaulted Claude Code label.
     const currentSession = sessionsStore.currentSession;
-    const providers = providersStore.providers;
     const isStarted = Boolean(currentSession) && !sessionsStore.isDraftSession(currentSession);
     const tiers = await resolveTiers(newModel, isCurrent, previousModel, previousProviderId);
     if (!isCurrent() || tiers === null) return;
+    const providers = providersStore.providers;
     const fromAgentType = (isStarted && currentSession.agentType)
       ? currentSession.agentType
       : agentTypeForProviders(providers, previousProviderId, previousModel);
