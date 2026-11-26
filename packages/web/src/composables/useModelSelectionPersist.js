@@ -95,7 +95,7 @@ export function useModelSelectionPersist({
   async function resolveTiers(newModel, isCurrent, previousModel, previousProviderId) {
     if (!isTierRef(newModel)) return tiersStore.tiers;
     try {
-      return await tiersStore.fetchTiers();
+      return await tiersStore.fetchTiers({ throwOnError: true });
     } catch (err) {
       if (isCurrent()) {
         uiStore.error(err.message);

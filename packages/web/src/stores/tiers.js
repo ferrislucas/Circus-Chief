@@ -40,7 +40,7 @@ export const useTiersStore = defineStore('tiers', {
   },
 
   actions: {
-    async fetchTiers() {
+    async fetchTiers({ throwOnError = false } = {}) {
       // Monotonic intake: overlapping fetches (initial load, reconnect,
       // manual refresh, catalog-invalidation refetch) resolve in any order —
       // only the latest request may write state.
@@ -59,6 +59,7 @@ export const useTiersStore = defineStore('tiers', {
           this.error = err.message;
           this.lastFetchSucceeded = false;
         }
+        if (throwOnError) throw err;
         return this.tiers;
       } finally {
         if (request === this.fetchRevision) this.loading = false;
