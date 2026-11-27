@@ -257,6 +257,15 @@ export const modelTiersMigrations = [
     },
   },
   {
+    name: 'model-tiers-selection-policy',
+    up(db) {
+      // Sequential order is the historical behavior. A null floor means the
+      // allowance percent is not consulted. See issue #1216.
+      addColumnIfMissing(db, 'model_tiers', 'selection_mode', "TEXT NOT NULL DEFAULT 'sequential'");
+      addColumnIfMissing(db, 'model_tiers', 'min_remaining_percent', 'INTEGER');
+    },
+  },
+  {
     name: 'provider-models-reserve-tier-reference-prefix',
     up(db) {
       if (!hasColumns(db, 'provider_models', ['model_id', 'removed_at', 'enabled'])) return;

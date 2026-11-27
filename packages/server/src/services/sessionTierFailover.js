@@ -12,6 +12,7 @@ import {
   isUnhealthy,
   tierMemberKey,
 } from './tierResolutionService.js';
+import { headroomFor, isMemberUnderFloor, selectTierMember } from './tierSelection.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions } from './sessionExecutionOwnership.js';
 import {
@@ -286,29 +287,62 @@ async function runSingleTierAttempt(sessionId, promptWithAttachments, workingDir
   }
 }
 
-function selectInitialCycleMember(sessionId, members, failoverDisabled) {
-  // FR0: without automatic failover, startup retains its original configured
-  // ordering. A saved resolved member is only the circular origin for an
-  // enabled failover cycle.
-  if (failoverDisabled) {
-    return members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+function selectInitialCycleMember(sessionId, members, policy) {
+  // A saved pin is the circular origin only while automatic failover can
+  // leave it. Disabled failover keeps configured order, including the floor.
+  if (!policy.failoverDisabled) {
+    const currentSession = sessions.getById(sessionId);
+    const pinnedMember = members.find((candidate) => (
+      candidate.modelId === currentSession?.resolvedModel
+      && candidate.providerId === currentSession?.resolvedProviderId
+    ));
+    if (pinnedMember) return pinnedMember;
   }
-  const currentSession = sessions.getById(sessionId);
-  const pinnedMember = members.find((candidate) => (
-    candidate.modelId === currentSession?.resolvedModel
-    && candidate.providerId === currentSession?.resolvedProviderId
-  ));
-  // The configured current member remains this cycle's circular origin even
-  // while cooling. The loop below applies health eligibility as it scans
-  // forward, so B-cooling in [A,B,C] starts at C rather than resetting to A.
-  return pinnedMember
-    ? pinnedMember
-    : members.find((candidate) => !isUnhealthy(candidate.providerId, candidate.modelId)) || null;
+  return selectTierMember({
+    members,
+    selectionMode: policy.selectionMode,
+    minRemainingPercent: policy.minRemainingPercent,
+    isUnavailable: (candidate) => isUnhealthy(candidate.providerId, candidate.modelId),
+    headroomFor,
+  }).member;
 }
 
-function selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled) {
-  if (failoverDisabled) return null;
-  return findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+function aboveFloor(member, policy) {
+  return !isMemberUnderFloor(member, policy.minRemainingPercent, headroomFor);
+}
+
+function selectNextCycleMember(members, member, attemptedMemberKeys, policy) {
+  if (policy.failoverDisabled) return null;
+  if (policy.selectionMode === 'balanced') {
+    return selectTierMember({
+      members,
+      selectionMode: 'balanced',
+      minRemainingPercent: policy.minRemainingPercent,
+      excludeKeys: attemptedMemberKeys,
+      isUnavailable: (candidate) => isUnhealthy(candidate.providerId, candidate.modelId),
+      headroomFor,
+    }).member;
+  }
+  const next = findNextHealthyTierMemberInSnapshot(
+    members, member, attemptedMemberKeys, (candidate) => aboveFloor(candidate, policy),
+  );
+  return next || findNextHealthyTierMemberInSnapshot(members, member, attemptedMemberKeys);
+}
+
+function skipUnderFloor(member, members, attemptedMemberKeys, policy) {
+  if (policy.failoverDisabled) return false;
+  if (aboveFloor(member, policy)) return false;
+  const excludeKeys = new Set(attemptedMemberKeys);
+  excludeKeys.add(tierMemberKey(member));
+  return selectTierMember({
+    members,
+    selectionMode: policy.selectionMode,
+    minRemainingPercent: policy.minRemainingPercent,
+    excludeKeys,
+    isUnavailable: (candidate) => isUnhealthy(candidate.providerId, candidate.modelId),
+    allowWaiver: false,
+    headroomFor,
+  }).member !== null;
 }
 
 function throwCycleTerminalOutcome({ attempts, attemptedAny, dispatchedAny, tierId, tierName }) {
@@ -322,7 +356,7 @@ function throwCycleTerminalOutcome({ attempts, attemptedAny, dispatchedAny, tier
 
 // eslint-disable-next-line max-statements, sonarjs/cognitive-complexity -- cycle membership, health, and dispatch remain one atomic loop.
 async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
-  members, failoverDisabled, controller, tierRef, tierId, tierName,
+  members, policy, controller, tierRef, tierId, tierName,
   systemPrompt, activeConversation, callbacks,
   beforeProviderExecute, onProviderDispatchInitiated,
 }) {
@@ -332,19 +366,19 @@ async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirec
   const attemptedMemberKeys = new Set();
   let latestAttemptToken = null;
   let pendingFailover = null;
-  let member = selectInitialCycleMember(sessionId, members, failoverDisabled);
+  let member = selectInitialCycleMember(sessionId, members, policy);
   try {
     while (member && attemptedMemberKeys.size < members.length) {
       const memberKey = tierMemberKey(member);
-      if (isUnhealthy(member.providerId, member.modelId)) {
+      if (isUnhealthy(member.providerId, member.modelId) || skipUnderFloor(member, members, attemptedMemberKeys, policy)) {
         attemptedMemberKeys.add(memberKey);
-        member = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+        member = selectNextCycleMember(members, member, attemptedMemberKeys, policy);
         continue;
       }
       const memberIndex = members.findIndex((candidate) => tierMemberKey(candidate) === memberKey);
       attemptedMemberKeys.add(memberKey);
-      const nextMember = selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
-      const resolveNextMember = () => selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+      const nextMember = selectNextCycleMember(members, member, attemptedMemberKeys, policy);
+      const resolveNextMember = () => selectNextCycleMember(members, member, attemptedMemberKeys, policy);
       attemptedAny = true;
       const result = await runSingleTierAttempt(sessionId, promptWithAttachments, workingDirectory, {
         member, nextMember, resolveNextMember, memberIndex, controller, tierRef, tierId, tierName, attempts,
@@ -366,7 +400,7 @@ async function runTierMemberCycle(sessionId, promptWithAttachments, workingDirec
       // original failed member so the eventual concrete dispatch is reported
       // as that failure's replacement, rather than inventing B → C.
       if (result.error) pendingFailover = { error: result.error, member };
-      member = result.nextMember ?? selectNextCycleMember(members, member, attemptedMemberKeys, failoverDisabled);
+      member = result.nextMember ?? selectNextCycleMember(members, member, attemptedMemberKeys, policy);
     }
     throwCycleTerminalOutcome({ attempts, attemptedAny, dispatchedAny, tierId, tierName });
   } finally {
@@ -406,12 +440,17 @@ export async function runSessionWithTierFailover(
   // path, and computes no successor, so no TIER_FAILOVER event is emitted.
   // Mirrors the mid-session gates (sessionAgentGuard, tierResolutionService,
   // sessionContinueFailover), which already consult this flag.
-  const failoverDisabled = modelTiers.getById(tierId)?.autoFailoverEnabled === false;
+  const tier = modelTiers.getById(tierId);
+  const policy = {
+    failoverDisabled: tier?.autoFailoverEnabled === false,
+    selectionMode: tier?.selectionMode === 'balanced' ? 'balanced' : 'sequential',
+    minRemainingPercent: Number.isInteger(tier?.minRemainingPercent) ? tier.minRemainingPercent : null,
+  };
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
   return runTierMemberCycle(sessionId, promptWithAttachments, workingDirectory, {
-    members, failoverDisabled, controller, tierRef, tierId, tierName,
+    members, policy, controller, tierRef, tierId, tierName,
     systemPrompt, activeConversation, callbacks, beforeProviderExecute, onProviderDispatchInitiated,
   });
 }

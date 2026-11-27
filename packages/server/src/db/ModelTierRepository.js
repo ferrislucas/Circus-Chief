@@ -15,6 +15,32 @@ function tierMemberError(message) {
   return error;
 }
 
+function assertSelectionMode(mode) {
+  if (mode !== 'sequential' && mode !== 'balanced') {
+    throw tierMemberError('selectionMode must be sequential or balanced');
+  }
+  return mode;
+}
+
+function assertRemainingFloor(value) {
+  if (value === null || value === undefined) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 99) {
+    throw tierMemberError('minRemainingPercent must be an integer from 1 to 99, or null');
+  }
+  return value;
+}
+
+function appendSelectionPolicy(updates, values, selectionMode, minRemainingPercent) {
+  if (selectionMode !== undefined) {
+    updates.push('selection_mode = ?');
+    values.push(assertSelectionMode(selectionMode));
+  }
+  if (minRemainingPercent !== undefined) {
+    updates.push('min_remaining_percent = ?');
+    values.push(assertRemainingFloor(minRemainingPercent));
+  }
+}
+
 /**
  * Normalize a tier name: trim surrounding whitespace. Tier names are
  * short labels (max 100 per the API contract); surrounding spaces are
@@ -66,12 +92,22 @@ export class ModelTierRepository extends BaseRepository {
     return (value ?? 1) !== 0;
   }
 
+  static #mapSelectionMode(value) {
+    return value === 'balanced' ? 'balanced' : 'sequential';
+  }
+
+  static #mapRemainingFloor(value) {
+    return Number.isInteger(value) && value >= 1 && value <= 99 ? value : null;
+  }
+
   static #mapTier(row) {
     return {
       id: row.id,
       name: row.name,
       description: row.description ?? null,
       autoFailoverEnabled: ModelTierRepository.#mapAutoFailoverEnabled(row.auto_failover_enabled),
+      selectionMode: ModelTierRepository.#mapSelectionMode(row.selection_mode),
+      minRemainingPercent: ModelTierRepository.#mapRemainingFloor(row.min_remaining_percent),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -111,6 +147,8 @@ export class ModelTierRepository extends BaseRepository {
       `SELECT
         t.id AS tier_id, t.name AS tier_name, t.description AS tier_description,
         t.auto_failover_enabled AS tier_auto_failover_enabled,
+        t.selection_mode AS tier_selection_mode,
+        t.min_remaining_percent AS tier_min_remaining_percent,
         t.created_at AS tier_created_at, t.updated_at AS tier_updated_at,
         m.id AS member_id, m.tier_id AS member_tier_id, m.provider_id AS member_provider_id,
         m.model_id AS member_model_id, m.position AS member_position,
@@ -129,6 +167,8 @@ export class ModelTierRepository extends BaseRepository {
           name: row.tier_name,
           description: row.tier_description ?? null,
           autoFailoverEnabled: ModelTierRepository.#mapAutoFailoverEnabled(row.tier_auto_failover_enabled),
+          selectionMode: ModelTierRepository.#mapSelectionMode(row.tier_selection_mode),
+          minRemainingPercent: ModelTierRepository.#mapRemainingFloor(row.tier_min_remaining_percent),
           createdAt: row.tier_created_at,
           updatedAt: row.tier_updated_at,
           members: [],
@@ -165,7 +205,7 @@ export class ModelTierRepository extends BaseRepository {
    * @param {{ name: string, description?: string|null, members?: Array<{ providerId: string, modelId: string, position: number }>, autoFailoverEnabled?: boolean }} data
    * @returns {Object} Created tier with members
    */
-  create({ name, description = null, members = [], autoFailoverEnabled = true }) {
+  create({ name, description = null, members = [], autoFailoverEnabled = true, selectionMode = 'sequential', minRemainingPercent = null }) {
     const id = databaseManager.generateId();
     const now = Date.now();
     const cleanName = normalizeTierName(name);
@@ -174,14 +214,16 @@ export class ModelTierRepository extends BaseRepository {
     }
     assertTierNameAvailable(this.db, cleanName);
     this.#validateDescription(description);
+    const mode = assertSelectionMode(selectionMode);
+    const floor = assertRemainingFloor(minRemainingPercent);
 
     databaseManager.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO model_tiers (id, name, description, auto_failover_enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO model_tiers (id, name, description, auto_failover_enabled, selection_mode, min_remaining_percent, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(id, cleanName, description ?? null, autoFailoverEnabled ? 1 : 0, now, now);
+        .run(id, cleanName, description ?? null, autoFailoverEnabled ? 1 : 0, mode, floor, now, now);
 
       this.#insertMembers(id, members, now);
     });
@@ -195,7 +237,7 @@ export class ModelTierRepository extends BaseRepository {
    * @param {{ name?: string, description?: string|null, members?: Array, autoFailoverEnabled?: boolean }} data
    * @returns {Object|null} Updated tier with members
    */
-  update(id, { name, description, members, autoFailoverEnabled }) {
+  update(id, { name, description, members, autoFailoverEnabled, selectionMode, minRemainingPercent }) {
     const tier = super.getById(id);
     if (!tier) return null;
 
@@ -223,6 +265,7 @@ export class ModelTierRepository extends BaseRepository {
         updates.push('auto_failover_enabled = ?');
         values.push(autoFailoverEnabled ? 1 : 0);
       }
+      appendSelectionPolicy(updates, values, selectionMode, minRemainingPercent);
 
       if (updates.length > 0) {
         updates.push('updated_at = ?');

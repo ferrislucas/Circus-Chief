@@ -64,6 +64,10 @@ export const MAX_TIER_MEMBERS = 50;
 // path is covered, not just Zod-validated HTTP requests.
 export const MAX_TIER_DESCRIPTION_LENGTH = 2000;
 
+export const TierSelectionMode = z.enum(['sequential', 'balanced']);
+
+const TierRemainingFloor = z.number().int().min(1).max(99).nullable();
+
 const CanonicalTierMembers = z
   .array(TierMember)
   .max(MAX_TIER_MEMBERS, `A tier can have at most ${MAX_TIER_MEMBERS} members`)
@@ -86,6 +90,8 @@ export const CreateTierRequest = z
     members: CanonicalTierMembers,
     // Optional on write; the repository defaults an absent flag to true.
     autoFailoverEnabled: z.boolean().optional(),
+    selectionMode: TierSelectionMode.optional(),
+    minRemainingPercent: TierRemainingFloor.optional(),
   })
   // Both tier write contracts reject unknown keys.
   .strict();
@@ -96,6 +102,8 @@ export const UpdateTierRequest = z
     description: z.string().nullable().optional(),
     members: CanonicalTierMembers.optional(),
     autoFailoverEnabled: z.boolean().optional(),
+    selectionMode: TierSelectionMode.optional(),
+    minRemainingPercent: TierRemainingFloor.optional(),
   })
   .strict();
 
@@ -104,6 +112,8 @@ export const TierResponse = z.object({
   name: z.string(),
   description: z.string().nullable(),
   autoFailoverEnabled: z.boolean(),
+  selectionMode: TierSelectionMode,
+  minRemainingPercent: TierRemainingFloor,
   members: z.array(
     z.object({
       id: z.string().uuid(),

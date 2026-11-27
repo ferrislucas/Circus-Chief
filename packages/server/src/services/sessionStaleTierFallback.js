@@ -1,7 +1,9 @@
-import { sessions } from '../database.js';
+import { modelTiers, sessions } from '../database.js';
 import { isTierRef, parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcastToSession } from '../websocket.js';
-import { isUnhealthy, resolveTierRefForContinue } from './tierResolutionService.js';
+import { getTierMembersResolved, isUnhealthy, resolveTierRefForContinue } from './tierResolutionService.js';
+import { governingPercent } from './tierHeadroom.js';
+import { headroomFor, isMemberUnderFloor, readTierPolicy } from './tierSelection.js';
 import { resolvePreviousExecutedPair } from './sessionAgentGuard.js';
 import { isExactTierMemberValid } from './tierIdentity.js';
 import { agentCallLogger } from './agentCallLogger.js';
@@ -172,14 +174,30 @@ function resolveFallbackNoticeParties(session, requestedModel, dispatchedPair) {
  * resolution actually moved off a cooled snapshot member onto a different
  * pair — the observable signal that an automatic advance happened.
  */
+function belowFloorAdvance(session, snapshotPair) {
+  const tierId = parseTierRef(session.model);
+  const policy = readTierPolicy(tierId ? modelTiers.getById(tierId) : null);
+  const members = tierId ? getTierMembersResolved(tierId) : [];
+  const pinned = members.find((member) => (
+    member.modelId === snapshotPair.model && member.providerId === snapshotPair.providerId
+  )) || { providerId: snapshotPair.providerId, modelId: snapshotPair.model, catalogTier: null };
+  if (!isMemberUnderFloor(pinned, policy.minRemainingPercent, headroomFor)) return null;
+  return {
+    prev: snapshotPair,
+    advance: 'below-floor',
+    selectionMode: policy.selectionMode,
+    governingPercent: governingPercent(headroomFor(pinned.providerId), pinned.catalogTier ?? null),
+  };
+}
+
 function resolveSnapshotAdvanceParties(session, dispatchedPair) {
   const snapshotPair = { model: session.resolvedModel, providerId: session.resolvedProviderId ?? null };
   if (!dispatchedPair?.model) return null;
   const departed = snapshotPair.model !== dispatchedPair.model
     || (snapshotPair.providerId ?? null) !== (dispatchedPair.providerId ?? null);
   if (!departed) return null;
-  if (!isUnhealthy(snapshotPair.providerId, snapshotPair.model)) return null;
-  return { prev: snapshotPair, advance: true };
+  if (isUnhealthy(snapshotPair.providerId, snapshotPair.model)) return { prev: snapshotPair, advance: true };
+  return belowFloorAdvance(session, snapshotPair);
 }
 
 export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair, { suppressAdvanceNotice = false } = {}) {
@@ -192,9 +210,11 @@ export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair
   if (parties.advance && suppressAdvanceNotice) return;
   const { prev } = parties;
   const tierRef = session.model;
-  const reason = parties.advance
-    ? `Tier member "${prev.model}" is in cooldown — automatically advanced to "${dispatchedPair.model}"`
-    : `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
+  const reason = parties.advance === 'below-floor'
+    ? 'below-floor'
+    : parties.advance
+      ? `Tier member "${prev.model}" is in cooldown — automatically advanced to "${dispatchedPair.model}"`
+      : `Previously pinned member "${prev.model}" is no longer available — continuing on "${dispatchedPair.model}"`;
   const payload = {
     sessionId: session.id,
     tierRef,
@@ -206,6 +226,10 @@ export function notifyOwnBindingFallback(session, requestedModel, dispatchedPair
     reason,
     timestamp: Date.now(),
   };
+  if (parties.advance === 'below-floor') {
+    payload.selectionMode = parties.selectionMode;
+    payload.governingPercent = parties.governingPercent;
+  }
   broadcastToSession(session.id, WS_MESSAGE_TYPES.TIER_FAILOVER, payload);
   try {
     agentCallLogger._logFailoverEvent(session.id, { ...payload, agentType: session.agentType || 'claude-code' });

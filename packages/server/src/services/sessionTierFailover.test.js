@@ -44,6 +44,7 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { modelProviders, modelTiers, agentCallLogs, workLogs, sessions } from '../database.js';
 import { clearUnhealthy, isUnhealthy, markUnhealthy } from './tierResolutionService.js';
+import { resetTierHeadroomReader, setTierHeadroomReader } from './tierSelection.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
@@ -118,6 +119,7 @@ describe('runSessionCore tier failover (integration)', () => {
   });
 
   afterEach(() => {
+    resetTierHeadroomReader();
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -786,6 +788,107 @@ describe('runSessionCore tier failover (integration)', () => {
       .toHaveLength(failoverCountBefore);
     // The failed member still cools so future sessions skip it.
     expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+  });
+
+  it('starts on the next member when the floor removes position 0 and does not advance when failover is off', async () => {
+    const flagOffTier = modelTiers.create({
+      name: 'Floor Off Tier',
+      autoFailoverEnabled: false,
+      minRemainingPercent: 20,
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+      ],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(flagOffTier.id) });
+    setTierHeadroomReader((providerId) => ({
+      stale: false,
+      status: 'available',
+      allowances: [{ key: 'weekly', remainingPercent: providerId === providerA.id ? 10 : 70 }, { key: 'five_hour', remainingPercent: 100 }],
+    }));
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(runSession(session.id, 'Initial prompt', tempDir, { model: null })).rejects.toThrow(/529/);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-b');
+  });
+
+  it('starts a balanced tier on the member with more weekly remaining', async () => {
+    const balanced = modelTiers.create({
+      name: 'Balanced Start',
+      selectionMode: 'balanced',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+      ],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(balanced.id) });
+    setTierHeadroomReader((providerId) => ({
+      stale: false,
+      status: 'available',
+      allowances: [{ key: 'weekly', remainingPercent: providerId === providerA.id ? 10 : 70 }],
+    }));
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-b');
+  });
+
+  it('re-ranks a balanced successor back to an earlier richer member', async () => {
+    const providerC = modelProviders.create({ name: 'Balanced C', kind: 'anthropic' });
+    modelProviders.addModel(providerC.id, { modelId: 'model-c', displayName: 'Model C' });
+    const balanced = modelTiers.create({
+      name: 'Balanced Successor',
+      selectionMode: 'balanced',
+      members: [
+        { providerId: providerA.id, modelId: 'model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        { providerId: providerC.id, modelId: 'model-c', position: 2 },
+      ],
+    });
+    sessionRepo.update(session.id, { model: buildTierRef(balanced.id), resolvedModel: 'model-b', resolvedProviderId: providerB.id });
+    setTierHeadroomReader((providerId) => ({
+      stale: false,
+      status: 'available',
+      allowances: [{
+        key: 'weekly',
+        remainingPercent: providerId === providerA.id ? 80 : 20,
+      }],
+    }));
+    // eslint-disable-next-line require-yield -- simulates a startup failure before any provider event
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    expect(mockQuery.mock.calls.map(([params]) => params.options.model)).toEqual(['model-b', 'model-a']);
+  });
+
+  it('announces a below-floor continuation advance without cooling the departed member', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+    modelTiers.update(tier.id, { minRemainingPercent: 20 });
+    setTierHeadroomReader((providerId) => ({
+      stale: false,
+      status: 'available',
+      allowances: [{ key: 'weekly', remainingPercent: providerId === providerA.id ? 10 : 80 }],
+    }));
+    mockQuery.mockClear();
+    broadcastToSession.mockClear();
+
+    await continueSession(session.id, 'Follow-up', tempDir, { model: null });
+
+    expect(mockQuery.mock.calls[0][0].options.model).toBe('model-b');
+    expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+    const notice = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(notice?.[2]).toMatchObject({
+      reason: 'below-floor',
+      fromModel: 'model-a',
+      toModel: 'model-b',
+      selectionMode: 'sequential',
+      governingPercent: 10,
+    });
   });
 
   it('uses the first healthy configured member, not a healthy saved pin, when automatic failover is disabled', async () => {

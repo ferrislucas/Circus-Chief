@@ -356,6 +356,35 @@ describe('ModelTierRepository', () => {
     });
   });
 
+  describe('selection policy', () => {
+    it('defaults to sequential order and no floor', () => {
+      const tier = repo.create({ name: 'Default Policy' });
+      expect(tier.selectionMode).toBe('sequential');
+      expect(tier.minRemainingPercent).toBeNull();
+      expect(repo.getAllWithMembers().find((item) => item.id === tier.id)).toMatchObject({
+        selectionMode: 'sequential',
+        minRemainingPercent: null,
+      });
+    });
+
+    it('round-trips balanced mode and a floor, and a floor update leaves the mode', () => {
+      const tier = repo.create({ name: 'Balanced', selectionMode: 'balanced', minRemainingPercent: 20 });
+      expect(tier).toMatchObject({ selectionMode: 'balanced', minRemainingPercent: 20 });
+      const updated = repo.update(tier.id, { minRemainingPercent: null });
+      expect(updated).toMatchObject({ selectionMode: 'balanced', minRemainingPercent: null });
+    });
+
+    it('rejects a mode that is not sequential or balanced', () => {
+      expect(() => repo.create({ name: 'Bad Mode', selectionMode: 'round-robin' })).toThrow(/selectionMode/);
+    });
+
+    it('reads an unexpected stored mode as sequential', () => {
+      const tier = repo.create({ name: 'Stored Mode' });
+      repo.db.prepare('UPDATE model_tiers SET selection_mode = ? WHERE id = ?').run('nope', tier.id);
+      expect(repo.getByIdWithMembers(tier.id).selectionMode).toBe('sequential');
+    });
+  });
+
   describe('provider cascade delete', () => {
     it('removes members when the owning provider is deleted', () => {
       const tier = repo.create({

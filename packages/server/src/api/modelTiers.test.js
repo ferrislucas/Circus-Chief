@@ -174,6 +174,34 @@ describe('Model Tiers API', () => {
       expect(response.body.autoFailoverEnabled).toBe(false);
     });
 
+    it('defaults selection policy and persists an explicit balanced floor', async () => {
+      const defaults = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Policy Default', members: [] })
+        .expect(201);
+      expect(defaults.body).toMatchObject({ selectionMode: 'sequential', minRemainingPercent: null });
+
+      const explicit = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Policy Explicit', members: [], selectionMode: 'balanced', minRemainingPercent: 20 })
+        .expect(201);
+      expect(explicit.body).toMatchObject({ selectionMode: 'balanced', minRemainingPercent: 20 });
+
+      const patched = await request(app)
+        .patch(`/api/tiers/${explicit.body.id}`)
+        .send({ minRemainingPercent: null })
+        .expect(200);
+      expect(patched.body).toMatchObject({ selectionMode: 'balanced', minRemainingPercent: null });
+    });
+
+    it('rejects a floor outside 1 to 99', async () => {
+      const response = await request(app)
+        .post('/api/tiers')
+        .send({ name: 'Floor Zero', members: [], minRemainingPercent: 0 })
+        .expect(400);
+      expect(response.body.error).toBeDefined();
+    });
+
     it('rejects a request missing name', async () => {
       const response = await request(app)
         .post('/api/tiers')

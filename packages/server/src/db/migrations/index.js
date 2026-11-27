@@ -348,6 +348,9 @@ export const allMigrations = validateMigrations([
   // --- Per-tier automatic failover flag (mid-session tier failover FRD §6) ---
   mt.get('model-tiers-auto-failover-flag'),
 
+  // --- Tier selection mode and remaining-allowance floor (issue #1216) ---
+  mt.get('model-tiers-selection-policy'),
+
   // --- Normalize retired Claude model ids in CONFIG columns only ---
   // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
   m.get('normalize-stale-claude-model-ids'),
