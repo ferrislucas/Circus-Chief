@@ -228,6 +228,27 @@ describe('Model Tier Contracts', () => {
       expect(result.success).toBe(false);
     });
 
+    it('accepts a selection mode and a remaining floor', () => {
+      const result = CreateTierRequest.safeParse({
+        name: 'Balanced',
+        members: [],
+        selectionMode: 'balanced',
+        minRemainingPercent: 20,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.selectionMode).toBe('balanced');
+      expect(result.data.minRemainingPercent).toBe(20);
+    });
+
+    it('rejects a floor of 0, 100, or a non-integer', () => {
+      for (const minRemainingPercent of [0, 100, 1.5]) {
+        expect(CreateTierRequest.safeParse({ name: 'Floor', members: [], minRemainingPercent }).success).toBe(false);
+      }
+      expect(CreateTierRequest.safeParse({ name: 'Floor', members: [], minRemainingPercent: null }).success).toBe(true);
+      expect(UpdateTierRequest.safeParse({ minRemainingPercent: 1 }).success).toBe(true);
+      expect(UpdateTierRequest.safeParse({ minRemainingPercent: 99 }).success).toBe(true);
+    });
+
     it('rejects gapped, duplicate, and out-of-order positions', () => {
       for (const members of [
         [
@@ -301,6 +322,8 @@ describe('Model Tier Contracts', () => {
         name: 'Fast tier',
         description: null,
         autoFailoverEnabled: true,
+        selectionMode: 'sequential',
+        minRemainingPercent: null,
         members: [
           {
             id: UUID2,
@@ -370,6 +393,8 @@ describe('Model Tier Contracts', () => {
           name: 'Fast tier',
           description: 'desc',
           autoFailoverEnabled: true,
+        selectionMode: 'sequential',
+        minRemainingPercent: null,
           members: [],
           createdAt: now,
           updatedAt: now,

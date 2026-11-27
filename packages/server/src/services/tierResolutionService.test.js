@@ -11,6 +11,7 @@ import {
   clearUnhealthy,
   createTierCooldown,
 } from './tierResolutionService.js';
+import { resetTierHeadroomReader, setTierHeadroomReader } from './tierSelection.js';
 import { modelTiers, modelProviders } from '../database.js';
 import { buildTierRef } from '@circuschief/shared';
 import { TierIdentityError } from './tierIdentity.js';
@@ -952,6 +953,124 @@ describe('tierResolutionService', () => {
       ]);
 
       expect(evaluateTierMembers(members, providersById).map((m) => m.modelId)).toEqual(['m-a']);
+    });
+  });
+
+  describe('selection policy', () => {
+    function weekly(percent) {
+      return { stale: false, status: 'available', allowances: [{ key: 'weekly', remainingPercent: percent }, { key: 'five_hour', remainingPercent: 4 }] };
+    }
+
+    afterEach(() => {
+      resetTierHeadroomReader();
+    });
+
+    it('balanced resolution picks the member with more weekly remaining, ignoring the 5-hour window', () => {
+      const tier = modelTiers.create({
+        name: 'Balanced tier',
+        selectionMode: 'balanced',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      setTierHeadroomReader((providerId) => weekly(providerId === providerA.id ? 10 : 70));
+      expect(resolveActiveModel(buildTierRef(tier.id))).toEqual({ model: 'model-b', providerId: providerB.id });
+    });
+
+    it('sequential resolution skips position 0 when its weekly percent is under the floor', () => {
+      const tier = modelTiers.create({
+        name: 'Floor tier',
+        selectionMode: 'sequential',
+        minRemainingPercent: 20,
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      setTierHeadroomReader((providerId) => weekly(providerId === providerA.id ? 10 : 70));
+      expect(resolveActiveModel(buildTierRef(tier.id))).toEqual({ model: 'model-b', providerId: providerB.id });
+    });
+
+    it('benches only the opus member when the opus weekly cap is under the floor', () => {
+      modelProviders.addModel(providerA.id, { modelId: 'opus-model', displayName: 'Opus', tier: 'opus' });
+      modelProviders.addModel(providerA.id, { modelId: 'sonnet-model', displayName: 'Sonnet', tier: 'sonnet' });
+      const tier = modelTiers.create({
+        name: 'Family tier',
+        minRemainingPercent: 20,
+        members: [
+          { providerId: providerA.id, modelId: 'opus-model', position: 0 },
+          { providerId: providerA.id, modelId: 'sonnet-model', position: 1 },
+        ],
+      });
+      setTierHeadroomReader(() => ({
+        stale: false,
+        status: 'available',
+        allowances: [
+          { key: 'seven_day', remainingPercent: 80 },
+          { key: 'seven_day_opus', remainingPercent: 15 },
+        ],
+      }));
+      expect(resolveActiveModel(buildTierRef(tier.id))).toEqual({ model: 'sonnet-model', providerId: providerA.id });
+    });
+
+    it('keeps a healthy pin when another member has more remaining', () => {
+      const tier = modelTiers.create({
+        name: 'Pinned balanced',
+        selectionMode: 'balanced',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      setTierHeadroomReader((providerId) => weekly(providerId === providerA.id ? 10 : 90));
+      const session = { model: buildTierRef(tier.id), resolvedModel: 'model-a', resolvedProviderId: providerA.id, agentType: 'claude-code' };
+      expect(resolveTierRefForContinue(session, null)).toMatchObject({ effectiveModel: 'model-a', providerIdHint: providerA.id });
+    });
+
+    it('advances a below-floor pin only when automatic failover is on and a successor is above the floor', () => {
+      const tier = modelTiers.create({
+        name: 'Floor advance',
+        minRemainingPercent: 20,
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      setTierHeadroomReader((providerId) => weekly(providerId === providerA.id ? 10 : 70));
+      const session = { model: buildTierRef(tier.id), resolvedModel: 'model-a', resolvedProviderId: providerA.id, agentType: 'claude-code' };
+      expect(resolveTierRefForContinue(session, null)).toMatchObject({
+        effectiveModel: 'model-b',
+        providerIdHint: providerB.id,
+      });
+
+      modelTiers.update(tier.id, { autoFailoverEnabled: false });
+      expect(resolveTierRefForContinue(session, null)).toMatchObject({ effectiveModel: 'model-a' });
+    });
+
+    it('does not move a pin when the only alternative is also under the floor', () => {
+      const tier = modelTiers.create({
+        name: 'Waive pin',
+        minRemainingPercent: 20,
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+      setTierHeadroomReader(() => weekly(5));
+      const session = { model: buildTierRef(tier.id), resolvedModel: 'model-a', resolvedProviderId: providerA.id, agentType: 'claude-code' };
+      expect(resolveTierRefForContinue(session, null)).toMatchObject({ effectiveModel: 'model-a', persist: {} });
+    });
+
+    it('still continues when a legacy row has no snapshot and every member is under the floor', () => {
+      const tier = modelTiers.create({
+        name: 'Legacy backfill',
+        minRemainingPercent: 20,
+        members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+      });
+      setTierHeadroomReader(() => weekly(5));
+      const session = { model: buildTierRef(tier.id), resolvedModel: null, resolvedProviderId: null };
+      expect(resolveTierRefForContinue(session, null)).toMatchObject({ effectiveModel: 'model-a', providerIdHint: providerA.id });
     });
   });
 });

@@ -104,6 +104,16 @@
           When a provider runs out, immediately switch to the next model in this tier (no same-model retries).
           Unchecked: retry the same model later instead.
         </p>
+        <p
+          v-if="tier.selectionMode === 'balanced' || tier.minRemainingPercent"
+          class="auto-failover-copy"
+          data-testid="tier-policy-summary"
+        >
+          {{ tier.selectionMode === 'balanced' ? 'Most remaining' : 'In order' }}
+          <template v-if="tier.minRemainingPercent">
+            · Floor {{ tier.minRemainingPercent }}%
+          </template>
+        </p>
       </div>
     </div>
 
@@ -252,6 +262,49 @@
           </p>
         </div>
 
+        <fieldset class="form-group">
+          <legend class="auto-failover-label">
+            Selection
+          </legend>
+          <label class="auto-failover-row">
+            <input
+              v-model="form.selectionMode"
+              type="radio"
+              value="sequential"
+              data-testid="selection-mode-sequential"
+            >
+            <span>Use in order</span>
+          </label>
+          <p class="auto-failover-copy">
+            New work uses the first model until it is cooled down or under the floor, then the next model in the list.
+          </p>
+          <label class="auto-failover-row">
+            <input
+              v-model="form.selectionMode"
+              type="radio"
+              value="balanced"
+              data-testid="selection-mode-balanced"
+            >
+            <span>Most remaining</span>
+          </label>
+          <p class="auto-failover-copy">
+            New work starts on the model whose provider has the most allowance left. A session stays on that model until failover moves it.
+          </p>
+          <label for="tier-floor">Keep out of rotation below</label>
+          <input
+            id="tier-floor"
+            v-model="form.floorPercent"
+            type="number"
+            min="1"
+            max="99"
+            placeholder="No floor"
+            data-testid="min-remaining-percent"
+          >
+          <p class="auto-failover-copy">
+            Uses the weekly allowance when the provider reports one. The 5-hour window does not count. A provider with only one window uses that window. Models on the same provider share a number unless a model-specific weekly cap applies.
+          </p>
+        </fieldset>
+
         <div
           v-if="modalError"
           class="error-message"
@@ -334,7 +387,7 @@ const editingTier = ref(null);
 const saving = ref(false);
 const modalError = ref('');
 
-const form = ref({ name: '', description: '', members: [], autoFailoverEnabled: true });
+const form = ref({ name: '', description: '', members: [], autoFailoverEnabled: true, selectionMode: 'sequential', floorPercent: '' });
 const newMemberKey = ref('');
 
 const confirmingDelete = ref(null);
@@ -463,7 +516,7 @@ watch(() => providersStore.providers, refreshFormAvailability, { deep: true });
 // ── Modal helpers ────────────────────────────────────────────────────────────
 function openCreateModal() {
   editingTier.value = null;
-  form.value = { name: '', description: '', members: [], autoFailoverEnabled: true };
+  form.value = { name: '', description: '', members: [], autoFailoverEnabled: true, selectionMode: 'sequential', floorPercent: '' };
   newMemberKey.value = '';
   modalError.value = '';
   showModal.value = true;
@@ -477,6 +530,8 @@ function openEditModal(tier) {
     description: tier.description || '',
     members: tier.members.map((m, i) => ({ ...m, position: i })),
     autoFailoverEnabled: tier.autoFailoverEnabled !== false,
+    selectionMode: tier.selectionMode === 'balanced' ? 'balanced' : 'sequential',
+    floorPercent: tier.minRemainingPercent ?? '',
   };
   newMemberKey.value = '';
   modalError.value = '';
@@ -536,11 +591,25 @@ function reindexMembers() {
   }
 }
 
+function floorFromForm(rawFloor) {
+  if (rawFloor === '' || rawFloor === null || rawFloor === undefined) return null;
+  const floor = Number(rawFloor);
+  if (!Number.isInteger(floor) || floor < 1 || floor > 99) return undefined;
+  return floor;
+}
+
 // ── Save ─────────────────────────────────────────────────────────────────────
 async function saveTier() {
   if (!form.value.name) return;
   saving.value = true;
   modalError.value = '';
+
+  const floor = floorFromForm(form.value.floorPercent);
+  if (floor === undefined) {
+    modalError.value = 'Floor must be an integer from 1 to 99, or empty.';
+    saving.value = false;
+    return;
+  }
 
   const payload = {
     name: form.value.name,
@@ -551,6 +620,8 @@ async function saveTier() {
       position: i,
     })),
     autoFailoverEnabled: form.value.autoFailoverEnabled !== false,
+    selectionMode: form.value.selectionMode === 'balanced' ? 'balanced' : 'sequential',
+    minRemainingPercent: floor,
   };
 
   try {

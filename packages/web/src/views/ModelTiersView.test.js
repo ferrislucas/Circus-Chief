@@ -79,6 +79,8 @@ describe('ModelTiersView', () => {
       // The modal now persists the flag; a tier without one keeps the
       // default-checked semantics.
       autoFailoverEnabled: true,
+      selectionMode: 'sequential',
+      minRemainingPercent: null,
     });
   });
 
@@ -154,6 +156,8 @@ describe('ModelTiersView', () => {
       // The modal now persists the flag; a tier without one keeps the
       // default-checked semantics.
       autoFailoverEnabled: true,
+      selectionMode: 'sequential',
+      minRemainingPercent: null,
     });
   });
 
@@ -353,6 +357,49 @@ describe('ModelTiersView', () => {
     await wrapper.find('.modal-actions .btn-primary').trigger('click');
 
     expect(updateTier).toHaveBeenCalledWith('tier-1', expect.objectContaining({ autoFailoverEnabled: true }));
+  });
+
+  it('saves an empty floor as null and a balanced mode', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [];
+    const createTier = vi.spyOn(tiersStore, 'createTier').mockResolvedValue({ id: 'tier-new' });
+
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.get('button.btn-primary').trigger('click');
+    await flushPromises();
+    await wrapper.get('#tier-name').setValue('Balanced tier');
+    await wrapper.get('[data-testid="selection-mode-balanced"]').setValue(true);
+    await wrapper.get('[data-testid="min-remaining-percent"]').setValue('');
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+
+    expect(createTier).toHaveBeenCalledWith(expect.objectContaining({
+      selectionMode: 'balanced',
+      minRemainingPercent: null,
+    }));
+  });
+
+  it('saves a floor of 20 and refuses 0', async () => {
+    const tiersStore = useTiersStore();
+    tiersStore.loaded = true;
+    tiersStore.tiers = [{
+      id: 'tier-1', name: 'Floor tier', description: null, autoFailoverEnabled: true,
+      selectionMode: 'sequential', minRemainingPercent: null, members: [],
+    }];
+    const updateTier = vi.spyOn(tiersStore, 'updateTier').mockResolvedValue(undefined);
+    const wrapper = mount(ModelTiersView, { global: { plugins: [tiersStore.$pinia] } });
+    await wrapper.findAll('.btn-ghost').find((button) => button.text() === 'Edit').trigger('click');
+    await flushPromises();
+
+    await wrapper.get('[data-testid="min-remaining-percent"]').setValue('20');
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+    expect(updateTier).toHaveBeenCalledWith('tier-1', expect.objectContaining({ minRemainingPercent: 20 }));
+
+    await wrapper.findAll('.btn-ghost').find((button) => button.text() === 'Edit').trigger('click');
+    await wrapper.get('[data-testid="min-remaining-percent"]').setValue('0');
+    await wrapper.find('.modal-actions .btn-primary').trigger('click');
+    expect(updateTier).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('.error-message').text()).toMatch(/1 to 99/);
   });
 
   it('reverts the toggle to the persisted value when the PATCH fails', async () => {

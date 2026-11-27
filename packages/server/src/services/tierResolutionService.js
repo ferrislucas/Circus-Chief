@@ -9,6 +9,7 @@ import { getProvidersByIds, evaluateTierMembers } from '../db/providerModelOpera
 export { evaluateTierMembers };
 import { validateExactTierMember } from './tierIdentity.js';
 import { isTierFailoverLiftable } from './sessionAgentGuard.js';
+import { headroomFor, isMemberUnderFloor, readTierPolicy, selectContinuationSuccessor, selectTierMember } from './tierSelection.js';
 
 /**
  * Process-local member cooldown store. Maps "providerId::modelId" → expiry
@@ -139,7 +140,11 @@ export function getTierMembersResolved(tierId) {
     tier.members.map((m) => m.providerId),
     (row) => modelProviders.map(row)
   );
-  return evaluateTierMembers(tier.members, providersById);
+  return evaluateTierMembers(tier.members, providersById).map((member) => {
+    const provider = providersById.get(member.providerId);
+    const model = provider?.models.find((item) => item.modelId === member.modelId);
+    return { ...member, catalogTier: model?.tier ?? null };
+  });
 }
 
 /**
@@ -218,13 +223,15 @@ export function resolveActiveModel(modelOrRef, context = {}) {
   const members = getTierMembersResolved(tierId);
   if (members.length === 0) return null;
 
-  for (const member of members) {
-    if (!isUnhealthy(member.providerId, member.modelId)) {
-      return { model: member.modelId, providerId: member.providerId };
-    }
-  }
-
-  return null; // All members are in cooldown
+  const policy = readTierPolicy(modelTiers.getById(tierId));
+  const { member } = selectTierMember({
+    members,
+    selectionMode: policy.selectionMode,
+    minRemainingPercent: policy.minRemainingPercent,
+    isUnavailable: (candidate) => isUnhealthy(candidate.providerId, candidate.modelId),
+    headroomFor,
+  });
+  return member ? { model: member.modelId, providerId: member.providerId } : null;
 }
 
 /**
@@ -414,39 +421,44 @@ function isFlagOffTier(tierId) {
   return Boolean(tier) && tier.autoFailoverEnabled === false;
 }
 
-function isValidCooledSnapshot(session) {
+function isValidSnapshot(session) {
   try {
     validateExactTierMember(session.resolvedProviderId, session.resolvedModel);
   } catch {
     return false;
   }
-  return isUnhealthy(session.resolvedProviderId, session.resolvedModel);
+  return true;
 }
 
-function isContinuationEligible(session, member) {
-  return isTierFailoverLiftable(session.agentType, member.modelId, member.providerId);
+function continuationSuccessor(session, members, origin, decision) {
+  return selectContinuationSuccessor({
+    members,
+    origin,
+    policy: decision.policy,
+    allowWaiver: decision.allowWaiver,
+    isEligible: (member) => isTierFailoverLiftable(session.agentType, member.modelId, member.providerId),
+    isUnavailable: (member) => isUnhealthy(member.providerId, member.modelId),
+    keyOf: tierMemberKey,
+    findNext: findNextHealthyTierMemberInSnapshot,
+  });
 }
 
 function resolveCooledSnapshotAdvance(session) {
   if (!session.resolvedModel || !session.resolvedProviderId) return null;
   const tierId = parseTierRef(session.model);
   if (!tierId || isFlagOffTier(tierId)) return null;
-  if (!isValidCooledSnapshot(session)) return null;
-  const origin = {
-    modelId: session.resolvedModel,
-    providerId: session.resolvedProviderId,
-  };
+  if (!isValidSnapshot(session)) return null;
   const members = getTierMembersResolved(tierId);
-  const live = findNextHealthyTierMemberInSnapshot(members, origin, new Set(), (member) => (
-    isContinuationEligible(session, member)
-  ));
-  // A catalog-valid pin can outlive its membership. It is still unsafe to
-  // advance an invalid identity, but a cooled, removed pin should not force
-  // every follow-up back to the provider that is known to be unavailable.
-  // Select from the current live tier in that narrow case.
-  const replacement = live || (!members.some((member) => tierMemberKey(member) === tierMemberKey(origin))
-    ? members.find((member) => !isUnhealthy(member.providerId, member.modelId)
-      && isContinuationEligible(session, member))
+  const origin = { modelId: session.resolvedModel, providerId: session.resolvedProviderId };
+  const originMember = members.find((member) => tierMemberKey(member) === tierMemberKey(origin)) || origin;
+  const policy = readTierPolicy(modelTiers.getById(tierId));
+  const cooled = isUnhealthy(origin.providerId, origin.modelId);
+  const underFloor = isMemberUnderFloor(originMember, policy.minRemainingPercent, headroomFor);
+  if (!cooled && !underFloor) return null;
+  const inMembership = members.some((member) => tierMemberKey(member) === tierMemberKey(origin));
+  const live = continuationSuccessor(session, members, origin, { policy, allowWaiver: false });
+  const replacement = live || (!inMembership
+    ? continuationSuccessor(session, members, null, { policy, allowWaiver: true })
     : null);
   if (!replacement) return null;
   return {
@@ -555,6 +567,14 @@ export function resolveTierRefForContinue(session, requestedModel, requestedProv
     // Snapshot missing (e.g. a legacy row) — resolve structurally and backfill
     // it. Continuation is not a new-session scheduling decision, so cooldown
     // must not block the already-bound session.
+    const selected = resolveActiveModel(session.model, {});
+    if (selected) {
+      return {
+        effectiveModel: selected.model,
+        providerIdHint: selected.providerId,
+        persist: { resolvedModel: selected.model, resolvedProviderId: selected.providerId },
+      };
+    }
     const live = resolveAnyMember(session.model, {});
     if (!live) {
       throw new Error(
